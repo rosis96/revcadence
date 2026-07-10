@@ -5,10 +5,23 @@ Usage (local or Railway shell):
 Idempotent: re-running updates nothing and never duplicates.
 """
 import argparse
+import sys
 
-from app.auth import hash_password
-from app.db import init_db, session
-from app.models.identity import Membership, Organization, User
+try:
+    from app.auth import hash_password
+    from app.db import init_db, session
+    from app.models.identity import Membership, Organization, User
+except ModuleNotFoundError as e:
+    sys.exit(
+        f"\nMissing dependency: {e.name!r} — you're running the wrong Python interpreter "
+        "(the app's packages aren't installed in it).\n\n"
+        "On Railway (service shell), the venv is NOT auto-activated. Run:\n"
+        "    /opt/venv/bin/python -m scripts.seed --org ... --email ... --password ...\n\n"
+        "Locally, use the project venv:\n"
+        "    python3 -m venv venv && source venv/bin/activate\n"
+        "    pip install -r requirements.txt\n"
+        "    python -m scripts.seed --org ... --email ... --password ...\n"
+    )
 
 
 def main():

@@ -113,11 +113,26 @@ git push -u origin main
 
 ## 3. Seed the master account (2 min) — YOU
 
-Railway web service → ⋯ → **Shell** (or locally with the Railway DATABASE_URL):
+**Important — use the app's venv interpreter.** Railway's shell does NOT
+auto-activate `/opt/venv`, so plain `python` is the bare system Python and fails
+with `ModuleNotFoundError: No module named 'jwt'` (PyJWT and everything else
+live only inside the venv). Correct command in the Railway service shell:
 
 ```bash
-python -m scripts.seed --org "Ascendly" --email rosis_s@ascendly.one --password <STRONG-PASSWORD>
+/opt/venv/bin/python -m scripts.seed --org "RevCadence" --email rosis_s@ascendly.one --password <STRONG-PASSWORD>
 ```
+
+Running locally instead? Use the project venv with the Railway DATABASE_URL:
+
+```bash
+cd ~/Desktop/revcadence
+python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt
+DATABASE_URL="<railway-postgres-url>" python -m scripts.seed --org "RevCadence" --email rosis_s@ascendly.one --password <STRONG-PASSWORD>
+```
+
+The script is idempotent (safe to re-run) and now prints exactly this guidance
+if run with the wrong interpreter. Verify: POST /api/auth/login on /docs →
+expect a token and `"role": "owner"`.
 
 Then test: `POST /docs → /api/auth/login`. Keep this password in a manager —
 there is no reset flow yet (step 7).
