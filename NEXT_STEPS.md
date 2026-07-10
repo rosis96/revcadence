@@ -21,6 +21,18 @@ working session: what was done, what to do next, in order. Do the steps top to b
 - Verified: fresh-DB upgrade creates all 15 tables, re-run is a no-op,
   autogenerate parity check shows zero drift, 16/16 smoke checks still pass.
 
+## 🔧 Deploy-failure fix (2026-07-10, session 2b)
+
+The first migration deploy failed healthcheck. Root cause: `alembic.ini` was
+missing `prepend_sys_path = .`, so the `alembic` binary couldn't import the
+`app` package (`ModuleNotFoundError: No module named 'app'`) — migrations
+crashed before uvicorn ever started. Fixed by adding `prepend_sys_path = .`
+and switching start commands to `python -m alembic upgrade head`. Reproduced
+and verified locally with the exact Railway invocation.
+
+If a deploy ever fails healthcheck again: check the **Deploy Logs** (not build
+logs) — the crash traceback is printed there before the healthcheck retries.
+
 ## ▶ Do now: get the schema onto Railway (5 min) — YOU
 
 1. Push:
