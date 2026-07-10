@@ -33,6 +33,23 @@ and verified locally with the exact Railway invocation.
 If a deploy ever fails healthcheck again: check the **Deploy Logs** (not build
 logs) — the crash traceback is printed there before the healthcheck retries.
 
+## 🔧 Deploy-failure fix #2 (2026-07-10, session 2c)
+
+Second failure: `DuplicateTable: relation "organizations" already exists`.
+Root cause: the FIRST deploy (pre-Alembic code) had already run `create_all`
+once `DATABASE_URL` reached the service — so Postgres had the old tables but
+no `alembic_version` stamp, and the initial migration collided with them.
+
+Fix: `scripts/premigrate.py` now runs before Alembic on every boot and handles
+all three DB states automatically:
+- fresh DB → no-op (Alembic creates everything)
+- Alembic-managed → no-op (Alembic applies pending migrations)
+- pre-Alembic tables → adopts them: creates missing tables/columns
+  (e.g. `documents`), then `alembic stamp head`
+
+Verified locally against a simulation of the exact Railway state. No manual
+SQL needed — just push.
+
 ## ▶ Do now: get the schema onto Railway (5 min) — YOU
 
 1. Push:
