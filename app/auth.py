@@ -16,7 +16,8 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 import jwt
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from . import config
@@ -102,10 +103,18 @@ class AuthContext:
         return [requested]
 
 
-def get_ctx(authorization: str = Header(default=""), db: Session = Depends(get_db)) -> AuthContext:
-    if not authorization.startswith("Bearer "):
+# Proper OpenAPI security scheme: Swagger shows the global Authorize button and
+# sends "Authorization: Bearer <token>" automatically on every protected route.
+bearer_scheme = HTTPBearer(auto_error=False, description="Paste the JWT from POST /api/auth/login")
+
+
+def get_ctx(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> AuthContext:
+    if credentials is None or not credentials.credentials:
         raise HTTPException(401, "Missing bearer token")
-    claims = decode_token(authorization.removeprefix("Bearer ").strip())
+    claims = decode_token(credentials.credentials)
     user = db.query(User).filter(User.id == int(claims["sub"]), User.active == True).first()  # noqa: E712
     if not user:
         raise HTTPException(401, "Unknown or deactivated user")

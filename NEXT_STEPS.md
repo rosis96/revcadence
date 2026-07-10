@@ -50,6 +50,18 @@ all three DB states automatically:
 Verified locally against a simulation of the exact Railway state. No manual
 SQL needed — just push.
 
+## 🔧 Swagger auth fix (2026-07-10, session 2d)
+
+`/api/auth/me` used a raw `Header` param, which Swagger doesn't send — every
+"Try it out" returned `401 Missing bearer token`. `get_ctx` now uses FastAPI's
+`HTTPBearer` security scheme. Token format and all behavior unchanged.
+
+**How to use /docs now:** POST `/api/auth/login` → copy the `token` value →
+click the green **Authorize** button (top right) → paste the token (no "Bearer"
+prefix needed) → Authorize. Every protected endpoint then works from Swagger.
+Verified: OpenAPI declares HTTPBearer; auth/admin/CRM/jobs endpoints all
+enforce it; 16/16 smoke checks pass.
+
 ## ▶ Do now: get the schema onto Railway (5 min) — YOU
 
 1. Push:
