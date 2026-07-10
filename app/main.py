@@ -21,7 +21,19 @@ def _startup():
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "app": config.APP_NAME, "version": config.VERSION}
+    """Also reports which DB backend is live and the applied migration revision —
+    if db says 'sqlite' on Railway, the service is missing DATABASE_URL (the
+    silent-fallback bug from the old reply manager)."""
+    info = {"ok": True, "app": config.APP_NAME, "version": config.VERSION,
+            "db": engine.dialect.name, "migration": None, "tables": 0}
+    try:
+        from sqlalchemy import inspect, text
+        info["tables"] = len(inspect(engine).get_table_names())
+        with engine.connect() as conn:
+            info["migration"] = conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
+    except Exception:
+        pass  # alembic_version absent on sqlite dev — fine
+    return info
 
 
 app.include_router(auth.router)

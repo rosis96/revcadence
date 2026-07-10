@@ -44,9 +44,14 @@ def session():
 
 
 def init_db():
+    """SQLite (local dev): create/patch tables directly, no Alembic needed.
+    Postgres (production): do NOTHING — Alembic owns the schema. Migrations run
+    via `alembic upgrade head` in the deploy start command; doing create_all here
+    would mask missing migrations."""
     from . import models  # noqa: F401  (register all models)
-    Base.metadata.create_all(engine)
-    migrate()
+    if engine.dialect.name == "sqlite":
+        Base.metadata.create_all(engine)
+        migrate()
 
 
 def migrate():

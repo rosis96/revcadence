@@ -1,9 +1,56 @@
 # NEXT_STEPS — living document
 
-_Updated: 2026-07-10. This file is updated at the end of every working session:
-what was done, what to do next, in order. Do the steps top to bottom._
+_Updated: 2026-07-10 (session 2). This file is updated at the end of every
+working session: what was done, what to do next, in order. Do the steps top to bottom._
 
-## ✅ Done this session (2026-07-10)
+## ✅ Done session 2 (2026-07-10) — database foundation
+
+- **Alembic added** as the authoritative migration system for Postgres.
+  Initial migration `99d538287e82` creates all 15 Phase 0 tables:
+  organizations, workspaces, users, memberships (roles live as the `role`
+  column here — no separate table needed), companies, contacts, deals, stages,
+  activities, tasks, notes, documents, jobs, audit_log, alembic_version.
+- **Documents model added** (blueprints/agreements/proposals with signing state
+  + view tracking — ready for the portals migration).
+- **Deploy runs migrations automatically**: web start command is now
+  `alembic upgrade head && uvicorn ...` (railway.json + Procfile). The worker
+  does NOT migrate (avoids races); it simply restarts until the web has migrated.
+- **`/healthz` now reports the truth**: `db` (postgresql vs sqlite), `migration`
+  (applied revision), `tables` (count). If `db` says `sqlite` on Railway, that
+  service is missing `DATABASE_URL` — the silent-fallback bug.
+- Verified: fresh-DB upgrade creates all 15 tables, re-run is a no-op,
+  autogenerate parity check shows zero drift, 16/16 smoke checks still pass.
+
+## ▶ Do now: get the schema onto Railway (5 min) — YOU
+
+1. Push:
+   ```bash
+   cd ~/Desktop/revcadence && git push
+   ```
+2. Railway auto-deploys. Watch the web service deploy logs — you should see
+   `Running upgrade  -> 99d538287e82, phase 0 initial schema`.
+3. Open `https://<your-domain>/healthz`. Expected:
+   ```json
+   {"ok": true, "db": "postgresql", "migration": "99d538287e82", "tables": 15}
+   ```
+   - If `db` is `"sqlite"`: the web service has no `DATABASE_URL`. Fix: web
+     service → Variables → add `DATABASE_URL = ${{Postgres.DATABASE_URL}}`,
+     redeploy. **Do the same check on the worker service.**
+4. Confirm in Postgres directly (Railway → Postgres → Data): 15 tables.
+5. Then continue with the original steps 3–6 below (seed → workspaces →
+   migrate legacy data → first client login).
+
+## How migrations work from now on (for every schema change)
+
+1. Edit/add models in `app/models/`.
+2. `DATABASE_URL="sqlite:////tmp/fresh.db" python3 -m alembic upgrade head` then
+   `... alembic revision --autogenerate -m "describe change"` — review the
+   generated file in `migrations/versions/`.
+3. Run `python -m tests.test_smoke`.
+4. Commit + push. Railway applies it on deploy automatically. Never edit an
+   already-deployed migration; add a new one.
+
+## ✅ Done session 1 (2026-07-10)
 
 - Platform audit + full design doc (RevCadence-Audit-and-Platform-Design.docx)
 - New unified repo scaffolded: identity (org/workspace/user/roles), JWT auth,
