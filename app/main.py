@@ -8,7 +8,7 @@ from fastapi import FastAPI
 
 from . import config
 from .db import engine, init_db
-from .routers import admin, auth, crm, jobs
+from .routers import admin, auth, crm, enrich, jobs
 
 app = FastAPI(title=config.APP_NAME, version=config.VERSION)
 
@@ -40,3 +40,4 @@ app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(crm.router)
 app.include_router(jobs.router)
+app.include_router(enrich.router)

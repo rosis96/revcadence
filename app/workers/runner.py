@@ -4,7 +4,7 @@ Claims one due job at a time (SELECT ... FOR UPDATE SKIP LOCKED on Postgres),
 runs its handler, retries failures up to max_attempts."""
 import time
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import text
 
@@ -37,11 +37,13 @@ def run_one(db, job) -> None:
         job.result = result
         job.error = ""
     except Exception:
+        db.rollback()  # discard any partial writes from the failed handler
         err = traceback.format_exc()[-2000:]
         job.error = err
         job.status = "pending" if job.attempts < job.max_attempts else "failed"
         if job.status == "pending":
-            job.run_at = datetime.utcnow()  # simple immediate retry; add backoff later
+            # exponential-ish backoff: 30s, 60s, 120s...
+            job.run_at = datetime.utcnow() + timedelta(seconds=30 * (2 ** (job.attempts - 1)))
     finally:
         job.finished_at = datetime.utcnow()
         db.commit()

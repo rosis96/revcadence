@@ -197,6 +197,57 @@ def main():
     check("worker ran job", job.status == "done" and job.result.get("ok"), job.error)
     db.close()
 
+    # ---------------- enrichment engine E2E (demo mode, no network)
+    FAKE_HTML = """<html><head><title>Acme Landscaping — Commercial Grounds</title>
+      <meta name="description" content="Acme provides commercial landscaping for businesses across Utah.">
+      </head><body><p>We offer commercial mowing, snow removal and grounds care.
+      Our clients are businesses, HOAs and property management companies.</p></body></html>"""
+
+    co = client.post("/api/companies", json={"workspace_id": w1["id"], "name": "Acme Landscaping",
+                                             "website": "acme-landscaping.example"}, headers=auth(tok)).json()
+    ct = client.post("/api/contacts", json={"workspace_id": w1["id"], "email": "jane@acme.example",
+                                            "first_name": "Jane", "last_name": "Doe",
+                                            "title": "Founder & CEO", "company_id": co["id"]},
+                     headers=auth(tok)).json()
+    r = client.post("/api/enrich", json={"workspace_id": w1["id"], "company_ids": [co["id"]],
+                                         "contact_ids": [ct["id"]], "html_override": FAKE_HTML},
+                    headers=auth(tok))
+    check("enrichment jobs queued", r.status_code == 200 and r.json()["queued"] == 2, r.text)
+
+    r = client.post("/api/enrich", json={"workspace_id": w2["id"], "company_ids": [co["id"]]}, headers=auth(tok))
+    check("cross-workspace enrich rejected", r.status_code == 404)
+
+    from app.db import SessionLocal as _SL2
+    from app.workers.runner import _claim as _claim2, run_one as _run2
+    dbw = _SL2()
+    for _ in range(3):
+        jb = _claim2(dbw)
+        if jb:
+            _run2(dbw, jb)
+    dbw.close()
+
+    cdet = client.get(f"/api/companies/{co['id']}", headers=auth(tok)).json()
+    check("company enriched (industry + icp + provenance)",
+          cdet["industry"] and cdet["icp_fit"] and "last_crawl" in cdet["enrichment"], str(cdet)[:200])
+    tdet = client.get(f"/api/contacts/{ct['id']}", headers=auth(tok)).json()
+    check("contact scored (senior founder + valid company)", (tdet["revenue_score"] or 0) >= 60, str(tdet)[:200])
+
+    jid = r2j = client.post("/api/blueprints/generate", json={"workspace_id": w1["id"],
+                                                              "company_id": co["id"], "contact_id": ct["id"]},
+                            headers=auth(tok)).json()["job_id"]
+    dbw = _SL2()
+    jb = _claim2(dbw)
+    _run2(dbw, jb)
+    dbw.close()
+    st = client.get(f"/api/jobs/{jid}/status", headers=auth(tok)).json()
+    check("blueprint job done with progress", st["status"] == "done" and st["result"].get("document_id"), str(st)[:200])
+    doc = client.get(f"/api/documents/{st['result']['document_id']}", headers=auth(tok)).json()
+    check("blueprint document generated",
+          doc["kind"] == "blueprint" and "Acme Landscaping" in doc["html"] and "Executive Summary" in doc["html"])
+
+    docs_client = client.get("/api/documents", headers=auth(ctok)).json()
+    check("client sees only own-workspace documents", all(d["workspace_id"] == w1["id"] for d in docs_client))
+
     print(f"\n{sum(1 for _, ok in PASS if ok)}/{len(PASS)} checks passed")
 
 

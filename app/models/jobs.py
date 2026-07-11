@@ -19,6 +19,8 @@ class Job(Base):
     run_at = Column(DateTime, default=datetime.utcnow, index=True)  # schedule for the future
     attempts = Column(Integer, default=0)
     max_attempts = Column(Integer, default=3)
+    progress = Column(Integer, default=0)          # 0–100, updated live by handlers
+    progress_note = Column(String(255), default="")  # e.g. "crawling site", "extracting facts"
     result = Column(JSON, default=dict)
     error = Column(Text, default="")
     created_at = Column(DateTime, default=datetime.utcnow)

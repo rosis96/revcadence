@@ -30,6 +30,42 @@ def list_companies(workspace_id: int | None = None, q: str = "", ctx: AuthContex
              "industry": c.industry, "icp_fit": c.icp_fit} for c in rows]
 
 
+class CompanyIn(BaseModel):
+    workspace_id: int
+    name: str
+    website: str = ""
+    domain: str = ""
+
+
+@router.post("/companies")
+def create_company(body: CompanyIn, ctx: AuthContext = Depends(get_ctx)):
+    ctx.require_workspace(body.workspace_id)
+    c = Company(workspace_id=body.workspace_id, name=body.name, website=body.website, domain=body.domain)
+    ctx.db.add(c)
+    ctx.db.commit()
+    return {"id": c.id}
+
+
+class ContactIn(BaseModel):
+    workspace_id: int
+    email: str = ""
+    first_name: str = ""
+    last_name: str = ""
+    title: str = ""
+    company_id: int | None = None
+
+
+@router.post("/contacts")
+def create_contact(body: ContactIn, ctx: AuthContext = Depends(get_ctx)):
+    ctx.require_workspace(body.workspace_id)
+    c = Contact(workspace_id=body.workspace_id, email=body.email.lower().strip(),
+                first_name=body.first_name, last_name=body.last_name, title=body.title,
+                company_id=body.company_id, source="manual")
+    ctx.db.add(c)
+    ctx.db.commit()
+    return {"id": c.id}
+
+
 # ---------------------------------------------------------------- contacts
 @router.get("/contacts")
 def list_contacts(workspace_id: int | None = None, q: str = "", ctx: AuthContext = Depends(get_ctx)):
