@@ -62,6 +62,42 @@ prefix needed) → Authorize. Every protected endpoint then works from Swagger.
 Verified: OpenAPI declares HTTPBearer; auth/admin/CRM/jobs endpoints all
 enforce it; 16/16 smoke checks pass.
 
+## ✅ Session 3 (2026-07-10) — workspace alias system (pre-import fix)
+
+Problem found before import: the same client has different workspace names per
+source system (e.g. 'Ascendly: mainreplybison' in Reply Manager vs 'Ascendly'
+in Enrichment), so a single `legacy_name` field couldn't map them.
+
+Built:
+- `WorkspaceAlias` table (workspace_id, source_system, external_name,
+  external_id) with unique (source_system, external_name). Sources:
+  reply_manager / enrichment / client_portals. Migration `fa785bd597ff`.
+- Admin API: GET/POST/PATCH/DELETE `/api/admin/aliases` (master only).
+- Importer resolves via aliases (exact match only — similar names are NEVER
+  guessed). `legacy_name` kept as a fallback for backward compat only.
+- Pre-flight mapping review: the importer prints every legacy name as
+  MAPPED/UNMAPPED *before* writing; `--apply` ABORTS if anything is unmapped.
+  Dry run = your explicit mapping review step.
+- Importer bug fixed en route: legacy SQLite timestamps arrive as strings —
+  now coerced safely.
+- Tests: 30/30 (alias CRUD, multi-alias → one workspace, source separation,
+  no-guessing, abort-writes-nothing, full fixture import, idempotent re-run).
+
+### New import procedure (replaces old step 5 mapping note)
+
+1. Create canonical workspaces (step 4) — `legacy_name` no longer required.
+2. Create aliases for every legacy name, e.g. via /docs:
+   - POST /api/admin/aliases {workspace_id: <Ascendly id>, source_system:
+     "reply_manager", external_name: "Ascendly: mainreplybison"}
+   - POST /api/admin/aliases {workspace_id: <Ascendly id>, source_system:
+     "enrichment", external_name: "Ascendly"}
+   - ...one per (source, name) pair. Don't know all the legacy names? Just run
+     the dry-run first — the mapping review lists every name it found.
+3. Dry run: `python -m scripts.import_legacy --legacy-db-url "..."` → review
+   the MAPPED/UNMAPPED report.
+4. Fix any UNMAPPED by adding aliases; repeat until the review is clean.
+5. Apply: add `--apply`. It aborts (writing nothing) if anything is unmapped.
+
 ## ▶ Do now: get the schema onto Railway (5 min) — YOU
 
 1. Push:

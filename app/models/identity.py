@@ -46,6 +46,26 @@ class Workspace(Base):
     __table_args__ = (UniqueConstraint("org_id", "slug", name="uq_workspace_org_slug"),)
 
 
+ALIAS_SOURCES = ("reply_manager", "enrichment", "client_portals")
+
+
+class WorkspaceAlias(Base):
+    """Source-specific legacy workspace names. One canonical workspace can carry
+    many aliases (e.g. Ascendly ← 'Ascendly: mainreplybison' in reply_manager,
+    'Ascendly' in enrichment). Aliases are the source of truth for every
+    importer; Workspace.legacy_name remains only for backward compatibility."""
+    __tablename__ = "workspace_aliases"
+
+    id = Column(Integer, primary_key=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False, index=True)
+    source_system = Column(String(40), nullable=False)      # one of ALIAS_SOURCES
+    external_name = Column(String(255), nullable=False)     # exact name in the source system
+    external_id = Column(String(255))                       # optional stable id in the source
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("source_system", "external_name", name="uq_alias_source_name"),)
+
+
 class User(Base):
     __tablename__ = "users"
 

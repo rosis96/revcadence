@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from ..auth import AuthContext, hash_password, require_master
 from ..models.audit import AuditLog
 from ..models.crm import DEFAULT_STAGES, Stage
-from ..models.identity import ROLES, Membership, User, Workspace
+from ..models.identity import ALIAS_SOURCES, ROLES, Membership, User, Workspace, WorkspaceAlias
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -44,6 +44,102 @@ def create_workspace(body: WorkspaceIn, ctx: AuthContext = Depends(require_maste
                         action="create_workspace", object_type="workspace", object_id=w.id))
     ctx.db.commit()
     return {"id": w.id, "name": w.name, "slug": w.slug}
+
+
+# ---------------------------------------------------------------- workspace aliases
+class AliasIn(BaseModel):
+    workspace_id: int
+    source_system: str            # reply_manager / enrichment / client_portals
+    external_name: str
+    external_id: str = ""
+
+
+class AliasPatch(BaseModel):
+    workspace_id: int | None = None
+    external_name: str | None = None
+    external_id: str | None = None
+
+
+def _alias_out(a: WorkspaceAlias):
+    return {"id": a.id, "workspace_id": a.workspace_id, "source_system": a.source_system,
+            "external_name": a.external_name, "external_id": a.external_id or ""}
+
+
+def _org_workspace(ctx, workspace_id: int) -> Workspace:
+    w = ctx.db.query(Workspace).filter(Workspace.id == workspace_id, Workspace.org_id == ctx.org_id).first()
+    if not w:
+        raise HTTPException(422, f"Workspace {workspace_id} not found in this organization")
+    return w
+
+
+@router.get("/aliases")
+def list_aliases(source_system: str = "", workspace_id: int = 0, ctx: AuthContext = Depends(require_master)):
+    q = (ctx.db.query(WorkspaceAlias)
+         .join(Workspace, Workspace.id == WorkspaceAlias.workspace_id)
+         .filter(Workspace.org_id == ctx.org_id))
+    if source_system:
+        q = q.filter(WorkspaceAlias.source_system == source_system)
+    if workspace_id:
+        q = q.filter(WorkspaceAlias.workspace_id == workspace_id)
+    return [_alias_out(a) for a in q.order_by(WorkspaceAlias.source_system, WorkspaceAlias.external_name).all()]
+
+
+@router.post("/aliases")
+def create_alias(body: AliasIn, ctx: AuthContext = Depends(require_master)):
+    if body.source_system not in ALIAS_SOURCES:
+        raise HTTPException(422, f"source_system must be one of {ALIAS_SOURCES}")
+    name = body.external_name.strip()
+    if not name:
+        raise HTTPException(422, "external_name is required")
+    _org_workspace(ctx, body.workspace_id)
+    if ctx.db.query(WorkspaceAlias).filter(WorkspaceAlias.source_system == body.source_system,
+                                           WorkspaceAlias.external_name == name).first():
+        raise HTTPException(409, f"Alias already exists for ({body.source_system}, {name!r})")
+    a = WorkspaceAlias(workspace_id=body.workspace_id, source_system=body.source_system,
+                       external_name=name, external_id=body.external_id or None)
+    ctx.db.add(a)
+    ctx.db.flush()
+    ctx.db.add(AuditLog(org_id=ctx.org_id, workspace_id=body.workspace_id, user_id=ctx.user.id,
+                        action="create_alias", object_type="workspace_alias", object_id=a.id,
+                        data={"source": body.source_system, "name": name}))
+    ctx.db.commit()
+    return _alias_out(a)
+
+
+@router.patch("/aliases/{alias_id}")
+def edit_alias(alias_id: int, body: AliasPatch, ctx: AuthContext = Depends(require_master)):
+    a = (ctx.db.query(WorkspaceAlias)
+         .join(Workspace, Workspace.id == WorkspaceAlias.workspace_id)
+         .filter(WorkspaceAlias.id == alias_id, Workspace.org_id == ctx.org_id).first())
+    if not a:
+        raise HTTPException(404, "Alias not found")
+    if body.workspace_id is not None:
+        _org_workspace(ctx, body.workspace_id)
+        a.workspace_id = body.workspace_id
+    if body.external_name is not None:
+        name = body.external_name.strip()
+        dup = ctx.db.query(WorkspaceAlias).filter(WorkspaceAlias.source_system == a.source_system,
+                                                  WorkspaceAlias.external_name == name,
+                                                  WorkspaceAlias.id != a.id).first()
+        if dup:
+            raise HTTPException(409, f"Alias already exists for ({a.source_system}, {name!r})")
+        a.external_name = name
+    if body.external_id is not None:
+        a.external_id = body.external_id or None
+    ctx.db.commit()
+    return _alias_out(a)
+
+
+@router.delete("/aliases/{alias_id}")
+def delete_alias(alias_id: int, ctx: AuthContext = Depends(require_master)):
+    a = (ctx.db.query(WorkspaceAlias)
+         .join(Workspace, Workspace.id == WorkspaceAlias.workspace_id)
+         .filter(WorkspaceAlias.id == alias_id, Workspace.org_id == ctx.org_id).first())
+    if not a:
+        raise HTTPException(404, "Alias not found")
+    ctx.db.delete(a)
+    ctx.db.commit()
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------- users

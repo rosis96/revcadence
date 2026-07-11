@@ -1,7 +1,13 @@
 """Migrate data from the existing Reply Manager database into RevCadence.
 
 What it maps (read-only against the legacy DB — it never writes there):
-  legacy workspaces (name strings)  → Workspace (matched via Workspace.legacy_name)
+  legacy workspaces (name strings)  → Workspace, resolved via WorkspaceAlias
+    (source_system='reply_manager', exact external_name match — the source of
+    truth). Workspace.legacy_name is only a backward-compat fallback. Names are
+    NEVER guessed from similarity. A pre-flight mapping review prints every
+    MAPPED/UNMAPPED name before any write; --apply ABORTS if anything is
+    unmapped. Future importers (enrichment, client_portals) use the same
+    resolve_workspaces() with their own source_system.
   legacy leads                      → Contact (deduped by email per workspace)
                                       + Company (from the lead's company name)
                                       + Activity timeline (their reply, our reply,
@@ -27,7 +33,9 @@ from sqlalchemy import create_engine, text
 
 from app.db import init_db, session
 from app.models.crm import DEFAULT_STAGES, Activity, Company, Contact, Deal, Stage
-from app.models.identity import Workspace
+from app.models.identity import Workspace, WorkspaceAlias
+
+SOURCE = "reply_manager"  # this importer's source_system for alias lookups
 
 
 def _norm_url(url: str) -> str:
@@ -38,19 +46,48 @@ def _rows(conn, sql):
     return [dict(r._mapping) for r in conn.execute(text(sql))]
 
 
-def _get_or_create_workspace(db, name, org_id, create_missing, report):
-    ws = db.query(Workspace).filter(Workspace.legacy_name == name).first()
-    if ws:
-        return ws
-    if not create_missing:
-        report["unmapped_workspaces"].add(name)
-        return None
+def _to_dt(value):
+    """Coerce a legacy timestamp (datetime from Postgres, string from SQLite,
+    or None) to a datetime."""
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value:
+        for candidate in (value.replace(" ", "T", 1), value):
+            try:
+                return datetime.fromisoformat(candidate)
+            except ValueError:
+                pass
+    return datetime.utcnow()
+
+
+def resolve_workspaces(db, names, source=SOURCE):
+    """Resolve legacy workspace names → canonical Workspace via WorkspaceAlias
+    (source of truth). Falls back to Workspace.legacy_name for backward
+    compatibility. NEVER guesses from similar names — an unresolved name stays
+    unresolved until a human creates the alias."""
+    out = {}
+    for name in sorted(set(names)):
+        alias = (db.query(WorkspaceAlias)
+                 .filter(WorkspaceAlias.source_system == source,
+                         WorkspaceAlias.external_name == name).first())
+        if alias:
+            out[name] = {"workspace": db.get(Workspace, alias.workspace_id), "via": "alias"}
+            continue
+        legacy = db.query(Workspace).filter(Workspace.legacy_name == name).first()
+        out[name] = {"workspace": legacy, "via": "legacy_name" if legacy else None}
+    return out
+
+
+def _create_workspace_with_alias(db, name, org_id, report):
+    """Explicit opt-in only (--create-missing): creates a workspace named exactly
+    like the legacy name, plus the alias. No name similarity guessing, ever."""
     slug = "".join(c if c.isalnum() else "-" for c in name.lower()).strip("-")
     ws = Workspace(org_id=org_id, name=name, slug=slug, legacy_name=name)
     db.add(ws)
     db.flush()
     for sname, color, order, won, lost in DEFAULT_STAGES:
         db.add(Stage(workspace_id=ws.id, name=sname, color=color, sort_order=order, is_won=won, is_lost=lost))
+    db.add(WorkspaceAlias(workspace_id=ws.id, source_system=SOURCE, external_name=name))
     report["workspaces_created"] += 1
     return ws
 
@@ -62,15 +99,51 @@ def run_import(legacy_db_url: str, dry_run: bool = True, create_missing: bool = 
     init_db()
     report = {"leads_seen": 0, "contacts_created": 0, "contacts_merged": 0, "companies_created": 0,
               "activities_created": 0, "deals_created": 0, "deals_skipped_existing": 0,
-              "workspaces_created": 0, "unmapped_workspaces": set(), "dry_run": dry_run}
+              "workspaces_created": 0, "unmapped_workspaces": [], "mapping": {},
+              "aborted": False, "dry_run": dry_run}
 
     with legacy.connect() as lconn, session() as db:
         old_stages = {s["id"]: s["name"] for s in _rows(lconn, "SELECT id, name FROM crm_stages")}
 
+        # ---------------- PRE-FLIGHT: mapping review BEFORE anything is written
+        lead_names = [r["workspace_name"] for r in _rows(
+            lconn, "SELECT DISTINCT workspace_name FROM leads WHERE workspace_name IS NOT NULL")]
+        opp_names = [r["workspace_name"] for r in _rows(
+            lconn, "SELECT DISTINCT workspace_name FROM opportunities WHERE workspace_name IS NOT NULL")]
+        mapping = resolve_workspaces(db, lead_names + opp_names)
+
+        print("\n=== WORKSPACE MAPPING REVIEW (source: reply_manager) ===")
+        for name, res in mapping.items():
+            if res["workspace"]:
+                print(f"  MAPPED    {name!r} → workspace #{res['workspace'].id} "
+                      f"{res['workspace'].name!r} (via {res['via']})")
+            else:
+                print(f"  UNMAPPED  {name!r} → create an alias: "
+                      f"POST /api/admin/aliases {{source_system: 'reply_manager', external_name: {name!r}}}")
+        unmapped = [n for n, r in mapping.items() if r["workspace"] is None]
+        report["mapping"] = {n: (r["workspace"].id if r["workspace"] else None) for n, r in mapping.items()}
+        report["unmapped_workspaces"] = sorted(unmapped)
+
+        if unmapped and create_missing:
+            for name in unmapped:
+                mapping[name] = {"workspace": _create_workspace_with_alias(db, name, org_id, report),
+                                 "via": "created"}
+            unmapped = []
+        if unmapped and not dry_run:
+            db.rollback()
+            print(f"\nABORTED before writing: {len(unmapped)} unmapped workspace name(s). "
+                  "Create aliases (or pass --create-missing) and re-run.")
+            report["aborted"] = True
+            return report
+        print("=== end mapping review ===\n")
+
+        def ws_for(name):
+            return mapping.get(name, {}).get("workspace")
+
         # ---------------- leads → contacts/companies/activities
         for lead in _rows(lconn, "SELECT * FROM leads ORDER BY id"):
             report["leads_seen"] += 1
-            ws = _get_or_create_workspace(db, lead["workspace_name"], org_id, create_missing, report)
+            ws = ws_for(lead["workspace_name"])
             if ws is None:
                 continue
             email = (lead.get("email") or "").lower().strip()
@@ -106,7 +179,7 @@ def run_import(legacy_db_url: str, dry_run: bool = True, create_missing: bool = 
                     contact.company_id = company.id
                 report["contacts_merged"] += 1
 
-            occurred = lead.get("created_at") or datetime.utcnow()
+            occurred = _to_dt(lead.get("created_at"))
             if lead.get("reply_text"):
                 db.add(Activity(workspace_id=ws.id, contact_id=contact.id, company_id=contact.company_id,
                                 kind="email_in", title=f"Reply · intent: {lead.get('intent') or 'unknown'}",
@@ -135,7 +208,7 @@ def run_import(legacy_db_url: str, dry_run: bool = True, create_missing: bool = 
 
         # ---------------- opportunities → deals
         for opp in _rows(lconn, "SELECT * FROM opportunities ORDER BY id"):
-            ws = _get_or_create_workspace(db, opp["workspace_name"], org_id, create_missing, report)
+            ws = ws_for(opp["workspace_name"])
             if ws is None:
                 continue
             if db.query(Deal).filter(Deal.workspace_id == ws.id,
@@ -168,7 +241,6 @@ def run_import(legacy_db_url: str, dry_run: bool = True, create_missing: bool = 
                             title="Imported from legacy CRM", data={"legacy_opportunity_id": opp["id"]}))
             report["deals_created"] += 1
 
-        report["unmapped_workspaces"] = sorted(report["unmapped_workspaces"])
         if dry_run:
             db.rollback()
             print("DRY RUN — nothing written. Re-run with --apply to commit.")

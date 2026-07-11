@@ -97,6 +97,95 @@ def main():
     summary = client.get("/api/dashboard/summary", headers=auth(ctok)).json()
     check("client dashboard summary works", summary["open_value"] == 5000 and summary["recent_activity"], str(summary)[:200])
 
+    # ---------------- workspace aliases (the migration-mapping system)
+    r = client.post("/api/admin/aliases", json={
+        "workspace_id": w1["id"], "source_system": "reply_manager",
+        "external_name": "Ascendly: mainreplybison"}, headers=auth(tok))
+    check("alias created", r.status_code == 200, r.text)
+    r2 = client.post("/api/admin/aliases", json={
+        "workspace_id": w1["id"], "source_system": "enrichment", "external_name": "Ascendly"},
+        headers=auth(tok))
+    check("2nd alias (different source) → same workspace", r2.status_code == 200, r2.text)
+
+    r = client.post("/api/admin/aliases", json={
+        "workspace_id": w2["id"], "source_system": "reply_manager",
+        "external_name": "Ascendly: mainreplybison"}, headers=auth(tok))
+    check("duplicate (source, name) rejected 409", r.status_code == 409)
+
+    r = client.post("/api/admin/aliases", json={
+        "workspace_id": w1["id"], "source_system": "bogus", "external_name": "x"}, headers=auth(tok))
+    check("unknown source rejected", r.status_code == 422)
+
+    aliases = client.get("/api/admin/aliases", params={"workspace_id": w1["id"]}, headers=auth(tok)).json()
+    check("one workspace holds multiple aliases", len(aliases) == 2, str(aliases))
+
+    r = client.get("/api/admin/aliases", headers=auth(ctok))
+    check("client blocked from aliases", r.status_code == 403)
+
+    # resolution honors source_system + never guesses similar names
+    from app.db import SessionLocal as _SL
+    from scripts.import_legacy import resolve_workspaces
+    db2 = _SL()
+    res = resolve_workspaces(db2, ["Ascendly: mainreplybison", "Ascendly", "Ascendlyy"], source="reply_manager")
+    check("alias resolves exact name", res["Ascendly: mainreplybison"]["workspace"].id == w1["id"])
+    check("enrichment-only alias NOT visible to reply_manager source",
+          res["Ascendly"]["workspace"] is None)
+    check("similar name is NOT guessed", res["Ascendlyy"]["workspace"] is None)
+    db2.close()
+
+    # ---------------- importer end-to-end against a fixture legacy DB
+    import sqlite3 as _sq
+    import tempfile as _tf
+    legacy_path = _tf.mktemp(suffix=".db")
+    lc = _sq.connect(legacy_path)
+    lc.executescript("""
+      CREATE TABLE crm_stages (id INTEGER PRIMARY KEY, name TEXT);
+      INSERT INTO crm_stages VALUES (1,'Opportunity'),(2,'Meeting Booked');
+      CREATE TABLE leads (id INTEGER PRIMARY KEY, workspace_name TEXT, email TEXT, name TEXT,
+        company TEXT, reply_text TEXT, main_reply TEXT, replied INTEGER, thread TEXT,
+        intent TEXT, confidence TEXT, campaign TEXT, created_at TIMESTAMP);
+      INSERT INTO leads VALUES
+        (11,'Ascendly: mainreplybison','amy@acme.com','Amy Pond','Acme Co','yes interested',
+         'great, here are times',1,'[]','simple_positive','high','C1','2026-06-01 10:00:00'),
+        (12,'Old Unknown Client','bob@beta.com','Bob','Beta LLC','tell me more','',0,'[]',
+         'question','med','C2','2026-06-02 10:00:00');
+      CREATE TABLE opportunities (id INTEGER PRIMARY KEY, workspace_name TEXT, lead_id TEXT,
+        deal_name TEXT, contact_name TEXT, email TEXT, company TEXT, website TEXT,
+        stage_id INTEGER, lead_intent TEXT, status TEXT, value REAL, owner TEXT,
+        description TEXT, next_action_date TEXT, tag_ids TEXT, close_date TEXT, source TEXT,
+        next_step TEXT, meeting_outcome TEXT, location TEXT, contact_linkedin TEXT,
+        company_linkedin TEXT, created_at TIMESTAMP);
+      INSERT INTO opportunities VALUES (21,'Ascendly: mainreplybison','11','Acme deal','Amy Pond',
+        'amy@acme.com','Acme Co','',2,'simple_positive','hot',7500,'','','','[]','','','','','','','',
+        '2026-06-03 10:00:00');
+    """)
+    lc.commit(); lc.close()
+
+    from scripts.import_legacy import run_import
+    # apply with an unmapped name must ABORT before writing anything
+    rep = run_import(f"sqlite:///{legacy_path}", dry_run=False)
+    check("apply aborts on unmapped workspace", rep["aborted"] and rep["unmapped_workspaces"] == ["Old Unknown Client"], str(rep))
+    db3 = _SL()
+    from app.models.crm import Contact as _C
+    check("abort wrote nothing", db3.query(_C).count() == 0, str(db3.query(_C).count()))
+    db3.close()
+
+    # map the second name via alias → apply succeeds
+    client.post("/api/admin/aliases", json={
+        "workspace_id": w2["id"], "source_system": "reply_manager",
+        "external_name": "Old Unknown Client"}, headers=auth(tok))
+    rep = run_import(f"sqlite:///{legacy_path}", dry_run=False)
+    check("import applied via aliases",
+          not rep["aborted"] and rep["contacts_created"] == 2 and rep["deals_created"] == 1, str(rep))
+    db3 = _SL()
+    amy = db3.query(_C).filter(_C.email == "amy@acme.com").first()
+    bob = db3.query(_C).filter(_C.email == "bob@beta.com").first()
+    check("contacts landed in correct canonical workspaces",
+          amy.workspace_id == w1["id"] and bob.workspace_id == w2["id"])
+    rep2 = run_import(f"sqlite:///{legacy_path}", dry_run=False)
+    check("re-run is idempotent", rep2["contacts_created"] == 0 and rep2["deals_created"] == 0, str(rep2))
+    db3.close()
+
     # job queue: enqueue + run one job through the worker inline
     r = client.post("/api/jobs", json={"kind": "noop", "workspace_id": w1["id"], "payload": {"hello": 1}}, headers=auth(tok))
     check("job enqueued", r.status_code == 200, r.text)
