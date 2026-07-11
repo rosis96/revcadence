@@ -1,5 +1,50 @@
 # NEXT_STEPS — living document
 
+## ✅ Session 9 (2026-07-10) — the RevCadence web UI
+
+React app (Vite, HashRouter) in `frontend/`, **served by the FastAPI web
+service itself** — same origin, no CORS, no extra Railway service. The built
+`frontend/dist` is committed, so deploys stay pure-Python (no Node needed on
+Railway). Swagger remains at `/docs`.
+
+Built (all wired to production APIs, no fake data):
+- Login + persistent JWT auth, auto-logout on token expiry, protected routes
+- Dark GHL-style sidebar; workspace switcher (masters only — client users are
+  pinned to their single workspace); topbar with live api/worker status dots
+- Dashboard: open pipeline, companies, contacts, active deals, meetings
+  booked, replies, positive replies, stalled deals, jobs running; pipeline-by-
+  stage bars; latest activity
+- Pipeline: kanban by stage, drag & drop between columns, deal drawer with
+  stage change, relations, timeline
+- Companies: search/filter/create; detail page with enrichment provenance,
+  ICP fit, contacts, deals, timeline, Enrich + Generate blueprint buttons
+- Contacts: search table with company/title/email/source/score + drawer
+- Enrichment: pick workspace → add/select companies → Enrich (no manual IDs),
+  live job progress, links to results and blueprints
+- Blueprints: list + sandboxed HTML preview
+- Activity feed, Jobs (with cancel), Settings (system health), Admin
+  (workspaces, users incl. client creation, aliases CRUD)
+- Backend additions that power it (same commit series): richer board/summary/
+  detail responses, /api/activities, static serving
+
+### Local preview
+```bash
+cd ~/Desktop/revcadence
+source venv/bin/activate 2>/dev/null || (python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt)
+uvicorn app.main:app --reload      # http://localhost:8000 = the full UI
+```
+Frontend dev loop (optional): `cd frontend && npm install && npm run dev`
+(proxies /api to localhost:8000; set VITE_API_BASE to point elsewhere).
+**After changing frontend code:** `cd frontend && npm run build`, commit dist.
+
+### Deploy
+`git push` — no new Railway settings required (same web service serves the UI).
+
+### Single next step after deployment
+Open your Railway web URL, log in with your owner account, and switch
+workspaces — then create your first client user in Admin and log in as them
+in a private window to see the client-locked view.
+
 ## ✅ Session 8 (2026-07-10) — per-service Railway start commands
 
 `railway.json` no longer defines any startCommand or healthcheck (it kept
