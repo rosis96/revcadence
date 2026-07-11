@@ -32,7 +32,8 @@ def healthz():
     if db says 'sqlite' on Railway, the service is missing DATABASE_URL (the
     silent-fallback bug from the old reply manager)."""
     info = {"ok": True, "app": config.APP_NAME, "version": config.VERSION,
-            "db": engine.dialect.name, "migration": None, "tables": 0}
+            "db": engine.dialect.name, "migration": None, "tables": 0,
+            "worker": {"alive": False, "last_beat": None, "info": {}}}
     try:
         from sqlalchemy import inspect, text
         info["tables"] = len(inspect(engine).get_table_names())
@@ -40,6 +41,22 @@ def healthz():
             info["migration"] = conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
     except Exception:
         pass  # alembic_version absent on sqlite dev — fine
+    try:
+        from datetime import datetime, timedelta
+        from .db import SessionLocal
+        from .models.jobs import Heartbeat
+        db = SessionLocal()
+        hb = db.get(Heartbeat, "worker")
+        if hb is not None:
+            stale_after = timedelta(seconds=max(config.WORKER_POLL_SECONDS * 4, 30))
+            info["worker"] = {
+                "alive": (datetime.utcnow() - hb.at) < stale_after,
+                "last_beat": hb.at.isoformat(),
+                "info": hb.info or {},
+            }
+        db.close()
+    except Exception:
+        pass  # heartbeats table not migrated yet
     return info
 
 

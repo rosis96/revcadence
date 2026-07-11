@@ -2,6 +2,8 @@
     python -m app.workers.runner
 Claims one due job at a time (SELECT ... FOR UPDATE SKIP LOCKED on Postgres),
 runs its handler, retries failures up to max_attempts."""
+import os
+import socket
 import time
 import traceback
 from datetime import datetime, timedelta
@@ -10,8 +12,21 @@ from sqlalchemy import text
 
 from .. import config
 from ..db import SessionLocal, engine, init_db
-from ..models.jobs import Job
+from ..models.jobs import Heartbeat, Job
 from .registry import HANDLERS
+
+
+def beat(db):
+    """Upsert the worker heartbeat row — /healthz reads this."""
+    info = {"db": engine.dialect.name, "handlers": sorted(HANDLERS),
+            "pid": os.getpid(), "host": socket.gethostname()}
+    hb = db.get(Heartbeat, "worker")
+    if hb is None:
+        hb = Heartbeat(name="worker")
+        db.add(hb)
+    hb.at = datetime.utcnow()
+    hb.info = info
+    db.commit()
 
 
 def _claim(db):
@@ -52,15 +67,23 @@ def run_one(db, job) -> None:
 def main():
     init_db()
     print(f"[worker] started · db={engine.dialect.name} · handlers={sorted(HANDLERS)}")
+    if engine.dialect.name == "sqlite":
+        print("[worker] *** WARNING: running on SQLITE — on Railway this means "
+              "DATABASE_URL is NOT set on this service, and the worker is polling "
+              "a private throwaway DB instead of the shared Postgres. Jobs queued "
+              "by the web service will NEVER be seen. Fix the service variables. ***")
     while True:
         db = SessionLocal()
         try:
+            beat(db)
             job = _claim(db)
             if job:
                 print(f"[worker] running job {job.id} kind={job.kind} attempt={job.attempts}")
                 run_one(db, job)
                 print(f"[worker] job {job.id} → {job.status}")
                 continue  # look for the next job immediately
+        except Exception as e:
+            print(f"[worker] loop error (continuing): {e}")
         finally:
             db.close()
         time.sleep(config.WORKER_POLL_SECONDS)

@@ -8,6 +8,17 @@ from sqlalchemy import Column, DateTime, ForeignKey, Integer, JSON, String, Text
 from ..db import Base
 
 
+class Heartbeat(Base):
+    """Worker liveness. The worker upserts its row every poll loop; /healthz
+    reports the worker alive iff the beat is fresh. Turns 'jobs are stuck'
+    mysteries into an immediate red flag."""
+    __tablename__ = "heartbeats"
+
+    name = Column(String(80), primary_key=True)      # e.g. "worker"
+    at = Column(DateTime, default=datetime.utcnow)
+    info = Column(JSON, default=dict)                # {db, handlers, pid, host}
+
+
 class Job(Base):
     __tablename__ = "jobs"
 

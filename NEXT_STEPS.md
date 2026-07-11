@@ -1,5 +1,32 @@
 # NEXT_STEPS — living document
 
+## ✅ Session 7 (2026-07-10) — worker heartbeat + stuck-job diagnosis
+
+Jobs stayed `pending` because the worker service isn't processing the shared
+Postgres queue. Code side (committed): worker now upserts a `heartbeats` row
+every poll loop (migration `929417ea2ebf`); `/healthz` reports
+`worker.alive/last_beat/info` (info includes which DB the worker sees and its
+registered handlers); worker prints a LOUD warning if it boots on SQLite
+(= missing DATABASE_URL on Railway); poll-loop exceptions no longer kill the
+worker. Verified: heartbeat → /healthz, pending enrich job claimed and
+processed to done/100%.
+
+### Railway worker checklist (do in order, stop when fixed)
+1. Worker service → **Variables**: `DATABASE_URL = ${{Postgres.DATABASE_URL}}`
+   (this is the #1 suspect), plus `OPENAI_API_KEY` for real extraction.
+2. Worker service → Settings → Deploy → **Custom Start Command** =
+   `python -m app.workers.runner` (it must NOT run the uvicorn command from
+   railway.json), and **clear the Healthcheck Path** (a worker serves no HTTP;
+   an inherited /healthz check kills the deployment).
+3. Redeploy the worker, open its Deploy Logs: expect
+   `[worker] started · db=postgresql · handlers=[...]` — if it says
+   `db=sqlite` or shows the WARNING banner, step 1 wasn't applied.
+
+### One-glance verification
+`GET /healthz` → `"worker": {"alive": true, ...}` and job 1 flips
+pending → done with `progress: 100` (workers pick up old pending jobs
+automatically; no re-enqueue needed).
+
 ## ✅ Session 6 (2026-07-10) — first-admin bootstrap (deadlock fix)
 
 Fresh deployments could never create the first admin (admin API needs a token,
