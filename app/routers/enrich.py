@@ -45,6 +45,41 @@ def enqueue_enrichment(body: EnrichIn, ctx: AuthContext = Depends(get_ctx)):
     return {"job_ids": [j.id for j in jobs], "queued": len(jobs)}
 
 
+class EnrichWorkspaceIn(BaseModel):
+    workspace_id: int
+    limit: int = 50          # safety cap per call — same credit-burn philosophy as the old dashboard
+    only_unenriched: bool = True
+
+
+@router.post("/enrich/workspace")
+def enqueue_workspace_enrichment(body: EnrichWorkspaceIn, ctx: AuthContext = Depends(get_ctx)):
+    """Bulk: enqueue enrichment for companies+contacts in a workspace.
+    Defaults to only records never enriched, capped at `limit` jobs."""
+    ctx.require_workspace(body.workspace_id)
+    limit = max(1, min(body.limit, 500))
+    jobs = []
+    companies = scoped(ctx.db.query(Company), Company, ctx, body.workspace_id).all()
+    for c in companies:
+        if len(jobs) >= limit:
+            break
+        if body.only_unenriched and (c.enrichment or {}).get("last_crawl"):
+            continue
+        if not (c.website or c.domain):
+            continue
+        j = Job(kind="enrich_company", workspace_id=body.workspace_id, payload={"company_id": c.id})
+        ctx.db.add(j); jobs.append(j)
+    contacts = scoped(ctx.db.query(Contact), Contact, ctx, body.workspace_id).all()
+    for c in contacts:
+        if len(jobs) >= limit:
+            break
+        if body.only_unenriched and c.revenue_score is not None:
+            continue
+        j = Job(kind="enrich_contact", workspace_id=body.workspace_id, payload={"contact_id": c.id})
+        ctx.db.add(j); jobs.append(j)
+    ctx.db.commit()
+    return {"queued": len(jobs), "job_ids": [j.id for j in jobs], "limit": limit}
+
+
 class BlueprintIn(BaseModel):
     workspace_id: int
     company_id: int | None = None

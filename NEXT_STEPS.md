@@ -1,5 +1,49 @@
 # NEXT_STEPS — living document
 
+## ✅ Session 5 (2026-07-10) — migration accepted · gap audit · Enrichment Engine
+
+**Migration:** production Reply Manager data imported and accepted. Gap audit in
+`docs/MIGRATION_GAP_REPORT.md` — short version: all record types migrated;
+all configuration (reply formats, prompts, client profiles, workspace/campaign
+config, ai_rules) intentionally stays in the still-live legacy system until the
+reply module moves. Knowledge base and sequences never existed as data — build
+new. Blueprints = separate portals migration (planned). CRM tags: recreate by
+hand when wanted.
+
+**Enrichment Engine shipped** (commits 160d56e + this one):
+- `app/enrichment/`: crawler (homepage + about/services/pricing pages),
+  AI extraction via OpenAI (`OPENAI_API_KEY`; deterministic demo mode without
+  it — full pipeline runs at zero cost), engine writing enrichment with
+  per-field provenance, ICP fit, AI Revenue Score v1, timeline Activities
+- Blueprint generation: enrichment → draft `Document` (kind=blueprint) with
+  clean HTML — the portals blueprint flow, now native
+- Jobs: progress % + note on every job (migration `7df433f3bf3c`), retry with
+  exponential backoff, partial-write rollback
+- API: `POST /api/enrich` (specific records), `POST /api/enrich/workspace`
+  (bulk, capped, only-unenriched by default), `POST /api/blueprints/generate`,
+  `GET /api/jobs/{id}/status`, company/contact/document create+detail endpoints
+- 37/37 E2E checks
+
+### To activate real AI enrichment on Railway (2 min) — YOU
+Add `OPENAI_API_KEY` (and optionally `OPENAI_MODEL`, default gpt-4o-mini) to
+BOTH the web and worker services → redeploy. Without it, enrichment runs in
+demo mode (works, but heuristic-only extraction).
+
+### Try it (after push + deploy)
+1. `/docs` → POST `/api/companies` {workspace_id, name, website}
+2. POST `/api/enrich` {workspace_id, company_ids: [id]}
+3. GET `/api/jobs/{job_id}/status` → watch progress
+4. GET `/api/companies/{id}` → enrichment with provenance
+5. POST `/api/blueprints/generate` → GET `/api/documents/{id}` → open the HTML
+
+### Next build priorities (in order)
+1. **Web UI shell** — GHL-style sidebar, login, deals board, contacts with
+   scores, blueprint preview, client Revenue Dashboard (the shareable surface)
+2. **Reply Manager live bridge** — new booked meetings → Deals in real time
+3. **Meeting System v1** (design doc Stage 7)
+4. **Portals data migration** (`import_portals.py`, Document model is ready)
+
+
 _Updated: 2026-07-10 (session 2). This file is updated at the end of every
 working session: what was done, what to do next, in order. Do the steps top to bottom._
 

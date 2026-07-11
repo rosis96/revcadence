@@ -53,6 +53,7 @@ class ContactIn(BaseModel):
     last_name: str = ""
     title: str = ""
     company_id: int | None = None
+    auto_enrich: bool = False   # queue an enrich_contact job immediately
 
 
 @router.post("/contacts")
@@ -62,8 +63,16 @@ def create_contact(body: ContactIn, ctx: AuthContext = Depends(get_ctx)):
                 first_name=body.first_name, last_name=body.last_name, title=body.title,
                 company_id=body.company_id, source="manual")
     ctx.db.add(c)
+    ctx.db.flush()
+    job_id = None
+    if body.auto_enrich:
+        from ..models.jobs import Job
+        j = Job(kind="enrich_contact", workspace_id=body.workspace_id, payload={"contact_id": c.id})
+        ctx.db.add(j)
+        ctx.db.flush()
+        job_id = j.id
     ctx.db.commit()
-    return {"id": c.id}
+    return {"id": c.id, "enrich_job_id": job_id}
 
 
 # ---------------------------------------------------------------- contacts
