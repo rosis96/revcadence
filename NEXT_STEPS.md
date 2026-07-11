@@ -98,6 +98,53 @@ Built:
 4. Fix any UNMAPPED by adding aliases; repeat until the review is clean.
 5. Apply: add `--apply`. It aborts (writing nothing) if anything is unmapped.
 
+## ✅ Session 4 (2026-07-10) — production dry-run prep
+
+Findings:
+- The local Reply Manager DB copy is a stale dev snapshot: workspaces
+  Ascendly / Insight Media Labs / Maildoso / Webaholics, ZERO leads, and no
+  opportunities/crm_stages tables. **All real data is only in production
+  Postgres**, so the authoritative mapping report must run on Railway.
+- Importer hardened for that run: missing legacy tables are reported in the
+  dry-run output (notes) instead of crashing; duplicate notes deduped.
+  30/30 tests pass.
+
+## ▶ NEXT ACTION: run the production dry run (10 min) — YOU
+
+Nothing is written by this — it's read-only against legacy and rolls back on
+the new DB. Two steps:
+
+1. Get the LEGACY database URL: old Reply Manager Railway project → Postgres
+   service → **Connect** tab → copy the **Public Network** connection string
+   (`postgresql://postgres:...@...proxy.rlwy.net:PORT/railway`).
+   ⚠ Must be the PUBLIC URL — the new project cannot resolve the old project's
+   private `postgres.railway.internal` hostname (private networking is
+   per-project).
+
+2. NEW RevCadence project → web service → Shell:
+   ```bash
+   /opt/venv/bin/python -m scripts.import_legacy \
+     --legacy-db-url "postgresql://postgres:<pw>@<host>.proxy.rlwy.net:<port>/railway"
+   ```
+   (`DATABASE_URL` for the new DB is already injected into that shell; do not
+   pass it. `--apply` is intentionally absent.)
+
+3. Read the `WORKSPACE MAPPING REVIEW` block it prints:
+   - Every production legacy workspace name is listed as MAPPED or UNMAPPED.
+   - Expected UNMAPPED on first run (from your examples):
+     `Ascendly: mainreplybison`, `Revcadence`, `Insight Media Labs`, likely
+     `Webaholics`, `Maildoso`.
+   - For each one, create the alias via /docs →
+     POST /api/admin/aliases {workspace_id, source_system: "reply_manager",
+     external_name: "<exact name from the report>"}.
+   - Also check `notes` in the JSON report for missing-table warnings.
+
+4. Re-run the same command until the review shows every name MAPPED and
+   `unmapped_workspaces` is `[]`. Paste the final report back to Claude.
+
+**Only after that**: we run `--apply` together (still never touches the legacy
+DB) and spot-check per the verification checklist in docs/MIGRATION_PLAN.md §5.
+
 ## ▶ Do now: get the schema onto Railway (5 min) — YOU
 
 1. Push:

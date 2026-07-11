@@ -103,13 +103,27 @@ def run_import(legacy_db_url: str, dry_run: bool = True, create_missing: bool = 
               "aborted": False, "dry_run": dry_run}
 
     with legacy.connect() as lconn, session() as db:
-        old_stages = {s["id"]: s["name"] for s in _rows(lconn, "SELECT id, name FROM crm_stages")}
+        def _safe_rows(sql, missing_note):
+            """Tolerate legacy DBs that predate a table (e.g. a dev copy without
+            the CRM tables) — report it instead of crashing the dry run."""
+            try:
+                return _rows(lconn, sql)
+            except Exception:
+                notes = report.setdefault("notes", [])
+                if missing_note not in notes:
+                    notes.append(missing_note)
+                return []
+
+        old_stages = {s["id"]: s["name"] for s in _safe_rows(
+            "SELECT id, name FROM crm_stages", "crm_stages table missing — deals will have no stage mapping")}
 
         # ---------------- PRE-FLIGHT: mapping review BEFORE anything is written
-        lead_names = [r["workspace_name"] for r in _rows(
-            lconn, "SELECT DISTINCT workspace_name FROM leads WHERE workspace_name IS NOT NULL")]
-        opp_names = [r["workspace_name"] for r in _rows(
-            lconn, "SELECT DISTINCT workspace_name FROM opportunities WHERE workspace_name IS NOT NULL")]
+        lead_names = [r["workspace_name"] for r in _safe_rows(
+            "SELECT DISTINCT workspace_name FROM leads WHERE workspace_name IS NOT NULL",
+            "leads table missing")]
+        opp_names = [r["workspace_name"] for r in _safe_rows(
+            "SELECT DISTINCT workspace_name FROM opportunities WHERE workspace_name IS NOT NULL",
+            "opportunities table missing — no deals to import")]
         mapping = resolve_workspaces(db, lead_names + opp_names)
 
         print("\n=== WORKSPACE MAPPING REVIEW (source: reply_manager) ===")
@@ -141,7 +155,7 @@ def run_import(legacy_db_url: str, dry_run: bool = True, create_missing: bool = 
             return mapping.get(name, {}).get("workspace")
 
         # ---------------- leads → contacts/companies/activities
-        for lead in _rows(lconn, "SELECT * FROM leads ORDER BY id"):
+        for lead in _safe_rows("SELECT * FROM leads ORDER BY id", "leads table missing"):
             report["leads_seen"] += 1
             ws = ws_for(lead["workspace_name"])
             if ws is None:
@@ -207,7 +221,8 @@ def run_import(legacy_db_url: str, dry_run: bool = True, create_missing: bool = 
                     report["activities_created"] += 1
 
         # ---------------- opportunities → deals
-        for opp in _rows(lconn, "SELECT * FROM opportunities ORDER BY id"):
+        for opp in _safe_rows("SELECT * FROM opportunities ORDER BY id",
+                              "opportunities table missing — no deals to import"):
             ws = ws_for(opp["workspace_name"])
             if ws is None:
                 continue
