@@ -1,9 +1,10 @@
 {
-  "$schema": "https://railway.app/railway.schema.json",
-  "build": { "builder": "NIXPACKS" },
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS"
+  },
   "deploy": {
-    "startCommand": "python -m scripts.premigrate && python -m alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT",
-    "healthcheckPath": "/healthz",
+    "startCommand": "/opt/venv/bin/python -m app.workers.runner",
     "restartPolicyType": "ON_FAILURE"
   }
 }
