@@ -1,5 +1,18 @@
 # NEXT_STEPS — living document
 
+## ✅ Session 10 (2026-07-11) — password reset script
+
+Passwords are PBKDF2-hashed and unrecoverable (by design). If locked out:
+1. First check Railway web service → Variables → `ADMIN_PASSWORD` (the value
+   used at bootstrap is probably still correct).
+2. Otherwise reset from the Railway **web** service shell:
+   ```bash
+   /opt/venv/bin/python -m scripts.reset_password --email rosis_s@ascendly.one --generate
+   ```
+   It prints the new password once — store it in a password manager. Or pass
+   `--password "YourChosenPassword"` (min 12 chars) instead of `--generate`.
+   Also reactivates deactivated users; audit-logged.
+
 ## ✅ Session 9 (2026-07-10) — the RevCadence web UI
 
 React app (Vite, HashRouter) in `frontend/`, **served by the FastAPI web
