@@ -17,6 +17,13 @@ app = FastAPI(title=config.APP_NAME, version=config.VERSION)
 def _startup():
     init_db()
     print(f"[revcadence] DB backend: {engine.dialect.name.upper()}")
+    from .bootstrap import bootstrap_from_env
+    from .db import SessionLocal
+    db = SessionLocal()
+    try:
+        bootstrap_from_env(db)
+    finally:
+        db.close()
 
 
 @app.get("/healthz")

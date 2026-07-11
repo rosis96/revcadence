@@ -17,6 +17,29 @@ class LoginIn(BaseModel):
     password: str
 
 
+class BootstrapIn(BaseModel):
+    org: str = "RevCadence"
+    email: str
+    password: str
+    name: str = ""
+
+
+@router.post("/bootstrap")
+def bootstrap(body: BootstrapIn, db: Session = Depends(get_db)):
+    """One-time first-admin creation. Works ONLY while zero users exist —
+    permanently 403 afterwards. No token required (there is nobody to have one)."""
+    from ..bootstrap import create_first_admin, users_exist
+    if users_exist(db):
+        raise HTTPException(403, "Bootstrap disabled: users already exist")
+    if len(body.password) < 12:
+        raise HTTPException(422, "Password must be at least 12 characters")
+    try:
+        result = create_first_admin(db, body.org, body.email, body.password, body.name)
+    except RuntimeError as e:  # race: someone bootstrapped between check and write
+        raise HTTPException(403, str(e))
+    return {"ok": True, **result, "next": "POST /api/auth/login with these credentials"}
+
+
 @router.post("/login")
 def login(body: LoginIn, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == body.email.lower().strip(), User.active == True).first()  # noqa: E712

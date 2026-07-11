@@ -29,6 +29,22 @@ def auth(token):
 
 def main():
     init_db()
+
+    # ---------------- bootstrap deadlock fix: works ONLY on an empty users table
+    r = client.post("/api/auth/bootstrap", json={
+        "org": "Bootstrap Co", "email": "boot@x.com", "password": "a-long-password-123"})
+    check("bootstrap works when no users exist", r.status_code == 200 and r.json()["role"] == "owner", r.text)
+    r = client.post("/api/auth/login", json={"email": "boot@x.com", "password": "a-long-password-123"})
+    check("bootstrapped admin can log in", r.status_code == 200)
+    r = client.post("/api/auth/bootstrap", json={
+        "org": "Evil Co", "email": "evil@x.com", "password": "another-long-password"})
+    check("bootstrap permanently 403 once users exist", r.status_code == 403)
+
+    # deactivate the bootstrap user so the rest of the suite runs unchanged
+    with session() as db:
+        bu = db.query(User).filter(User.email == "boot@x.com").first()
+        bu.active = False
+
     # seed master org + owner directly
     with session() as db:
         org = Organization(name="Ascendly", slug="ascendly")

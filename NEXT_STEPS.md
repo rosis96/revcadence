@@ -1,5 +1,22 @@
 # NEXT_STEPS — living document
 
+## ✅ Session 6 (2026-07-10) — first-admin bootstrap (deadlock fix)
+
+Fresh deployments could never create the first admin (admin API needs a token,
+login needs a user). Fixed with two equivalent paths, both active ONLY while
+the users table is empty and permanently disabled afterwards:
+
+1. **Env vars (recommended for Railway):** set `ADMIN_EMAIL` + `ADMIN_PASSWORD`
+   (optional `ADMIN_NAME`, `ADMIN_ORG` — default "RevCadence") on the web
+   service → the owner is created automatically at startup. You can remove the
+   vars after first boot; they do nothing once a user exists.
+2. **One-time endpoint:** `POST /api/auth/bootstrap` {org, email, password
+   (min 12 chars), name} — hard-403 the moment any user exists.
+
+`scripts/seed.py` still works as a third option. Security unchanged after
+bootstrap: all admin endpoints still require an owner/admin token.
+Verified both paths + permanent lockout; 40/40 checks.
+
 ## ✅ Session 5 (2026-07-10) — migration accepted · gap audit · Enrichment Engine
 
 **Migration:** production Reply Manager data imported and accepted. Gap audit in
