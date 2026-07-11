@@ -1,5 +1,26 @@
 # NEXT_STEPS — living document
 
+## ✅ Session 8 (2026-07-10) — per-service Railway start commands
+
+`railway.json` no longer defines any startCommand or healthcheck (it kept
+overriding both services). The Procfile is deleted too (Nixpacks reads it and
+becomes a second source of start-command ambiguity). Start commands now live in
+per-service config files:
+
+- `railway.web.json` — premigrate → alembic upgrade → uvicorn, healthcheck /healthz
+- `railway.worker.json` — `python -m app.workers.runner`, NO healthcheck
+
+### Set once in Railway (after push)
+- **web service** → Settings → Config-as-code → set config file path to
+  `railway.web.json`
+- **worker service** → Settings → Config-as-code → set config file path to
+  `railway.worker.json` (then remove the manually pasted start command so the
+  file is the single source of truth)
+
+Alternative if you prefer no config-as-code: leave the file paths unset and put
+the two start commands in each service's Settings → Deploy → Start Command —
+the neutral `railway.json` no longer fights you either way.
+
 ## ✅ Session 7 (2026-07-10) — worker heartbeat + stuck-job diagnosis
 
 Jobs stayed `pending` because the worker service isn't processing the shared
