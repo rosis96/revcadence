@@ -116,12 +116,24 @@ def job_status(job_id: int, ctx: AuthContext = Depends(get_ctx)):
 # ---------------------------------------------------------------- record detail
 @router.get("/companies/{company_id}")
 def company_detail(company_id: int, ctx: AuthContext = Depends(get_ctx)):
+    from ..models.crm import Activity, Deal
     c = scoped(ctx.db.query(Company), Company, ctx).filter(Company.id == company_id).first()
     if not c:
         raise HTTPException(404, "Company not found")
+    contacts = ctx.db.query(Contact).filter(Contact.company_id == c.id).all()
+    deals = ctx.db.query(Deal).filter(Deal.company_id == c.id).all()
+    acts = (scoped(ctx.db.query(Activity), Activity, ctx)
+            .filter(Activity.company_id == c.id).order_by(Activity.occurred_at.desc()).limit(50).all())
     return {"id": c.id, "workspace_id": c.workspace_id, "name": c.name, "domain": c.domain,
             "website": c.website, "industry": c.industry, "location": c.location,
-            "icp_fit": c.icp_fit, "enrichment": c.enrichment or {}}
+            "icp_fit": c.icp_fit, "enrichment": c.enrichment or {},
+            "contacts": [{"id": p.id, "name": f"{p.first_name} {p.last_name}".strip(),
+                          "email": p.email, "title": p.title, "revenue_score": p.revenue_score}
+                         for p in contacts],
+            "deals": [{"id": d.id, "name": d.name, "value": d.value, "stage_id": d.stage_id}
+                      for d in deals],
+            "timeline": [{"id": a.id, "kind": a.kind, "title": a.title,
+                          "at": a.occurred_at.isoformat() if a.occurred_at else None} for a in acts]}
 
 
 @router.get("/contacts/{contact_id}")

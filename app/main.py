@@ -65,3 +65,23 @@ app.include_router(admin.router)
 app.include_router(crm.router)
 app.include_router(jobs.router)
 app.include_router(enrich.router)
+
+# ---------------------------------------------------------------- frontend
+# The React app (frontend/dist, committed) is served by this same service —
+# same origin as the API, so no CORS and no second Railway service.
+import os  # noqa: E402
+
+from fastapi.responses import FileResponse, RedirectResponse  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+
+_DIST = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
+if os.path.isdir(_DIST):
+    app.mount("/assets", StaticFiles(directory=os.path.join(_DIST, "assets")), name="assets")
+
+    @app.get("/", include_in_schema=False)
+    def _index():
+        return FileResponse(os.path.join(_DIST, "index.html"))
+else:
+    @app.get("/", include_in_schema=False)
+    def _index():
+        return RedirectResponse("/docs")
