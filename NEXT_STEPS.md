@@ -1,5 +1,39 @@
 # NEXT_STEPS — living document
 
+## ✅ Session 13 (2026-07-12) — enrichment gaps 1–6 closed · reply-port spec filed
+
+Enrichment now matches the reference dashboard (commit bb42a4f):
+- **Model split**: `EXTRACT_MODEL` (gpt-4o-mini) / `WRITER_MODEL`
+  (gpt-4.1-mini) / `COMPETITOR_MODEL` (gpt-4o-mini) — all env-switchable, no
+  code change to upgrade/revert the writer.
+- **Cost levers**: `EXTRACT_CONTENT_CHARS` (8000) / `WRITER_CONTENT_CHARS`
+  (6000) / `MAX_TOTAL_CONTENT_CHARS` (10000) / `ENRICH_MAX_PAGES` (4).
+- **Competitor finder**: select leads (or a whole view) → Find competitors →
+  3 real companies per lead (anti-fabrication enforced; never invents),
+  Competitors column with why-tooltips, `Top Competitors` in exports,
+  skips leads that already have results.
+- **Diagnostics**: `GET /api/enrich-lists/diag/dns` tells you definitively
+  whether the free MX layer is rejecting dead domains or failing open (run it
+  once on Railway after deploy); `/diag/email?e=…` tests one address.
+- **Only Safe** (default ON, per workspace, in Client Profile): catch-all /
+  unknown emails stop as `unsafe` and never spend writer tokens; turn it off
+  to enrich them anyway. Dead code removed.
+- **Sidebar**: the 3-button mode row is now a clean dropdown, matching the
+  workspace switcher.
+- Chips confirmed live full-list; select-all-in-view drives run / clear /
+  export / find-competitors. 40/40 checks.
+
+**Railway note:** no new required vars. Optional: `WRITER_MODEL`,
+`REOON_API_KEY`, and the content-budget vars above.
+
+## ▶ NEXT: the Reply Management port — docs/REPLY_PORT_SPEC.md
+
+The full gap inventory (engine, workspace config, review console, CRM
+enrichment, Ascendly Studio, cutover plan) is now committed as
+`docs/REPLY_PORT_SPEC.md` with a 7-step build order. It's a multi-session
+build touching live-inbox behavior — next session starts with step 1
+(workspace model + encrypted secrets + editor). Say "start the reply port".
+
 ## ✅ Session 12 (2026-07-12) — mode switcher + full enrichment port
 
 Read both uploaded handoffs (enrichment SYSTEM_HANDOFF + reply-manager
