@@ -1,0 +1,210 @@
+// Reply Management → Setup: edits THE current workspace's reply space (which is
+// auto-provisioned with the workspace — no "create" step). Full structured
+// editor: connection + AI + client profile + response types + follow-ups + rules.
+// This is the legacy reply-format editor, ported faithfully.
+import { useEffect, useState } from "react";
+import { api } from "../api";
+import { useAuth } from "../auth";
+import { Badge, ErrorBox, Spinner } from "../components";
+
+function Field({ label, children, hint }) {
+  return (
+    <div className="field">
+      <label>{label}</label>
+      {children}
+      {hint && <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 3 }}>{hint}</div>}
+    </div>
+  );
+}
+
+// ----- structured response types (Type id / intent / examples / template / rules / auto_send)
+function ResponseTypes({ items, onChange }) {
+  const set = (i, k, v) => onChange(items.map((t, j) => (j === i ? { ...t, [k]: v } : t)));
+  const add = () => onChange([...items, { id: "", intent: "", examples: [], template: "", rules: "", auto_send: false }]);
+  const remove = (i) => onChange(items.filter((_, j) => j !== i));
+  return (
+    <>
+      {items.map((t, i) => (
+        <div className="card" style={{ padding: 16, marginBottom: 12 }} key={i}>
+          <div style={{ display: "flex", gap: 12 }}>
+            <Field label="Type (id)"><input value={t.id} onChange={(e) => set(i, "id", e.target.value)} placeholder="simple_positive" /></Field>
+            <div className="field" style={{ minWidth: 200 }}>
+              <label>Auto-send?</label>
+              <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, marginTop: 4 }}>
+                <input type="checkbox" checked={!!t.auto_send} onChange={(e) => set(i, "auto_send", e.target.checked)} />
+                send automatically on a confident match
+              </label>
+            </div>
+          </div>
+          <Field label="When it applies (intent)"><input style={{ width: "100%" }} value={t.intent} onChange={(e) => set(i, "intent", e.target.value)} /></Field>
+          <Field label="Example replies (comma separated)">
+            <input style={{ width: "100%" }} value={(t.examples || []).join(", ")}
+                   onChange={(e) => set(i, "examples", e.target.value.split(",").map((x) => x.trim()).filter(Boolean))} /></Field>
+          <Field label="Response template"><textarea rows={5} style={{ width: "100%" }} value={t.template} onChange={(e) => set(i, "template", e.target.value)} /></Field>
+          <Field label="Rules / conditions (one per line)"><textarea rows={2} style={{ width: "100%" }} value={t.rules} onChange={(e) => set(i, "rules", e.target.value)} /></Field>
+          <div style={{ textAlign: "right" }}><button className="btn danger sm" onClick={() => remove(i)}>Remove</button></div>
+        </div>
+      ))}
+      <button className="btn ghost sm" onClick={add}>+ Add response type</button>
+    </>
+  );
+}
+
+// ----- follow-up formats FUP1..6 (Label / max_words / intent / template)
+function Followups({ items, onChange }) {
+  const set = (i, k, v) => onChange(items.map((t, j) => (j === i ? { ...t, [k]: v } : t)));
+  const add = () => onChange([...items, { label: `FUP ${items.length + 1}`, max_words: 100, intent: "", template: "" }]);
+  const remove = (i) => onChange(items.filter((_, j) => j !== i));
+  return (
+    <>
+      <p style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>
+        In send order. The 1st becomes followup_1, the 2nd followup_2, and so on.</p>
+      {items.map((t, i) => (
+        <div className="card" style={{ padding: 16, marginBottom: 12 }} key={i}>
+          <div style={{ display: "flex", gap: 12 }}>
+            <Field label="Label"><input value={t.label} onChange={(e) => set(i, "label", e.target.value)} /></Field>
+            <Field label="Max words"><input type="number" style={{ width: 100 }} value={t.max_words ?? ""} onChange={(e) => set(i, "max_words", Number(e.target.value) || null)} /></Field>
+          </div>
+          <Field label="Purpose (intent)"><input style={{ width: "100%" }} value={t.intent} onChange={(e) => set(i, "intent", e.target.value)} /></Field>
+          <Field label="Template"><textarea rows={4} style={{ width: "100%" }} value={t.template} onChange={(e) => set(i, "template", e.target.value)} /></Field>
+          <div style={{ textAlign: "right" }}><button className="btn danger sm" onClick={() => remove(i)}>Remove</button></div>
+        </div>
+      ))}
+      <button className="btn ghost sm" onClick={add}>+ Add follow-up</button>
+    </>
+  );
+}
+
+export default function ReplySetup() {
+  const { wsParam, me } = useAuth();
+  const wsId = wsParam || (!me.is_master ? me.workspaces[0]?.id : null);
+  const [w, setW] = useState(null);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [secrets, setSecrets] = useState({});
+  const [pasteJson, setPasteJson] = useState("");
+
+  useEffect(() => {
+    setW(null); setError("");
+    if (!wsId || !me.is_master) return;
+    api(`/api/reply/workspaces/for/${wsId}`).then(setW).catch((e) => setError(e.message));
+  }, [wsId]);
+
+  if (!me.is_master) return <ErrorBox msg="Master access required." />;
+  if (!wsId) return <ErrorBox msg="Pick a specific workspace (top-left) — reply setup is per client workspace." />;
+  if (error) return <ErrorBox msg={error} />;
+  if (!w) return <Spinner />;
+
+  const set = (k, v) => setW({ ...w, [k]: v });
+  const rf = w.reply_format || { response_types: [], followups: [] };
+  const setRf = (patch) => set("reply_format", { ...rf, ...patch });
+
+  const fillFromJson = () => {
+    try {
+      const p = JSON.parse(pasteJson);
+      setRf({ response_types: p.response_types || rf.response_types || [], followups: p.followups || rf.followups || [] });
+      setPasteJson("");
+    } catch (e) { alert("Invalid JSON: " + e.message); }
+  };
+
+  const save = async () => {
+    setBusy(true); setSaved(false);
+    try {
+      await api(`/api/reply/workspaces/${w.id}`, { method: "PUT", body: {
+        workspace_id: w.workspace_id, name: w.name, platform: w.platform, mode: w.mode,
+        active: w.active, base_url: w.base_url, reply_followup_campaign_id: w.reply_followup_campaign_id,
+        website: w.website, sender_name: w.sender_name, default_sender_email: w.default_sender_email,
+        calendly_scheduling_url: w.calendly_scheduling_url, ai_provider: w.ai_provider,
+        ai_fallback: w.ai_fallback, client_profile: w.client_profile, reply_format: w.reply_format,
+        ai_rules: w.ai_rules, reply_delay_seconds: w.reply_delay_seconds, ...secrets,
+      } });
+      setSaved(true); setSecrets({}); setTimeout(() => setSaved(false), 2500);
+    } catch (e) { alert(e.message); }
+    setBusy(false);
+  };
+
+  const secretField = (key, label, isSet) => (
+    <Field label={`${label}${isSet ? " · set" : ""}`} hint={isSet ? "leave blank to keep the current value" : ""}>
+      <input type="password" placeholder={isSet ? "••••••••" : ""} onChange={(e) => setSecrets({ ...secrets, [key]: e.target.value })} />
+    </Field>
+  );
+
+  return (
+    <div style={{ maxWidth: 900 }}>
+      <div className="toolbar">
+        <h1 style={{ fontSize: 18 }}>Reply Setup — {me.workspaces.find((x) => x.id === Number(wsId))?.name}</h1>
+        {w.active ? <Badge tone="green">active</Badge> : <Badge tone="amber">inactive</Badge>}
+        <div className="spacer" />
+        {saved && <span style={{ color: "var(--ok)", fontSize: 13 }}>Saved ✓</span>}
+        <button className="btn" disabled={busy} onClick={save}>{busy ? "Saving…" : "Save all"}</button>
+      </div>
+
+      <div className="card" style={{ padding: 18 }}>
+        <h2 style={{ fontSize: 14, marginBottom: 12 }}>Connection</h2>
+        <Field label="Reply-space name (must match webhook ?workspace_name= / ?reply_workspace=)">
+          <input style={{ width: "100%" }} value={w.name} onChange={(e) => set("name", e.target.value)} /></Field>
+        <div style={{ display: "flex", gap: 12 }}>
+          <Field label="Platform"><select value={w.platform} onChange={(e) => set("platform", e.target.value)}><option value="bison">Bison</option><option value="instantly">Instantly</option></select></Field>
+          <Field label="Mode"><select value={w.mode} onChange={(e) => set("mode", e.target.value)}><option value="reply">reply</option><option value="followup">followup</option></select></Field>
+          <Field label="Reply delay (seconds)"><input type="number" style={{ width: 110 }} value={w.reply_delay_seconds} onChange={(e) => set("reply_delay_seconds", Number(e.target.value))} /></Field>
+        </div>
+        <div style={{ display: "flex", gap: 12 }}>
+          {secretField("api_key", "API key", w.api_key_set)}
+          <Field label="Follow-up campaign ID"><input value={w.reply_followup_campaign_id} onChange={(e) => set("reply_followup_campaign_id", e.target.value)} /></Field>
+        </div>
+        {w.platform === "bison" && <Field label="Base URL (Bison)"><input style={{ width: "100%" }} value={w.base_url} onChange={(e) => set("base_url", e.target.value)} placeholder="https://send.ascendly.one" /></Field>}
+        <div style={{ display: "flex", gap: 12 }}>
+          <Field label="Sender name"><input value={w.sender_name} onChange={(e) => set("sender_name", e.target.value)} /></Field>
+          <Field label="Website (signature)"><input value={w.website} onChange={(e) => set("website", e.target.value)} /></Field>
+        </div>
+        <div style={{ display: "flex", gap: 12 }}>
+          {secretField("calendly_token", "Calendly token", w.calendly_token_set)}
+          <Field label="Calendly scheduling link"><input value={w.calendly_scheduling_url} onChange={(e) => set("calendly_scheduling_url", e.target.value)} /></Field>
+        </div>
+        <label style={{ display: "flex", gap: 8, fontSize: 13 }}>
+          <input type="checkbox" checked={w.active} onChange={(e) => set("active", e.target.checked)} /> Active (receives webhooks)</label>
+      </div>
+
+      <div className="card" style={{ padding: 18, marginTop: 14 }}>
+        <h2 style={{ fontSize: 14, marginBottom: 8 }}>AI model</h2>
+        <div style={{ display: "flex", gap: 12 }}>
+          <Field label="Provider"><select value={w.ai_provider} onChange={(e) => set("ai_provider", e.target.value)}><option value="openai">OpenAI</option><option value="gemini">Gemini</option></select></Field>
+        </div>
+        <label style={{ display: "flex", gap: 8, fontSize: 13 }}><input type="checkbox" checked={w.ai_fallback} onChange={(e) => set("ai_fallback", e.target.checked)} /> Auto-fallback to the other provider on failure</label>
+      </div>
+
+      <div className="card" style={{ padding: 18, marginTop: 14 }}>
+        <h2 style={{ fontSize: 14, marginBottom: 8 }}>Client profile (JSON)</h2>
+        <textarea rows={4} style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
+                  value={JSON.stringify(w.client_profile || {}, null, 2)}
+                  onChange={(e) => { try { set("client_profile", JSON.parse(e.target.value || "{}")); } catch { /* keep typing */ } }} />
+      </div>
+
+      <div className="section">
+        <div className="toolbar"><h2 style={{ margin: 0 }}>Response types</h2><div className="spacer" /></div>
+        <div className="card" style={{ padding: 12, marginBottom: 12 }}>
+          <label style={{ fontSize: 12.5, fontWeight: 600 }}>Paste full Reply Format JSON (auto-fills the sections below)</label>
+          <textarea rows={2} style={{ width: "100%", fontFamily: "monospace", fontSize: 12, marginTop: 4 }} value={pasteJson} onChange={(e) => setPasteJson(e.target.value)} placeholder='{"response_types":[...],"followups":[...]}' />
+          <button className="btn ghost sm" style={{ marginTop: 6 }} onClick={fillFromJson}>Fill sections from JSON</button>
+        </div>
+        <ResponseTypes items={rf.response_types || []} onChange={(v) => setRf({ response_types: v })} />
+      </div>
+
+      <div className="section">
+        <h2>Follow-up formats (FUP1–FUP6)</h2>
+        <Followups items={rf.followups || []} onChange={(v) => setRf({ followups: v })} />
+      </div>
+
+      <div className="card" style={{ padding: 18, marginTop: 14 }}>
+        <h2 style={{ fontSize: 14, marginBottom: 8 }}>AI Rules (one per line — injected into every prompt)</h2>
+        <textarea rows={5} style={{ width: "100%" }} value={w.ai_rules} onChange={(e) => set("ai_rules", e.target.value)} placeholder="Never propose meetings on Mondays." />
+      </div>
+
+      <div className="toolbar" style={{ marginTop: 16 }}>
+        <div className="spacer" />
+        <button className="btn" disabled={busy} onClick={save}>{busy ? "Saving…" : "Save all"}</button>
+      </div>
+    </div>
+  );
+}

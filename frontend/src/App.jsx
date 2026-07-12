@@ -16,6 +16,7 @@ import Blueprints from "./pages/Blueprints";
 import BlueprintDetail from "./pages/BlueprintDetail";
 import ActivityPage from "./pages/Activity";
 import ReplyInbox from "./pages/ReplyInbox";
+import ReplySetup from "./pages/ReplySetup";
 import ReplyWorkspaces from "./pages/ReplyWorkspaces";
 import InboundVisitors from "./pages/InboundVisitors";
 import EnrichDatabase from "./pages/EnrichDatabase";
@@ -42,7 +43,8 @@ const MODES = {
     label: "Reply Management", icon: "✉",
     nav: [
       ["/reply", "Inbox", "✉"],
-      ["/reply/workspaces", "Workspaces", "⚑"],
+      ["/reply/setup", "Setup", "⚙"],
+      ["/reply/workspaces", "Extra Channels", "⚑"],
     ],
   },
   inbound: {
@@ -172,6 +174,7 @@ function Protected() {
         <Route path="/enrichment/rules" element={<EnrichConfigPage tab="rules" />} />
         <Route path="/enrichment/companies" element={<Enrichment />} />
         <Route path="/reply" element={<ReplyInbox />} />
+        <Route path="/reply/setup" element={<ReplySetup />} />
         <Route path="/reply/workspaces" element={<ReplyWorkspaces />} />
         <Route path="/inbound" element={<InboundVisitors />} />
         <Route path="/blueprints" element={<Blueprints />} />

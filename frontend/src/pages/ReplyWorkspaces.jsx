@@ -102,17 +102,22 @@ function WorkspaceModal({ existing, workspaces, onClose, onDone }) {
 }
 
 export default function ReplyWorkspaces() {
-  const { me } = useAuth();
-  const { data, error, loading, reload } = useApi("/api/reply/workspaces");
+  const { me, wsParam } = useAuth();
+  const { data, error, loading, reload } = useApi("/api/reply/workspaces", { workspace_id: wsParam });
   const [modal, setModal] = useState(null);
   if (!me.is_master) return <ErrorBox msg="Master access required." />;
   const dup = async (id) => { try { await api(`/api/reply/workspaces/${id}/duplicate`, { method: "POST" }); reload(); } catch (e) { alert(e.message); } };
   return (
     <>
-      <div className="toolbar"><div className="spacer" /><button className="btn" onClick={() => setModal({})}>+ New reply workspace</button></div>
+      <div className="card" style={{ padding: 12, marginBottom: 14, fontSize: 12.5, color: "var(--muted)" }}>
+        Every client workspace already has its main reply space (edit it under <b>Setup</b>).
+        Add an <b>extra channel</b> here only when a client needs a second platform or a separate
+        follow-up space (e.g. a Bison main + an Instantly channel).
+      </div>
+      <div className="toolbar"><div className="spacer" /><button className="btn" onClick={() => setModal({})}>+ Add extra channel</button></div>
       {loading && <Spinner />}
       {error && <ErrorBox msg={error} retry={reload} />}
-      {data && data.length === 0 && <Empty icon="⚑" title="No reply workspaces" hint="Create one per client × platform. The name must match the webhook's ?workspace_name=." />}
+      {data && data.length === 0 && <Empty icon="⚑" title="No reply spaces here" hint="Pick a workspace top-left; its main reply space is under Setup." />}
       {data && data.length > 0 && (
         <table className="tbl">
           <thead><tr><th>Name</th><th>Platform</th><th>Mode</th><th>Keys</th><th>Active</th><th></th></tr></thead>

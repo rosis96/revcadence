@@ -22,6 +22,8 @@ def _startup():
     db = SessionLocal()
     try:
         bootstrap_from_env(db)
+        from .provision import backfill_all
+        backfill_all(db)  # existing workspaces gain any missing package pieces
     finally:
         db.close()
 

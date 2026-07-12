@@ -37,9 +37,10 @@ def create_workspace(body: WorkspaceIn, ctx: AuthContext = Depends(require_maste
     w = Workspace(org_id=ctx.org_id, name=body.name, slug=slug, legacy_name=body.legacy_name)
     ctx.db.add(w)
     ctx.db.flush()
-    # Seed the default pipeline for the new workspace
-    for name, color, order, won, lost in DEFAULT_STAGES:
-        ctx.db.add(Stage(workspace_id=w.id, name=name, color=color, sort_order=order, is_won=won, is_lost=lost))
+    # The workspace is a PACKAGE: pipeline + enrichment config + reply space
+    # are all provisioned together — no separate "create reply space" step.
+    from ..provision import provision_workspace
+    provision_workspace(ctx.db, w)
     ctx.db.add(AuditLog(org_id=ctx.org_id, workspace_id=w.id, user_id=ctx.user.id,
                         action="create_workspace", object_type="workspace", object_id=w.id))
     ctx.db.commit()

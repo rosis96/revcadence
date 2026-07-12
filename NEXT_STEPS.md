@@ -1,5 +1,31 @@
 # NEXT_STEPS — living document
 
+## ✅ Session 15 (2026-07-12) — workspace = package + structured reply editor
+
+**A workspace is now a package.** Creating a client workspace (e.g. Ascendly)
+auto-provisions its whole kit in one shot — CRM pipeline stages, enrichment
+config, AND a reply space named after it (inactive until you add the API key).
+No more "+ New reply workspace" from nothing. `app/provision.py` does this on
+create and backfills every existing workspace on startup, so Ascendly already
+has its reply space waiting.
+- Reply Management → **Setup** edits *that* workspace's own reply space
+  directly (no create step). Extra Channels is only for a rare 2nd platform.
+
+**Structured reply-format editor ported** (the section you built with heavy
+testing): response types with Type id · Auto-send toggle · When it applies
+(intent) · Example replies · Response template · Rules — plus Follow-up
+formats FUP1–FUP6 (Label · Max words · Purpose · Template). "Paste Format
+JSON → Fill sections" works like the legacy editor. Replaces the raw JSON box.
+
+Verified: package auto-provision (stages + enrich config + reply space),
+reply space fetchable with no create step, structured format round-trips,
+40/40 smoke.
+
+### Seed Ascendly's reply config (once, after deploy)
+Reply Management → pick Ascendly → Setup → paste your Client Profile JSON and
+your Reply Format JSON (response_types + followups) via "Paste Format JSON →
+Fill", add the API key + Base URL + Calendly, set Active, Save.
+
 ## ✅ Session 14 (2026-07-12) — correct IA + Reply Management module + enrichment parity
 
 **Fixed the structure you asked for.** The sidebar mode switch now has four

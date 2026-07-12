@@ -118,9 +118,38 @@ def _rws_out(w: ReplyWorkspace, reveal: bool = False):
 
 
 @router.get("/workspaces")
-def list_rws(ctx: AuthContext = Depends(require_master)):
-    rows = ctx.db.query(ReplyWorkspace).order_by(ReplyWorkspace.name).all()
-    return [_rws_out(w) for w in rows]
+def list_rws(workspace_id: int | None = None, ctx: AuthContext = Depends(require_master)):
+    q = ctx.db.query(ReplyWorkspace)
+    if workspace_id:
+        q = q.filter(ReplyWorkspace.workspace_id == workspace_id)
+    return [_rws_out(w) for w in q.order_by(ReplyWorkspace.name).all()]
+
+
+@router.get("/workspaces/for/{workspace_id}")
+def reply_space_for(workspace_id: int, ctx: AuthContext = Depends(require_master)):
+    """The workspace's default reply space — auto-provisioned, always exists.
+    This is what the Reply Management → Setup page edits (no 'create' step)."""
+    ctx.require_workspace(workspace_id)
+    w = (ctx.db.query(ReplyWorkspace)
+         .filter(ReplyWorkspace.workspace_id == workspace_id)
+         .order_by(ReplyWorkspace.id).first())
+    if not w:
+        # workspace predates provisioning — create its package piece now
+        from ..provision import provision_workspace
+        from ..models.identity import Workspace
+        provision_workspace(ctx.db, ctx.db.get(Workspace, workspace_id))
+        ctx.db.commit()
+        w = (ctx.db.query(ReplyWorkspace)
+             .filter(ReplyWorkspace.workspace_id == workspace_id).order_by(ReplyWorkspace.id).first())
+    return _rws_out(w)
+
+
+@router.get("/workspaces/{rws_id}")
+def get_rws(rws_id: int, ctx: AuthContext = Depends(require_master)):
+    w = ctx.db.get(ReplyWorkspace, rws_id)
+    if not w:
+        raise HTTPException(404, "Not found")
+    return _rws_out(w)
 
 
 @router.post("/workspaces")
