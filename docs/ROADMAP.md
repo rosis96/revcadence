@@ -86,6 +86,16 @@ follows up on the same thread.
   mailbox + preferences into the system automatically, with no post-onboarding
   asks.
 
+### Phase 4b — Unibox (unified inbox over the connected mailbox)  ·  ~1 session
+- `MailboxConnection` (per workspace: IMAP/SMTP host, user, encrypted app
+  password) + `mailbox_messages` (threaded, matched to contact/deal).
+- Worker job `sync_mailbox`: polls IMAP every few minutes, upserts messages
+  (idempotent by message-id), links to contacts by email.
+- Unibox page (CRM mode): threaded conversation list + reply box (sends via
+  SMTP in-thread). Reuses the reply engine's send path.
+- **Done when:** every email in the client's connected mailbox is visible and
+  replyable inside the CRM, in real time, per workspace.
+
 ### Phase 5 — Post-Meeting follow-up loop (Scenario 1 + 2)  ·  ~1–2 sessions
 - Scenario 2 (transcript-based): done by Phases 2–3 (we generate the proposal).
 - Scenario 1 (client's own proposal): upload a proposal doc → read every line
@@ -121,6 +131,27 @@ prospect effort). Auto-CC `sales@` on booking is an optional augmentation (so
 the client sees the full history), NOT the send mechanism. We do NOT rely on the
 prospect CC'ing anything, and we do NOT create mailboxes on domains we don't
 control — we automate the connection + everything after it.
+
+### Unibox — one mailbox connection powers both automation AND a human inbox
+Connecting the client's mailbox (app password: IMAP read + SMTP send) does two
+jobs at once:
+- **Unibox** (CRM section): the worker syncs every message (inbox + sent) into a
+  `mailbox_messages` table on a schedule, threaded and matched to the
+  contact/deal by email. A human sees all replies in real time, in context, and
+  can reply by hand.
+- **Automated sending**: the reply engine sends/replies from the same mailbox
+  in-thread.
+So the platform is automated-first with a human window over the exact same
+inbox — not either/or. Connection is set per workspace in Admin (belongs to that
+client, isolated like all data). Gmail needs 2FA + an app password.
+
+### Background automation — native jobs, not Make.com
+All background work (enrichment, follow-ups, mailbox sync, proposal reminders,
+the inbound 10-min SLA) runs on the native job queue + worker — reliable, no
+per-op cost, no external dependency. Make.com is kept only as an OPTIONAL escape
+hatch for gluing to tools we don't natively integrate (Slack ping, niche
+webhook); the outbound webhook infra for that already exists. Make is never core
+plumbing.
 
 ### Minimal client effort
 One intake form at onboarding captures everything (mailbox connection, ICP,
