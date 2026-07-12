@@ -4,7 +4,7 @@ import {
   LayoutGrid, ListChecks, Database, CircleUser, Target, AlignLeft, CheckCheck, FileText,
   Mail, Inbox, FlaskConical, Settings2, SlidersHorizontal, Flag, Globe, Rows3, Building2,
   Contact, Activity as ActivityIcon, Cog, Wrench, ShieldCheck, ChevronDown, MoreHorizontal,
-  LogOut, Search,
+  LogOut, Search, ClipboardList,
 } from "lucide-react";
 import { AuthProvider, useAuth } from "./auth";
 import { useApi } from "./components";
@@ -32,6 +32,8 @@ import EnrichDatabase from "./pages/EnrichDatabase";
 import Jobs from "./pages/Jobs";
 import Settings from "./pages/Settings";
 import Admin from "./pages/Admin";
+import Onboarding from "./pages/Onboarding";
+import OnboardingForm from "./pages/OnboardingForm";
 
 // MODES: the four sections. Pick a mode → the sidebar shows ONLY that section.
 // Master Dashboard + System are always present. Each section is self-contained.
@@ -70,6 +72,7 @@ const MODES = {
       ["/pipeline", "Pipeline", Rows3],
       ["/companies", "Companies", Building2],
       ["/contacts", "Contacts", Contact],
+      ["/onboarding", "Onboarding", ClipboardList],
       ["/activity", "Activity", ActivityIcon],
     ],
   },
@@ -221,6 +224,7 @@ function Protected() {
         <Route path="/inbound" element={<InboundVisitors />} />
         <Route path="/blueprints" element={<Blueprints />} />
         <Route path="/blueprints/:id" element={<BlueprintDetail />} />
+        <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/activity" element={<ActivityPage />} />
         <Route path="/jobs" element={<Jobs />} />
         <Route path="/settings" element={<Settings />} />
@@ -231,10 +235,26 @@ function Protected() {
   );
 }
 
-export default function App() {
+// Public routes render OUTSIDE the auth gate (the onboarding form the client fills).
+function Root() {
+  const hash = window.location.hash || "";
+  if (hash.startsWith("#/onboard/")) {
+    return (
+      <Routes>
+        <Route path="/onboard/:token" element={<OnboardingForm />} />
+        <Route path="*" element={<OnboardingForm />} />
+      </Routes>
+    );
+  }
   return (
     <AuthProvider>
-      <HashRouter><Protected /></HashRouter>
+      <Protected />
     </AuthProvider>
+  );
+}
+
+export default function App() {
+  return (
+    <HashRouter><Root /></HashRouter>
   );
 }
