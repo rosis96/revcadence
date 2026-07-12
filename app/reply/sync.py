@@ -91,6 +91,47 @@ def sync_reply_lead_to_crm(db, lead, queue_enrich: bool = True) -> dict:
             "company_id": company.id if company else None, "created": False}
 
 
+def is_interested(lead) -> bool:
+    """Any engaged reply worth a pipeline opportunity: it reached a workspace and
+    was NOT stopped (unsubscribe / OOO / wrong-person / auto-reply become
+    action='stop' and are excluded). Everything else is a real inbound
+    opportunity — that is exactly what the user wants synced."""
+    if lead.action in ("stop", "error"):
+        return False
+    if (lead.intent or "").lower() in ("unrouted", "already_handled"):
+        return False
+    return True
+
+
+def sync_interested_to_opportunity(db, lead) -> dict:
+    """Every interested reply → a CRM deal in the 'Opportunity' stage (deduped by
+    contact). Never downgrades a deal that's already further along."""
+    from ..models.crm import Activity, Deal, Stage
+
+    if not lead.workspace_id or not is_interested(lead):
+        return {"skipped": "not interested"}
+    synced = sync_reply_lead_to_crm(db, lead, queue_enrich=False)
+    cid = synced.get("contact_id")
+    if not cid:
+        return {"skipped": "no contact"}
+    existing = db.query(Deal).filter(Deal.workspace_id == lead.workspace_id,
+                                     Deal.contact_id == cid).first()
+    if existing:
+        return {"deal_id": existing.id, "existed": True}
+    opp = db.query(Stage).filter(Stage.workspace_id == lead.workspace_id,
+                                 Stage.name == "Opportunity").order_by(Stage.sort_order).first()
+    deal = Deal(workspace_id=lead.workspace_id,
+                name=f"{lead.company or lead.name or lead.email} — opportunity",
+                contact_id=cid, company_id=synced.get("company_id"),
+                stage_id=opp.id if opp else None, lead_intent=lead.intent, source="reply")
+    db.add(deal)
+    db.flush()
+    db.add(Activity(workspace_id=lead.workspace_id, deal_id=deal.id, contact_id=cid,
+                    kind="deal_created", title="Opportunity from interested reply",
+                    data={"reply_lead_id": lead.id, "intent": lead.intent}))
+    return {"deal_id": deal.id, "created": True}
+
+
 def sync_booked_to_deal(db, lead) -> dict:
     """When a reply lead is marked booked, create/update a CRM deal in the
     'Meeting Booked' stage, linked to the synced contact/company (legacy

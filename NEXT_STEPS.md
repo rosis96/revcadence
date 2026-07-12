@@ -1,5 +1,34 @@
 # NEXT_STEPS — living document
 
+## ✅ Session 17 (2026-07-12) — interested→Opportunity + legacy reply import
+
+- **Every interested reply auto-syncs to an Opportunity deal.** Any inbound
+  reply that isn't a stop (unsubscribe / OOO / wrong-person / auto-reply →
+  action='stop', excluded) creates a CRM deal in the **Opportunity** stage,
+  deduped by contact. Marking it booked upgrades the SAME deal to Meeting
+  Booked (no duplicate). Verified.
+- **Legacy reply import**: `scripts/import_reply_leads.py` brings the old
+  Reply Manager `leads` table into RevCadence exactly as it was (intent,
+  confidence, action, reply, follow-ups, thread, lead_data, stage), resolving
+  each workspace via the reply_manager aliases, and syncs every lead into the
+  CRM (contact/company + Opportunity/Meeting-Booked deal). Read-only on legacy,
+  idempotent (dedupe_key), dry-run by default.
+
+### Import your old replies (after the reply workspaces + aliases exist)
+Railway web shell:
+```
+/opt/venv/bin/python -m scripts.import_reply_leads --legacy-db-url "<old reply-manager PUBLIC Postgres URL>"   # dry run
+/opt/venv/bin/python -m scripts.import_reply_leads --legacy-db-url "..." --apply
+```
+Prereq: create the Ascendly reply workspace (Setup) and its
+`reply_manager` alias for the legacy `workspace_name` (Admin → aliases), same
+as the CRM import. The dry run reports any `unmapped` names to fix first.
+
+### On the Companies section
+It's the CRM "accounts" object — groups contacts + deals under one business and
+holds enrichment firmographics (industry, ICP fit, website). Kept; say the word
+to hide it from the CRM nav.
+
 ## ✅ Session 16 (2026-07-12) — reply management parity (one-to-one audit)
 
 Read the legacy code + the "reply management system" build session; audit in
