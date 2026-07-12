@@ -84,6 +84,7 @@ export default function ReplySetup() {
   const [busy, setBusy] = useState(false);
   const [secrets, setSecrets] = useState({});
   const [pasteJson, setPasteJson] = useState("");
+  const [calResult, setCalResult] = useState(null);
 
   useEffect(() => {
     setW(null); setError("");
@@ -97,6 +98,11 @@ export default function ReplySetup() {
   if (!w) return <Spinner />;
 
   const set = (k, v) => setW({ ...w, [k]: v });
+  const checkCalendly = async () => {
+    setCalResult(null);
+    try { setCalResult(await api(`/api/reply/workspaces/${w.id}/calendly-probe`)); }
+    catch (e) { setCalResult({ ok: false, error: e.message }); }
+  };
   const rf = w.reply_format || { response_types: [], followups: [] };
   const setRf = (patch) => set("reply_format", { ...rf, ...patch });
 
@@ -163,6 +169,18 @@ export default function ReplySetup() {
           {secretField("calendly_token", "Calendly token", w.calendly_token_set)}
           <Field label="Calendly scheduling link"><input value={w.calendly_scheduling_url} onChange={(e) => set("calendly_scheduling_url", e.target.value)} /></Field>
         </div>
+        <button type="button" className="btn ghost sm" onClick={checkCalendly}>
+          Check Calendly availability →</button>
+        {calResult && (
+          <div className={calResult.ok ? "card" : "error-box"}
+               style={{ marginTop: 8, padding: 10, fontSize: 12.5, ...(calResult.ok ? {} : {}) }}>
+            {calResult.ok ? (
+              <>Event type <b>{calResult.event_type_slug}</b> · sample times:{" "}
+                {calResult.sample_slots.length ? calResult.sample_slots.join(" · ") : "none in the next week"}
+                <div style={{ color: "var(--muted)", marginTop: 4 }}>{calResult.note}</div></>
+            ) : calResult.error}
+          </div>
+        )}
         <label style={{ display: "flex", gap: 8, fontSize: 13 }}>
           <input type="checkbox" checked={w.active} onChange={(e) => set("active", e.target.checked)} /> Active (receives webhooks)</label>
       </div>

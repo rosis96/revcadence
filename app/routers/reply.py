@@ -16,9 +16,17 @@ router = APIRouter(prefix="/api/reply", tags=["reply-management"])
 
 # ================================================================ webhooks (no auth — platform-called)
 def _enqueue(db, rws_name: str, workspace_id, platform: str, payload: dict, flow: str):
+    # Reply-delay parity: schedule the job `reply_delay_seconds` in the future
+    # (legacy behavior). The worker only claims jobs whose run_at has passed.
+    from datetime import datetime, timedelta
+    delay = 0
+    rws = db.query(ReplyWorkspace).filter(ReplyWorkspace.name == rws_name).first() if rws_name else None
+    if rws and rws.reply_delay_seconds:
+        delay = max(0, int(rws.reply_delay_seconds))
     j = Job(kind="process_reply", workspace_id=workspace_id,
             payload={"reply_workspace": rws_name, "platform": platform,
-                     "flow": flow, "webhook": payload})
+                     "flow": flow, "webhook": payload},
+            run_at=datetime.utcnow() + timedelta(seconds=delay))
     db.add(j)
     db.commit()
     return j.id
@@ -162,6 +170,18 @@ def get_rws(rws_id: int, ctx: AuthContext = Depends(require_master)):
     if not w:
         raise HTTPException(404, "Not found")
     return _rws_out(w)
+
+
+@router.get("/workspaces/{rws_id}/calendly-probe")
+def calendly_probe(rws_id: int, ctx: AuthContext = Depends(require_master)):
+    """'Check Calendly availability' — shows what the system reads and would
+    propose (event type + sample real slots), or the exact error."""
+    from ..reply.calendly import probe
+    w = ctx.db.get(ReplyWorkspace, rws_id)
+    if not w:
+        raise HTTPException(404, "Not found")
+    ctx.require_workspace(w.workspace_id)
+    return probe(w)
 
 
 @router.post("/workspaces")

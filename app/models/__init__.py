@@ -4,5 +4,5 @@ from .jobs import Job, Heartbeat  # noqa: F401
 from .audit import AuditLog  # noqa: F401
 from .documents import Document  # noqa: F401
 from .enrich import EnrichList, EnrichLead, EnrichConfig  # noqa: F401
-from .reply import ReplyWorkspace, ReplyLead  # noqa: F401
+from .reply import ReplyWorkspace, ReplyLead, ProposedSlot  # noqa: F401
 from .settings import AppSetting  # noqa: F401

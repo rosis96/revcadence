@@ -42,6 +42,21 @@ class ReplyWorkspace(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class ProposedSlot(Base):
+    """Anti-double-booking: every Calendly time we propose to a prospect is
+    reserved here (unique by workspace + slot), so the same open slot is never
+    pitched to two prospects. Past slots are pruned. Legacy proposed_slots."""
+    __tablename__ = "proposed_slots"
+
+    id = Column(Integer, primary_key=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), index=True)
+    reply_workspace = Column(String(255), default="", index=True)
+    prospect = Column(String(255), default="")     # email or lead id
+    slot_utc = Column(String(40), default="", index=True)  # ISO-8601 UTC (the unique key)
+    label = Column(Text, default="")               # human label we showed
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class ReplyLead(Base):
     """One row per processed reply (legacy `leads` table)."""
     __tablename__ = "reply_leads"

@@ -217,8 +217,20 @@ def process_reply_job(db, job):
     lead.thread = thread
     lead.send_meta = send_meta
 
+    # Calendly scheduling context (real open times, prospect TZ, reserved so no
+    # two prospects get the same slot). Graceful "" when no token / error.
+    sched = ""
+    try:
+        from ..reply.calendly import build_scheduling_context
+        location = str((lead.lead_data or {}).get("location") or
+                       (data.get("location") if isinstance(data, dict) else "") or "")
+        sched = build_scheduling_context(db, rws, location, prospect_key=email, mode=flow)
+    except Exception:
+        sched = ""
+
     # generate + decide
-    ai = E.call_llm(*E.build_reply_prompt(rws, thread), E.build_ai_cfg(rws))
+    prompt, system = E.build_reply_prompt(rws, thread, scheduling_context=sched)
+    ai = E.call_llm(prompt, system, E.build_ai_cfg(rws))
     lead.intent = str(ai.get("intent", ""))
     lead.confidence = str(ai.get("confidence", ""))
     lead.main_reply = str(ai.get("main_reply", ""))
