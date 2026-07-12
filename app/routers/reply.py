@@ -240,11 +240,15 @@ def duplicate_rws(rws_id: int, ctx: AuthContext = Depends(require_master)):
 
 # ================================================================ leads console
 @router.get("/leads")
-def reply_leads(status: str = "", q: str = "", page: int = 1, ctx: AuthContext = Depends(get_ctx)):
-    ws_ids = ctx.allowed_workspace_ids()
+def reply_leads(status: str = "", q: str = "", page: int = 1, workspace_id: int | None = None,
+                ctx: AuthContext = Depends(get_ctx)):
+    # Honor the workspace selector: a specific workspace shows ONLY its leads.
+    # "All workspaces" (workspace_id omitted) shows the master rollup + Unrouted.
+    ws_ids = ctx.workspace_ids_for_query(workspace_id)
+    show_unrouted = ctx.is_master and workspace_id is None
     base = ctx.db.query(ReplyLead).filter(
         (ReplyLead.workspace_id.in_(ws_ids)) |
-        (ReplyLead.workspace_id.is_(None) if ctx.is_master else False))
+        (ReplyLead.workspace_id.is_(None) if show_unrouted else False))
     if q:
         like = f"%{q}%"
         base = base.filter((ReplyLead.email.ilike(like)) | (ReplyLead.name.ilike(like))

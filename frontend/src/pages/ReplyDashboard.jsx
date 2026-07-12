@@ -2,6 +2,7 @@
 // activity, mirroring the legacy Studio dashboard.
 import { useNavigate } from "react-router-dom";
 import { timeAgo } from "../api";
+import { useAuth } from "../auth";
 import { Badge, Empty, ErrorBox, Spinner, useApi } from "../components";
 
 const STAT = [
@@ -15,7 +16,8 @@ const actionTone = (a) => a === "stop" ? "red" : a === "would_send" ? "amber" : 
 
 export default function ReplyDashboard() {
   const nav = useNavigate();
-  const { data, error, loading, reload } = useApi("/api/reply/leads", { status: "" });
+  const { wsParam } = useAuth();
+  const { data, error, loading, reload } = useApi("/api/reply/leads", { status: "", workspace_id: wsParam });
   if (loading) return <Spinner />;
   if (error) return <ErrorBox msg={error} retry={reload} />;
   const c = data.counts;

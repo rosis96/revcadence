@@ -2,6 +2,7 @@
 // editable draft + Approve & Send). Its OWN section — nothing else shown.
 import { useState } from "react";  // eslint-disable-line
 import { api, timeAgo } from "../api";
+import { useAuth } from "../auth";
 import { Badge, Drawer, Empty, ErrorBox, Spinner, useApi } from "../components";
 
 const CHIPS = [["", "All"], ["needs_review", "Needs Review"], ["replied", "Replied"],
@@ -73,9 +74,10 @@ function LeadDrawer({ id, onClose, onChanged }) {
 
 export default function ReplyInbox() {
   const params = new URLSearchParams(window.location.hash.split("?")[1] || "");
+  const { wsParam } = useAuth();
   const [status, setStatus] = useState(params.get("status") ?? "needs_review");
   const [open, setOpen] = useState(params.get("open") ? Number(params.get("open")) : null);
-  const { data, error, loading, reload } = useApi("/api/reply/leads", { status });
+  const { data, error, loading, reload } = useApi("/api/reply/leads", { status, workspace_id: wsParam });
   return (
     <>
       <div className="chips">
