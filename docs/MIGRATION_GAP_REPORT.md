@@ -31,6 +31,47 @@ _Date: 2026-07-10. Based on direct inspection of the legacy schema (db.py:
 | Other: Calendly slot reservations | YES | `proposed_slots` | NO | **Deprecate** — operational/ephemeral. |
 | Other: dashboard auth/session | YES | env password | NO | **Deprecated** — replaced by RevCadence users/roles. |
 
+## 2b. Re-sweep addendum (2026-07-12) — full folder re-check
+
+**Blueprint folder (`agreement and blueprint`):**
+- The "reply management thing" is documentation, not code: `DEPLOYMENT_STEPS.md`
+  covers deploying the reply-manager repo, and the portals README describes the
+  Service API the Reply Manager consumes. Nothing to migrate from those.
+- ⚠ **Nested duplicate repo** `ascendly-client-portals/ascendly-client-portals/`
+  is an OLD copy — but it's the only place in git holding `shimahara.json` +
+  `shimahara.blueprint.html`. The live repo's `clients/` has only `_example` and
+  `zulu-landscaping`. Conclusion: **production client JSONs live on the Railway
+  volume, not in git** — `import_portals.py` must read the live Service API
+  (as planned), never the git folders. Delete the nested duplicate after that
+  migration is verified.
+- Loose top-level HTML (shimahara/cleo/revenue blueprints) = generated
+  artifacts; superseded once portals data migrates.
+
+**Reply management folder:**
+- `reply_formats/*.json` (7) + `client_profiles/*.json` (4) + `config.json` are
+  the file-based seeds of what now lives in the DB `workspaces` columns —
+  `config.json` is superseded, but the reply_formats JSONs are the canonical
+  input for the reply-module port (schema contract: `REPLY_FORMAT_SCHEMA.md`).
+- `logs/` (processed_replies, sent payloads) — operational debris, ignore.
+
+**Enrichment folder — new finds that matter:**
+- ⚠ **There IS a production enrichment database** (Railway Postgres, previously
+  Neon — see `enrichment-dashboard/migrate_from_neon.py`): workspaces, lists,
+  ~69k leads with enrichment results, custom variables, correction rules,
+  live at enrichment.ascendly.one. The earlier "don't migrate enrichment
+  history" decision stands, BUT the **custom variables, formats, and rules** in
+  that DB are configuration, not history — they must be exported when building
+  the Clay-grid in RevCadence (revising the §2 'enrichment' row: config =
+  migrate, lead history = leave).
+- `variable_sets/*.json` (8, incl. backups) — per-client personalization
+  variable definitions; direct input for the Clay-grid port.
+- `intelligence/examples/revcadence_full.json` — a complete Intelligence
+  Workspace config written for RevCadence itself; use it as the seed config
+  when the intelligence engine is built.
+- `workspace_config_template.json` — the profile+variables template.
+- `run_backup_before_followup_linebreak_fix.py`, `.bak` files, 64k-file cache,
+  leads.csv, Result-*.numbers — delete/gitignore (already in audit §5).
+
 ## 3. Bottom line
 
 Every *record* type (leads, deals, stages, threads) is migrated. Every

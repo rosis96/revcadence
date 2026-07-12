@@ -16,6 +16,18 @@ Shipped from your feedback:
   optional auto-enrich of every row) and Export CSV (campaign-ready file with
   enrichment columns — upload straight to Instantly/Bison).
 
+## 🔎 Re-sweep of legacy folders (2026-07-12) — see MIGRATION_GAP_REPORT §2b
+
+Nothing lost, three things now on the record:
+1. Portals production client JSONs live on the **Railway volume, not git** —
+   the blueprint repo's git copies are stale (shimahara only exists in an old
+   nested duplicate). `import_portals.py` must use the live Service API.
+2. The enrichment dashboard has a **live production DB** (~69k leads at
+   enrichment.ascendly.one). Its custom variables / formats / rules are config
+   and must be exported into the RevCadence Clay-grid build; lead history stays.
+3. `intelligence/examples/revcadence_full.json` + `variable_sets/*.json` are
+   ready-made seed configs for the Clay-grid and intelligence engine builds.
+
 ## ▶ The three big builds you asked for (in order — next sessions)
 
 1. **Reply module port (Inbound completeness).** Bring reply formats, response
