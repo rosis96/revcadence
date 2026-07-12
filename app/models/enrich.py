@@ -46,6 +46,7 @@ class EnrichLead(Base):
 
     title_status = Column(String(20), default="")   # pass | rejected
     industry = Column(String(255), default="")
+    esp = Column(String(20), default="")            # Microsoft | Google | Other (MX-based)
     icp_decision = Column(String(40), default="", index=True)  # ICP | Non-ICP | Needs Review
     icp_score = Column(Integer)
     icp_reason = Column(Text, default="")

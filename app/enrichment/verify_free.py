@@ -31,6 +31,21 @@ _cache: dict = {}
 _lock = threading.Lock()
 
 
+_mx_hosts: dict = {}  # domain → lowercase MX host string (for ESP detection)
+
+
+def esp_for(domain: str) -> str:
+    """Email provider from MX host (legacy esp.py): Microsoft / Google / Other."""
+    hosts = _mx_hosts.get(domain, "")
+    if not hosts:
+        return ""
+    if "outlook" in hosts or "microsoft" in hosts or "office365" in hosts:
+        return "Microsoft"
+    if "google" in hosts or "googlemail" in hosts:
+        return "Google"
+    return "Other"
+
+
 def _doh_mx(domain: str):
     """DNS-over-HTTPS MX lookup (port 443 works where raw :53 is blocked).
     True = MX exists, False = definitively none, None = couldn't determine."""
@@ -45,6 +60,8 @@ def _doh_mx(domain: str):
                 return False
             if j.get("Status") == 0:
                 if j.get("Answer"):
+                    _mx_hosts[domain] = " ".join(str(a.get("data", "")).lower()
+                                                 for a in j.get("Answer", []))
                     return True
                 # no MX record: try A (implicit MX fallback per RFC)
                 r2 = requests.get(host, params={"name": domain, "type": "A"},

@@ -1,5 +1,61 @@
 # NEXT_STEPS — living document
 
+## ✅ Session 14 (2026-07-12) — correct IA + Reply Management module + enrichment parity
+
+**Fixed the structure you asked for.** The sidebar mode switch now has four
+self-contained sections (dropdown), each showing ONLY its own screens:
+- **Outbound**: Lists · Database · Client Profile · ICP/Non-ICP · Formats ·
+  Rules · Blueprints
+- **Reply Management**: Inbox (review console) · Workspaces
+- **Inbound (Visitors)**: website-visitor capture ONLY — no reply data
+- **CRM**: Pipeline · Companies · Contacts · Activity
+- **Master Dashboard** (always on): one rollup across all four sections.
+
+**Reply Management module built** (was entirely missing):
+- ReplyWorkspace model with **secrets encrypted at rest** (app/crypto.py) —
+  API keys / Calendly tokens are Fernet-encrypted; the editor is write-only.
+- Webhooks `POST /api/reply/webhooks/bison` and `/instantly` with faithful
+  routing incl. **strict isolation** (unmatched → "Unrouted", never another
+  workspace).
+- Engine port: decision logic (send/skip_enrich/stop, stop-intents never
+  drafted), per-workspace AI provider + fallback, JSON-tolerant parsing,
+  exactly-one-signature, follow-up loop guard, Bison variable-merge (no
+  wiping), Instantly reply-to-prospect threading.
+- **AUTO_SEND kill-switch**: auto-send is OFF until `AUTO_SEND_ENABLED=1`;
+  until then every would-be auto-send lands in Needs Review as `would_send`.
+  This lets you point real webhooks at RevCadence with zero send risk.
+- Review console (Inbox): Needs Review / Replied / Booked / Stopped, drawer
+  with editable draft + **Approve & Send** (both platforms), mark booked,
+  follow-ups. Workspaces page: full config editor + duplicate.
+
+**Enrichment parity gaps closed**: ICP/Non-ICP as its own structured-JSON
+section (procedure/categories/hard_non_icp/default parsed into the prompt),
+output-variable selection (choose which variables to write), ESP column
+(Microsoft/Google/Other from MX), Database view (all leads across lists,
+filterable), split-by-industry tool.
+
+Verified: engine guards (stop-intent, dedupe, isolation, kill-switch,
+encrypted-at-rest), master dashboard aggregation, 40/40 smoke checks, build.
+
+### Railway env to add (all optional/safe)
+- Reply: `AUTO_SEND_ENABLED=1` ONLY when you're ready to let it auto-send
+  (leave unset to keep everything in Needs Review). `REPLY_OPENAI_MODEL`
+  (default gpt-4.1), `GEMINI_API_KEY` if using Gemini.
+- Inbound: `INBOUND_WEBHOOK_KEY` (any random string) to enable the visitor
+  webhook.
+
+### Reply webhooks (point your platforms here after deploy)
+- Bison: `https://<app>/api/reply/webhooks/bison?reply_workspace=<name>&fup_workspace=<name>`
+- Instantly (per account): `https://<app>/api/reply/webhooks/instantly?workspace_name=<name>`
+- Create the matching reply workspaces first (Reply Management → Workspaces),
+  names must match the `?workspace_name=` / `?reply_workspace=` params.
+
+### Still to port (next sessions, from REPLY_PORT_SPEC.md)
+Calendly scheduling + anti-double-booking + diagnostic page (GAP A.6),
+CRM-enrichment-from-payload + booked sync (GAP D), Ascendly Studio /
+revenue module (GAP E), cutover migration (GAP F). Test-thread sandbox (GAP C)
+for validating decisions on real threads before enabling auto-send.
+
 ## ✅ Session 13 (2026-07-12) — enrichment gaps 1–6 closed · reply-port spec filed
 
 Enrichment now matches the reference dashboard (commit bb42a4f):

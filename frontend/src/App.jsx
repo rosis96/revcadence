@@ -15,29 +15,40 @@ import EnrichConfigPage from "./pages/EnrichConfig";
 import Blueprints from "./pages/Blueprints";
 import BlueprintDetail from "./pages/BlueprintDetail";
 import ActivityPage from "./pages/Activity";
-import Replies from "./pages/Replies";
+import ReplyInbox from "./pages/ReplyInbox";
+import ReplyWorkspaces from "./pages/ReplyWorkspaces";
+import InboundVisitors from "./pages/InboundVisitors";
+import EnrichDatabase from "./pages/EnrichDatabase";
 import Jobs from "./pages/Jobs";
 import Settings from "./pages/Settings";
 import Admin from "./pages/Admin";
 
-// MODES: like the workspace switcher, but for the *kind of work* — pick a
-// mode and the sidebar shows ONLY that mode's navigation.
+// MODES: the four sections. Pick a mode → the sidebar shows ONLY that section.
+// Master Dashboard + System are always present. Each section is self-contained.
 const MODES = {
   outbound: {
     label: "Outbound", icon: "✦",
     nav: [
       ["/enrichment", "Lists", "▦"],
+      ["/enrichment/database", "Database", "▤"],
       ["/enrichment/profile", "Client Profile", "◐"],
+      ["/enrichment/icp", "ICP / Non-ICP", "◎"],
       ["/enrichment/formats", "Formats", "≡"],
       ["/enrichment/rules", "Rules", "✓"],
-      ["/blueprints", "Blueprints", "▤"],
+      ["/blueprints", "Blueprints", "▧"],
+    ],
+  },
+  reply: {
+    label: "Reply Management", icon: "✉",
+    nav: [
+      ["/reply", "Inbox", "✉"],
+      ["/reply/workspaces", "Workspaces", "⚑"],
     ],
   },
   inbound: {
-    label: "Inbound", icon: "✉",
+    label: "Inbound (Visitors)", icon: "◍",
     nav: [
-      ["/replies", "Replies", "✉"],
-      ["/activity", "Activity", "↺"],
+      ["/inbound", "Website Visitors", "◍"],
     ],
   },
   crm: {
@@ -50,7 +61,7 @@ const MODES = {
     ],
   },
 };
-const COMMON_NAV = [["/", "Dashboard", "▦"]];
+const COMMON_NAV = [["/", "Master Dashboard", "▦"]];
 const SYSTEM_NAV = [["/jobs", "Jobs", "⚙"], ["/settings", "Settings", "⚒"]];
 const NAV = [...COMMON_NAV, ...Object.values(MODES).flatMap((m) => m.nav), ...SYSTEM_NAV];
 
@@ -154,14 +165,18 @@ function Protected() {
         <Route path="/contacts" element={<Contacts />} />
         <Route path="/enrichment" element={<EnrichLists />} />
         <Route path="/enrichment/lists/:id" element={<EnrichListDetail />} />
+        <Route path="/enrichment/database" element={<EnrichDatabase />} />
         <Route path="/enrichment/profile" element={<EnrichConfigPage tab="profile" />} />
+        <Route path="/enrichment/icp" element={<EnrichConfigPage tab="icp" />} />
         <Route path="/enrichment/formats" element={<EnrichConfigPage tab="formats" />} />
         <Route path="/enrichment/rules" element={<EnrichConfigPage tab="rules" />} />
         <Route path="/enrichment/companies" element={<Enrichment />} />
+        <Route path="/reply" element={<ReplyInbox />} />
+        <Route path="/reply/workspaces" element={<ReplyWorkspaces />} />
+        <Route path="/inbound" element={<InboundVisitors />} />
         <Route path="/blueprints" element={<Blueprints />} />
         <Route path="/blueprints/:id" element={<BlueprintDetail />} />
         <Route path="/activity" element={<ActivityPage />} />
-        <Route path="/replies" element={<Replies />} />
         <Route path="/jobs" element={<Jobs />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/admin" element={<Admin />} />

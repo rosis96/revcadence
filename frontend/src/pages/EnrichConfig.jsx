@@ -79,12 +79,7 @@ export default function EnrichConfigPage({ tab }) {
             ))}
           </div>
           <div className="card" style={{ padding: 18, marginTop: 14 }}>
-            <h2 style={{ fontSize: 15, marginBottom: 4 }}>ICP definition (single source of truth)</h2>
-            <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 10 }}>
-              The fit decision is grounded ONLY in this text. Be explicit about who is ICP and who is not.</p>
-            <textarea rows={7} style={{ width: "100%" }} value={cfg.icp_definition}
-                      onChange={(e) => setCfg({ ...cfg, icp_definition: e.target.value })} />
-            <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10, fontSize: 13 }}>
+            <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
               <input type="checkbox" checked={cfg.skip_title_gate}
                      onChange={(e) => setCfg({ ...cfg, skip_title_gate: e.target.checked })} />
               Skip title gate (run ICP on every title, not just senior decision-makers)
@@ -97,8 +92,28 @@ export default function EnrichConfigPage({ tab }) {
           </div>
           <div className="toolbar" style={{ marginTop: 14 }}>
             <button className="btn" disabled={busy}
-                    onClick={() => save({ profile: cfg.profile, icp_definition: cfg.icp_definition, skip_title_gate: cfg.skip_title_gate, only_safe: cfg.only_safe })}>
+                    onClick={() => save({ profile: cfg.profile, skip_title_gate: cfg.skip_title_gate, only_safe: cfg.only_safe })}>
               Save profile</button>
+          </div>
+        </>
+      )}
+
+      {tab === "icp" && (
+        <>
+          <div className="card" style={{ padding: 18 }}>
+            <h2 style={{ fontSize: 15, marginBottom: 4 }}>ICP / Non-ICP — the single ICP brain</h2>
+            <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 10 }}>
+              Drives the engine's strict ICP review for both classification and enrichment. Paste
+              the ICP JSON (keys: <b>procedure</b> steps, <b>icp_categories</b> allowed fits,
+              <b> hard_non_icp</b> auto-rejects, <b>default</b> when unsure) — or plain text.
+              Editing here changes how leads are judged immediately.</p>
+            <textarea rows={16} style={{ width: "100%", fontFamily: "monospace", fontSize: 12.5 }}
+                      value={cfg.icp_definition}
+                      onChange={(e) => setCfg({ ...cfg, icp_definition: e.target.value })}
+                      placeholder='{"procedure": ["Step 1: ..."], "icp_categories": ["B2B consulting firms."], "hard_non_icp": ["B2C only."], "default": "Needs Review"}' />
+          </div>
+          <div className="toolbar" style={{ marginTop: 14 }}>
+            <button className="btn" disabled={busy} onClick={() => save({ icp_definition: cfg.icp_definition })}>Save ICP JSON</button>
           </div>
         </>
       )}

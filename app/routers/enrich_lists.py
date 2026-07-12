@@ -131,7 +131,7 @@ def list_leads(list_id: int, view: str = "all", page: int = 1, page_size: int = 
             "free_status": l.free_status, "email_status": l.email_status,
             "verify_source": l.verify_source, "title_status": l.title_status,
             "icp_decision": l.icp_decision, "icp_score": l.icp_score, "icp_reason": l.icp_reason,
-            "industry": l.industry, "status": l.status, "competitors": l.competitors or [],
+            "industry": l.industry, "esp": l.esp, "status": l.status, "competitors": l.competitors or [],
             "vars": {k: v for k, v in (l.result or {}).items() if not k.startswith("_")},
         } for l in rows],
     }
@@ -143,6 +143,7 @@ class RunIn(BaseModel):
     lead_ids: list[int] = []      # empty = whole view
     view: str = "notrun"          # used when lead_ids empty ('select all N in view')
     limit: int = 0                # test-first-N safety cap (0 = no cap)
+    enrichments: list[str] = []   # output variables to write (empty = all configured)
 
 
 @router.post("/{list_id}/run")
@@ -156,7 +157,7 @@ def run(list_id: int, body: RunIn, ctx: AuthContext = Depends(get_ctx)):
         raise HTTPException(422, "Nothing to run in this selection")
     j = Job(kind="run_enrich_list", workspace_id=lst.workspace_id,
             payload={"list_id": lst.id, "lead_ids": lead_ids, "steps": body.steps,
-                     "limit": body.limit})
+                     "limit": body.limit, "enrichments": body.enrichments})
     ctx.db.add(j)
     ctx.db.commit()
     return {"job_id": j.id, "selected": len(lead_ids), "capped_at": body.limit or None}
@@ -245,6 +246,56 @@ def clear_verification(list_id: int, view: str = "all", ctx: AuthContext = Depen
         n += 1
     ctx.db.commit()
     return {"cleared": n}
+
+
+# ---------------------------------------------------------------- database (all leads in workspace)
+@router.get("/database/{workspace_id}")
+def database_view(workspace_id: int, view: str = "all", q: str = "", page: int = 1,
+                  ctx: AuthContext = Depends(get_ctx)):
+    """The legacy Database section: every lead across all lists in a workspace,
+    filterable, with the list name attached — filter here, then act per list."""
+    ctx.require_workspace(workspace_id)
+    base = ctx.db.query(EnrichLead).filter(EnrichLead.workspace_id == workspace_id)
+    if q:
+        like = f"%{q}%"
+        base = base.filter((EnrichLead.email.ilike(like)) | (EnrichLead.company.ilike(like)))
+    filtered = _view_filter(base, view)
+    total = filtered.count()
+    rows = filtered.order_by(EnrichLead.id.desc()).offset((max(page, 1) - 1) * 50).limit(50).all()
+    lists = {l.id: l.name for l in ctx.db.query(EnrichList)
+             .filter(EnrichList.workspace_id == workspace_id).all()}
+    chips = {v: _view_filter(base, v).count() for v in VIEWS}
+    return {"total_in_view": total, "chips": chips, "page": page,
+            "leads": [{"id": l.id, "list_id": l.list_id, "list_name": lists.get(l.list_id, ""),
+                       "name": f"{l.first_name} {l.last_name}".strip(), "company": l.company,
+                       "email": l.email, "status": l.status, "icp_decision": l.icp_decision,
+                       "esp": l.esp, "industry": l.industry} for l in rows]}
+
+
+# ---------------------------------------------------------------- split by industry (legacy tool)
+@router.post("/{list_id}/split-by-industry")
+def split_by_industry(list_id: int, ctx: AuthContext = Depends(get_ctx)):
+    """Creates '<List> — <Industry>' lists and MOVES classified leads into them."""
+    lst = _get_list(ctx, list_id)
+    rows = (ctx.db.query(EnrichLead)
+            .filter(EnrichLead.list_id == lst.id, EnrichLead.industry != "").all())
+    if not rows:
+        raise HTTPException(422, "No leads with an industry classification yet — run enrichment first")
+    targets: dict = {}
+    for l in rows:
+        ind = l.industry.strip()
+        if ind not in targets:
+            name = f"{lst.name} — {ind}"
+            t = ctx.db.query(EnrichList).filter(EnrichList.workspace_id == lst.workspace_id,
+                                                EnrichList.name == name).first()
+            if t is None:
+                t = EnrichList(workspace_id=lst.workspace_id, name=name)
+                ctx.db.add(t)
+                ctx.db.flush()
+            targets[ind] = t
+        l.list_id = targets[ind].id
+    ctx.db.commit()
+    return {"moved": len(rows), "lists_created": sorted(targets.keys())}
 
 
 # ---------------------------------------------------------------- export

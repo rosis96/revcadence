@@ -39,9 +39,25 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
     if crawl.get("error") or not crawl.get("text"):
         return {"error": crawl.get("error") or "no website content", "crawl": crawl}
     if ai.has_ai():
+        # Structured ICP brain (legacy ICP_JSON): procedure steps, allowed
+        # categories, hard_non_icp auto-rejects, default-when-unsure.
+        icp_block = cfg.icp_definition or "B2B companies selling high-value services to other businesses."
+        try:
+            icp = json.loads(cfg.icp_definition or "")
+            icp_block = ""
+            if icp.get("procedure"):
+                icp_block += "PROCEDURE (follow in order):\n" + "\n".join(icp["procedure"]) + "\n"
+            if icp.get("icp_categories"):
+                icp_block += "ICP CATEGORIES (allowed fits):\n- " + "\n- ".join(icp["icp_categories"]) + "\n"
+            if icp.get("hard_non_icp"):
+                icp_block += "HARD NON-ICP (auto-reject if any matches):\n- " + "\n- ".join(icp["hard_non_icp"]) + "\n"
+            if icp.get("default"):
+                icp_block += f"WHEN UNSURE, RETURN: {icp['default']}\n"
+        except Exception:
+            pass  # plain-text ICP definition — use as-is
         system = ("You are an ICP classifier and fact extractor. Ground everything ONLY in the "
                   "provided site text — never invent. ICP definition (single source of truth):\n"
-                  + (cfg.icp_definition or "B2B companies selling high-value services to other businesses.")
+                  + icp_block
                   + '\nReturn JSON: {"icp_decision": "ICP"|"Non-ICP"|"Needs Review", "icp_score": 0-100, '
                     '"icp_reason": str, "industry": str, "facts": {"description": str, "services": [str]}}')
         user = (f"Company: {lead.company}\nSite: {crawl.get('url')}\nText:\n"
@@ -62,9 +78,13 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
             "crawl": crawl, "source": "demo"}
 
 
-def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict) -> dict:
-    """Writes the configured variables, reusing ctx (no second scrape)."""
+def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None) -> dict:
+    """Writes the configured variables, reusing ctx (no second scrape).
+    `enrichments`: selected output variable names (legacy 'choose enrichments
+    to output') — empty/None = all configured."""
     formats = cfg.formats or []
+    if enrichments:
+        formats = [f for f in formats if f.get("name") in enrichments] or formats
     if not formats:
         formats = [{"label": "Personalized First Line", "name": "personalized_first_line",
                     "guidance": "One specific sentence proving we researched THIS company, "
@@ -93,16 +113,20 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict) -> dict:
                      for i, f in enumerate(formats)}, "source": "demo"}
 
 
-def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline") -> str:
+def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline",
+                 enrichments=None) -> str:
     """Run one lead through the funnel. steps: 'verify' (stop after Reoon) or
     'pipeline' (full). Returns the resulting status."""
     if lead.status in TERMINAL_STATUSES:
         return lead.status  # resume semantics — never re-charge finished work
 
-    # 1. FREE verify ($0)
+    # 1. FREE verify ($0) + ESP detection (byproduct of the MX lookup)
     if not lead.free_status:
         v = free_check(lead.email)
         lead.free_status = v["verdict"]
+        if "@" in (lead.email or ""):
+            from .verify_free import esp_for
+            lead.esp = lead.esp or esp_for(lead.email.split("@", 1)[1])
         if v["reject"]:
             lead.status = "invalid"
             lead.email_status = "skipped"     # Reoon credit saved
@@ -161,7 +185,7 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
         return lead.status
 
     # 4. Write copy — reuses icp ctx; no second scrape/extraction
-    written = _write_copy(lead, cfg, icp)
+    written = _write_copy(lead, cfg, icp, enrichments=enrichments)
     lead.result = {**(lead.result or {}), **written["vars"],
                    "_facts": icp.get("facts", {}), "_writer": written["source"]}
     lead.status = "done"

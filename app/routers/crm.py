@@ -291,3 +291,39 @@ def dashboard_summary(workspace_id: int | None = None, ctx: AuthContext = Depend
         "recent_activity": [{"kind": a.kind, "title": a.title,
                              "at": a.occurred_at.isoformat() if a.occurred_at else None} for a in recent],
     }
+
+
+@router.get("/dashboard/master")
+def master_dashboard(workspace_id: int | None = None, ctx: AuthContext = Depends(get_ctx)):
+    """One rollup across ALL sections — the master dashboard. Outbound
+    (enrichment), Reply Management, Inbound visitors, and CRM in one view."""
+    from ..models.enrich import EnrichLead, EnrichList
+    from ..models.reply import ReplyLead
+    ws_ids = ctx.workspace_ids_for_query(workspace_id)
+    summary = dashboard_summary(workspace_id, ctx)
+
+    enr = ctx.db.query(EnrichLead).filter(EnrichLead.workspace_id.in_(ws_ids))
+    reply = ctx.db.query(ReplyLead).filter(ReplyLead.workspace_id.in_(ws_ids))
+    visitors = (scoped(ctx.db.query(Activity), Activity, ctx, workspace_id)
+                .filter(Activity.kind == "visitor").count())
+    return {
+        "crm": summary["totals"],
+        "pipeline": summary["pipeline"],
+        "open_value": summary["open_value"],
+        "won_value": summary["won_value"],
+        "outbound": {
+            "lists": ctx.db.query(EnrichList).filter(EnrichList.workspace_id.in_(ws_ids)).count(),
+            "leads": enr.count(),
+            "enriched": enr.filter(EnrichLead.status == "done").count(),
+            "icp": enr.filter(EnrichLead.icp_decision == "ICP").count(),
+        },
+        "reply": {
+            "total": reply.count(),
+            "needs_review": reply.filter(ReplyLead.action.in_(["skip_enrich", "would_send"]),
+                                         ReplyLead.reviewed == False).count(),  # noqa: E712
+            "replied": reply.filter(ReplyLead.replied == True).count(),          # noqa: E712
+            "booked": reply.filter(ReplyLead.stage == "booked").count(),
+        },
+        "inbound": {"visitors": visitors},
+        "recent_activity": summary["recent_activity"],
+    }

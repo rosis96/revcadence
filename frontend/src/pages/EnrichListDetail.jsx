@@ -28,6 +28,8 @@ export default function EnrichListDetail() {
   const [openLead, setOpenLead] = useState(null);
   const { data, error, loading, reload } = useApi(`/api/enrich-lists/${id}/leads`,
     { view, page, q, page_size: 50 });
+  const [outputs, setOutputs] = useState(null);   // null = all; else selected var names
+  const cfg = useApi(data ? `/api/enrich-lists/config/${data.list.workspace_id}` : null);
 
   // live job progress poll
   useEffect(() => {
@@ -51,6 +53,7 @@ export default function EnrichListDetail() {
 
   const run = async (steps) => {
     const body = { steps, limit: Number(limit) || 0 };
+    if (outputs) body.enrichments = outputs;
     if (allInView || ids.length === 0) body.view = view === "all" ? "notrun" : view;
     else body.lead_ids = ids;
     const n = selectedCount || data.chips.notrun;
@@ -68,6 +71,14 @@ export default function EnrichListDetail() {
     try {
       const r = await api(`/api/enrich-lists/${id}/find-competitors`, { method: "POST", body });
       setJob(r.job_id); setSel({}); setAllInView(false);
+    } catch (e) { alert(e.message); }
+  };
+  const splitByIndustry = async () => {
+    if (!confirm("Create '<List> — <Industry>' lists and move classified leads into them?")) return;
+    try {
+      const r = await api(`/api/enrich-lists/${id}/split-by-industry`, { method: "POST" });
+      alert(`Moved ${r.moved} leads into ${r.lists_created.length} industry lists.`);
+      reload();
     } catch (e) { alert(e.message); }
   };
   const clearAction = async (what) => {
@@ -107,6 +118,23 @@ export default function EnrichListDetail() {
         </div>
       )}
 
+      {cfg.data?.formats?.length > 0 && (
+        <div className="card" style={{ padding: "10px 14px", marginBottom: 12 }}>
+          <span style={{ fontSize: 12, color: "var(--muted)", marginRight: 8 }}>Output variables:</span>
+          <button className={`badge ${!outputs ? "indigo" : ""}`} style={{ cursor: "pointer", marginRight: 6 }}
+                  onClick={() => setOutputs(null)}>All</button>
+          {cfg.data.formats.map((f) => {
+            const on = outputs?.includes(f.name);
+            return (
+              <button key={f.name} className={`badge ${on ? "indigo" : ""}`} style={{ cursor: "pointer", marginRight: 6 }}
+                      onClick={() => setOutputs((o) => {
+                        const cur = o || [];
+                        return cur.includes(f.name) ? cur.filter((x) => x !== f.name) : [...cur, f.name];
+                      })}>{f.label}</button>
+            );
+          })}
+        </div>
+      )}
       <div className="chips">
         {CHIP_ORDER.map(([v, label]) => (
           <button key={v} className={view === v ? "on" : ""}
@@ -127,6 +155,7 @@ export default function EnrichListDetail() {
         {allInView && <button className="btn ghost sm" onClick={() => setAllInView(false)}>Clear selection</button>}
         <div className="spacer" />
         <button className="btn ghost sm" disabled={!!job} onClick={findCompetitors}>◎ Find competitors</button>
+        <button className="btn ghost sm" disabled={!!job} onClick={splitByIndustry}>⑃ Split by industry</button>
         <button className="btn ghost sm" onClick={() => clearAction("clear-results")}>Clear results</button>
         <button className="btn ghost sm" onClick={() => clearAction("clear-verification")}>Clear verification</button>
         <button className="btn ghost sm" onClick={exportCsv}>⇓ Export view</button>
