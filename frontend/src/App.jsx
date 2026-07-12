@@ -11,21 +11,34 @@ import Enrichment from "./pages/Enrichment";
 import Blueprints from "./pages/Blueprints";
 import BlueprintDetail from "./pages/BlueprintDetail";
 import ActivityPage from "./pages/Activity";
+import Replies from "./pages/Replies";
 import Jobs from "./pages/Jobs";
 import Settings from "./pages/Settings";
 import Admin from "./pages/Admin";
 
-const NAV = [
-  ["/", "Dashboard", "▦"],
-  ["/pipeline", "Pipeline", "☰"],
-  ["/companies", "Companies", "◫"],
-  ["/contacts", "Contacts", "◔"],
-  ["/enrichment", "Enrichment", "✦"],
-  ["/blueprints", "Blueprints", "▤"],
-  ["/activity", "Activity", "↺"],
-  ["/jobs", "Jobs", "⚙"],
-  ["/settings", "Settings", "⚒"],
+// Grouped IA: Outbound (enrichment/personalization), Inbound (replies,
+// visitor pipeline later), CRM (everything synced), System.
+const NAV_GROUPS = [
+  ["", [["/", "Dashboard", "▦"]]],
+  ["Outbound", [
+    ["/enrichment", "Enrichment", "✦"],
+    ["/blueprints", "Blueprints", "▤"],
+  ]],
+  ["Inbound", [
+    ["/replies", "Replies", "✉"],
+  ]],
+  ["CRM", [
+    ["/pipeline", "Pipeline", "☰"],
+    ["/companies", "Companies", "◫"],
+    ["/contacts", "Contacts", "◔"],
+    ["/activity", "Activity", "↺"],
+  ]],
+  ["System", [
+    ["/jobs", "Jobs", "⚙"],
+    ["/settings", "Settings", "⚒"],
+  ]],
 ];
+const NAV = NAV_GROUPS.flatMap(([, items]) => items);
 
 function Sidebar() {
   const { me, logout, workspaceId, setWorkspaceId } = useAuth();
@@ -43,10 +56,15 @@ function Sidebar() {
         <div className="ws-badge">◫ {me.workspaces[0]?.name || "Workspace"}</div>
       )}
       <nav className="nav">
-        {NAV.map(([to, label, icon]) => (
-          <NavLink key={to} to={to} end={to === "/"}>
-            <span className="icon">{icon}</span>{label}
-          </NavLink>
+        {NAV_GROUPS.map(([group, items]) => (
+          <div key={group || "top"}>
+            {group && <div className="group">{group}</div>}
+            {items.map(([to, label, icon]) => (
+              <NavLink key={to} to={to} end={to === "/"}>
+                <span className="icon">{icon}</span>{label}
+              </NavLink>
+            ))}
+          </div>
         ))}
         {me.is_master && <NavLink to="/admin"><span className="icon">⛭</span>Admin</NavLink>}
       </nav>
@@ -106,6 +124,7 @@ function Protected() {
         <Route path="/blueprints" element={<Blueprints />} />
         <Route path="/blueprints/:id" element={<BlueprintDetail />} />
         <Route path="/activity" element={<ActivityPage />} />
+        <Route path="/replies" element={<Replies />} />
         <Route path="/jobs" element={<Jobs />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/admin" element={<Admin />} />

@@ -1,5 +1,38 @@
 # NEXT_STEPS — living document
 
+## ✅ Session 11 (2026-07-12) — full-width UI, grouped nav, Replies, CSV in/out
+
+Shipped from your feedback:
+- **Full-width layout** — removed the 1280px content cap; board and tables now
+  use the whole screen.
+- **Grouped sidebar** (Studio-style categories): Dashboard · OUTBOUND
+  (Enrichment, Blueprints) · INBOUND (Replies) · CRM (Pipeline, Companies,
+  Contacts, Activity) · SYSTEM (Jobs, Settings) · Admin.
+- **Inbound → Replies page** (client-visible reporting): total/positive
+  replies + meetings booked, intent filter, reply table with body previews —
+  built on the reply activities imported from the Reply Manager.
+- **Clay-style CSV import/export in Enrichment**: Import CSV (auto header
+  mapping: first/last name, email, title, company, website; dedupes by email;
+  optional auto-enrich of every row) and Export CSV (campaign-ready file with
+  enrichment columns — upload straight to Instantly/Bison).
+
+## ▶ The three big builds you asked for (in order — next sessions)
+
+1. **Reply module port (Inbound completeness).** Bring reply formats, response
+   types, AI rules, and auto-send config into RevCadence as per-workspace,
+   DB-backed settings (they're currently live in the Reply Manager — see
+   MIGRATION_GAP_REPORT §2). Plus the live bridge: Reply Manager webhook →
+   RevCadence activities/deals in real time, so Replies/Pipeline update without
+   re-imports. This is what makes RevCadence the single pane your clients log
+   into.
+2. **Clay-grade enrichment grid (Outbound).** Named lists, column-per-
+   enrichment view, run/verify per selection with credit caps, Reoon email
+   verification, push-to-campaign (Instantly API) instead of CSV round-trips.
+   The engine + jobs already exist; this is a UI + list-model build.
+3. **Inbound visitor pipeline.** Visitor identification (RB2B/similar webhook)
+   → auto-create company/contact → auto-enrich → alert + drafted email within
+   10 minutes (job queue makes the SLA real). New but all plumbing exists.
+
 ## ✅ Session 10 (2026-07-11) — password reset script
 
 Passwords are PBKDF2-hashed and unrecoverable (by design). If locked out:

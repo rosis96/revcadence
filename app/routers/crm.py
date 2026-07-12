@@ -241,7 +241,8 @@ def list_activities(workspace_id: int | None = None, kind: str = "", limit: int 
     rows = q.order_by(Activity.occurred_at.desc()).limit(min(max(limit, 1), 200)).all()
     return [{"id": a.id, "workspace_id": a.workspace_id, "kind": a.kind, "title": a.title,
              "body": (a.body or "")[:300], "contact_id": a.contact_id, "company_id": a.company_id,
-             "deal_id": a.deal_id, "at": a.occurred_at.isoformat() if a.occurred_at else None}
+             "deal_id": a.deal_id, "intent": (a.data or {}).get("intent", ""),
+             "at": a.occurred_at.isoformat() if a.occurred_at else None}
             for a in rows]
 
 

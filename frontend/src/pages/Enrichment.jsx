@@ -1,11 +1,53 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api } from "../api";
+import { api, getToken } from "../api";
 import { useAuth } from "../auth";
 import { Badge, Empty, ErrorBox, Spinner, fitTone, useApi } from "../components";
 import { NewCompanyModal } from "./Companies";
 
 const jobTone = { done: "green", failed: "red", running: "indigo", pending: "amber", cancelled: "" };
+
+// Minimal CSV parser (handles quoted fields) + forgiving header mapping.
+function parseCsv(text) {
+  const rows = [];
+  let cur = [""], inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQ) {
+      if (ch === '"' && text[i + 1] === '"') { cur[cur.length - 1] += '"'; i++; }
+      else if (ch === '"') inQ = false;
+      else cur[cur.length - 1] += ch;
+    } else if (ch === '"') inQ = true;
+    else if (ch === ",") cur.push("");
+    else if (ch === "\n" || ch === "\r") {
+      if (cur.length > 1 || cur[0] !== "") rows.push(cur);
+      cur = [""];
+      if (ch === "\r" && text[i + 1] === "\n") i++;
+    } else cur[cur.length - 1] += ch;
+  }
+  if (cur.length > 1 || cur[0] !== "") rows.push(cur);
+  return rows;
+}
+
+const HEADER_MAP = {
+  first_name: ["first_name", "firstname", "first name", "first"],
+  last_name: ["last_name", "lastname", "last name", "last"],
+  email: ["email", "email address", "e-mail"],
+  title: ["title", "job title", "position", "role"],
+  company: ["company", "company_name", "company name", "organization"],
+  website: ["website", "company website", "domain", "url", "company_website"],
+};
+
+function mapRows(csvRows) {
+  const headers = csvRows[0].map((h) => h.toLowerCase().trim());
+  const idx = {};
+  for (const [field, names] of Object.entries(HEADER_MAP)) {
+    const i = headers.findIndex((h) => names.includes(h));
+    if (i >= 0) idx[field] = i;
+  }
+  return csvRows.slice(1).map((r) =>
+    Object.fromEntries(Object.entries(idx).map(([f, i]) => [f, (r[i] || "").trim()])));
+}
 
 export default function Enrichment() {
   const { wsParam, me, workspaceId, setWorkspaceId } = useAuth();
@@ -25,7 +67,39 @@ export default function Enrichment() {
   }, [jobs, reloadJobs, reload]);
 
   const ids = Object.keys(selected).filter((k) => selected[k]).map(Number);
-  const needWs = me.is_master && !wsParam;
+  const fileRef = useRef(null);
+
+  const importCsv = async (file) => {
+    if (!wsParam && me.is_master) { alert("Pick a specific workspace before importing."); return; }
+    const targetWs = wsParam || me.workspaces[0]?.id;
+    const text = await file.text();
+    const rows = mapRows(parseCsv(text));
+    if (rows.length === 0) { alert("No rows found. Expected headers like: first_name, last_name, email, title, company, website"); return; }
+    const auto = confirm(`Import ${rows.length} rows into this workspace?\n\nOK = import + auto-enrich every contact\nCancel = abort`);
+    if (!auto) return;
+    setBusy(true);
+    try {
+      const r = await api("/api/import/contacts", { method: "POST",
+        body: { workspace_id: Number(targetWs), rows, auto_enrich: true } });
+      alert(`Imported: ${r.contacts_created} new contacts, ${r.contacts_merged} merged, ` +
+            `${r.companies_created} companies, ${r.enrich_jobs_queued} enrichment jobs queued.`);
+      reload(); reloadJobs();
+    } catch (e) { alert(e.message); }
+    setBusy(false);
+  };
+
+  const exportCsv = async () => {
+    const url = new URL("/api/export/leads", window.location.origin);
+    if (wsParam) url.searchParams.set("workspace_id", wsParam);
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
+    if (!res.ok) { alert("Export failed"); return; }
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "revcadence-leads.csv";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
 
   const runEnrich = async () => {
     setBusy(true);
@@ -48,29 +122,26 @@ export default function Enrichment() {
 
   return (
     <>
-      {me.is_master && (
-        <div className="toolbar">
-          <label style={{ fontSize: 13, color: "var(--muted)" }}>Workspace:</label>
-          <select value={workspaceId} onChange={(e) => setWorkspaceId(e.target.value)}>
-            <option value="">All workspaces</option>
-            {me.workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-          </select>
-          <div className="spacer" />
-          <button className="btn ghost" onClick={() => setModal(true)}>+ Add company</button>
-          <button className="btn" disabled={ids.length === 0 || busy} onClick={runEnrich}>
-            {busy ? "Queueing…" : `✦ Enrich ${ids.length || ""} selected`}
-          </button>
-        </div>
-      )}
-      {!me.is_master && (
-        <div className="toolbar">
-          <div className="spacer" />
-          <button className="btn ghost" onClick={() => setModal(true)}>+ Add company</button>
-          <button className="btn" disabled={ids.length === 0 || busy} onClick={runEnrich}>
-            {busy ? "Queueing…" : `✦ Enrich ${ids.length || ""} selected`}
-          </button>
-        </div>
-      )}
+      <div className="toolbar">
+        {me.is_master && (
+          <>
+            <label style={{ fontSize: 13, color: "var(--muted)" }}>Workspace:</label>
+            <select value={workspaceId} onChange={(e) => setWorkspaceId(e.target.value)}>
+              <option value="">All workspaces</option>
+              {me.workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+            </select>
+          </>
+        )}
+        <div className="spacer" />
+        <input type="file" accept=".csv,text/csv" ref={fileRef} style={{ display: "none" }}
+               onChange={(e) => { if (e.target.files[0]) importCsv(e.target.files[0]); e.target.value = ""; }} />
+        <button className="btn ghost" disabled={busy} onClick={() => fileRef.current.click()}>⇪ Import CSV</button>
+        <button className="btn ghost" onClick={exportCsv}>⇓ Export CSV</button>
+        <button className="btn ghost" onClick={() => setModal(true)}>+ Add company</button>
+        <button className="btn" disabled={ids.length === 0 || busy} onClick={runEnrich}>
+          {busy ? "Queueing…" : `✦ Enrich ${ids.length || ""} selected`}
+        </button>
+      </div>
 
       {loading && <Spinner />}
       {error && <ErrorBox msg={error} retry={reload} />}

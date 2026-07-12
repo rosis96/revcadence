@@ -113,6 +113,102 @@ def job_status(job_id: int, ctx: AuthContext = Depends(get_ctx)):
             "result": j.result, "error": (j.error or "")[-500:]}
 
 
+# ---------------------------------------------------------------- CSV in / out (Clay-style)
+class ImportRow(BaseModel):
+    first_name: str = ""
+    last_name: str = ""
+    email: str = ""
+    title: str = ""
+    company: str = ""
+    website: str = ""
+
+
+class ImportIn(BaseModel):
+    workspace_id: int
+    rows: list[ImportRow]
+    auto_enrich: bool = False
+
+
+@router.post("/import/contacts")
+def import_contacts(body: ImportIn, ctx: AuthContext = Depends(get_ctx)):
+    """CSV import (parsed client-side): creates companies (by name) and
+    contacts (deduped by email per workspace); optionally queues enrichment."""
+    ctx.require_workspace(body.workspace_id)
+    if len(body.rows) > 2000:
+        raise HTTPException(422, "Max 2000 rows per import")
+    created = merged = companies_created = jobs = 0
+    for row in body.rows:
+        email = row.email.lower().strip()
+        if not email and not (row.first_name or row.company):
+            continue
+        company = None
+        cname = row.company.strip()
+        if cname:
+            company = (ctx.db.query(Company)
+                       .filter(Company.workspace_id == body.workspace_id, Company.name == cname).first())
+            if company is None:
+                company = Company(workspace_id=body.workspace_id, name=cname, website=row.website.strip())
+                ctx.db.add(company)
+                ctx.db.flush()
+                companies_created += 1
+            elif row.website.strip() and not company.website:
+                company.website = row.website.strip()
+        contact = (ctx.db.query(Contact)
+                   .filter(Contact.workspace_id == body.workspace_id, Contact.email == email).first()
+                   if email else None)
+        if contact is None:
+            contact = Contact(workspace_id=body.workspace_id, email=email, first_name=row.first_name.strip(),
+                              last_name=row.last_name.strip(), title=row.title.strip(),
+                              company_id=company.id if company else None, source="import")
+            ctx.db.add(contact)
+            ctx.db.flush()
+            created += 1
+        else:
+            if company and not contact.company_id:
+                contact.company_id = company.id
+            if row.title.strip() and not contact.title:
+                contact.title = row.title.strip()
+            merged += 1
+        if body.auto_enrich:
+            ctx.db.add(Job(kind="enrich_contact", workspace_id=body.workspace_id,
+                           payload={"contact_id": contact.id}))
+            jobs += 1
+    ctx.db.commit()
+    return {"contacts_created": created, "contacts_merged": merged,
+            "companies_created": companies_created, "enrich_jobs_queued": jobs}
+
+
+@router.get("/export/leads")
+def export_leads(workspace_id: int | None = None, ctx: AuthContext = Depends(get_ctx)):
+    """Campaign-ready CSV of contacts + company enrichment (upload to
+    Instantly/Bison as-is)."""
+    import csv
+    import io
+
+    from fastapi.responses import PlainTextResponse
+
+    contacts = scoped(ctx.db.query(Contact), Contact, ctx, workspace_id).limit(5000).all()
+    coids = {c.company_id for c in contacts if c.company_id}
+    companies = ({c.id: c for c in ctx.db.query(Company).filter(Company.id.in_(coids)).all()}
+                 if coids else {})
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["first_name", "last_name", "email", "title", "company", "website", "industry",
+                "icp_fit", "revenue_score", "email_status", "company_description"])
+    for c in contacts:
+        co = companies.get(c.company_id)
+        desc = ""
+        if co and isinstance((co.enrichment or {}).get("description"), dict):
+            desc = str(co.enrichment["description"].get("value", ""))
+        w.writerow([c.first_name, c.last_name, c.email, c.title,
+                    co.name if co else "", co.website if co else "",
+                    co.industry if co else "", co.icp_fit if co else "",
+                    c.revenue_score if c.revenue_score is not None else "",
+                    c.email_status, desc])
+    return PlainTextResponse(buf.getvalue(), media_type="text/csv",
+                             headers={"Content-Disposition": "attachment; filename=revcadence-leads.csv"})
+
+
 # ---------------------------------------------------------------- record detail
 @router.get("/companies/{company_id}")
 def company_detail(company_id: int, ctx: AuthContext = Depends(get_ctx)):

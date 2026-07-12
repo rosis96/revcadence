@@ -49,7 +49,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); }
 
-.content { padding: 24px; max-width: 1280px; width: 100%; }
+.content { padding: 24px 28px; width: 100%; }  /* full-width — no artificial cap */
+.nav .group { margin: 14px 10px 5px; font-size: 10.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: #5d6778; }
 .grid { display: grid; gap: 14px; }
 .stats { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
 .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
