@@ -70,8 +70,10 @@ def _normalize_reply_format(rf):
 def run(legacy_db_url, apply=False):
     legacy = create_engine(_norm(legacy_db_url))
     init_db()
-    rep = {"workspaces_seen": 0, "reply_spaces_created": 0, "reply_spaces_updated": 0,
-           "unmapped": set(), "global_settings": 0, "apply": apply}
+    rep = {"workspaces_seen": 0, "mapped": [], "unmapped": [], "reply_formats_found": 0,
+           "rules_found": False, "settings_found": [], "reply_spaces_created": 0,
+           "reply_spaces_updated": 0, "global_settings": 0, "apply": apply, "aborted": False}
+    _unmapped = set()
     with legacy.connect() as lc, session() as db:
         # ---- global app_settings → AppSetting + ai_rules text
         settings = {}
@@ -90,6 +92,7 @@ def run(legacy_db_url, apply=False):
         }
         for lkey, (rkey, secret) in smap.items():
             if lkey in settings and settings[lkey]:
+                rep["settings_found"].append(rkey)
                 row = db.get(AppSetting, f"reply.{rkey}")
                 if row is None:
                     row = AppSetting(key=f"reply.{rkey}", is_secret=1 if secret else 0)
@@ -97,18 +100,35 @@ def run(legacy_db_url, apply=False):
                 row.value = encrypt(settings[lkey]) if secret else str(settings[lkey])
                 rep["global_settings"] += 1
         global_rules = settings.get("ai_rules", "")
+        rep["rules_found"] = bool(global_rules.strip())
 
         # ---- legacy workspaces → reply spaces
         try:
             wrows = [dict(r._mapping) for r in lc.execute(text("SELECT * FROM workspaces ORDER BY id"))]
         except Exception as e:
             raise SystemExit(f"Could not read legacy workspaces table: {e}")
+
+        # PRE-FLIGHT: resolve every workspace first so we can abort BEFORE writing.
         for w in wrows:
             rep["workspaces_seen"] += 1
             name = w.get("name")
+            if resolve_ws(db, name) is None:
+                _unmapped.add(name)
+            else:
+                rep["mapped"].append(name)
+            if _normalize_reply_format(w.get("reply_format")).get("response_types"):
+                rep["reply_formats_found"] += 1
+        rep["unmapped"] = sorted(x for x in _unmapped if x)
+
+        if _unmapped and apply:
+            db.rollback()
+            rep["aborted"] = True
+            return rep  # requirement 8: never write when anything is unmapped
+
+        for w in wrows:
+            name = w.get("name")
             wsid = resolve_ws(db, name)
             if wsid is None:
-                rep["unmapped"].add(name)
                 continue
             rws = db.query(ReplyWorkspace).filter(ReplyWorkspace.name == name).first()
             new = rws is None
@@ -142,11 +162,30 @@ def run(legacy_db_url, apply=False):
             db.flush()
             rep["reply_spaces_created" if new else "reply_spaces_updated"] += 1
 
-        rep["unmapped"] = sorted(x for x in rep["unmapped"] if x)
         if not apply:
             db.rollback()
-            print("DRY RUN — nothing written. Add --apply to commit.")
     return rep
+
+
+def _print_report(rep):
+    print("\n=== REPLY CONFIG IMPORT ===")
+    print(f"  legacy workspaces found : {rep['workspaces_seen']}")
+    print(f"  mapped ({len(rep['mapped'])}): {', '.join(rep['mapped']) or '—'}")
+    print(f"  UNMAPPED ({len(rep['unmapped'])}): {', '.join(rep['unmapped']) or '—'}")
+    print(f"  reply formats found     : {rep['reply_formats_found']}")
+    print(f"  ai rules found          : {'yes' if rep['rules_found'] else 'no'}")
+    print(f"  global settings found   : {', '.join(rep['settings_found']) or '—'}")
+    if rep["aborted"]:
+        print("\n  ABORTED — some workspaces are unmapped. Create their reply_manager "
+              "aliases (Admin → Workspace aliases) and re-run. Nothing was written.")
+    elif rep["apply"]:
+        print(f"\n  APPLIED · reply spaces created {rep['reply_spaces_created']} · "
+              f"updated {rep['reply_spaces_updated']} · global settings {rep['global_settings']}")
+    else:
+        would = rep["reply_spaces_created"] + rep["reply_spaces_updated"]
+        print(f"\n  DRY RUN — would create/update {would} reply space(s) + "
+              f"{rep['global_settings']} global setting(s). Nothing written. Add --apply to commit.")
+    print(json.dumps(rep, indent=2, default=str))
 
 
 def main():
@@ -154,7 +193,10 @@ def main():
     ap.add_argument("--legacy-db-url", required=True)
     ap.add_argument("--apply", action="store_true")
     args = ap.parse_args()
-    print(json.dumps(run(args.legacy_db_url, apply=args.apply), indent=2, default=str))
+    rep = run(args.legacy_db_url, apply=args.apply)
+    _print_report(rep)
+    if rep["aborted"]:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
