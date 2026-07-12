@@ -1,5 +1,47 @@
 # NEXT_STEPS — living document
 
+## ✅ Session 12 (2026-07-12) — mode switcher + full enrichment port
+
+Read both uploaded handoffs (enrichment SYSTEM_HANDOFF + reply-manager
+CLAUDE_HANDOFF — the latter is filed for the reply-module port).
+
+**Mode switcher:** under the workspace switcher there's now an
+Outbound / Inbound / CRM toggle — the sidebar shows ONLY the active mode's
+screens (plus Dashboard and System). Persisted per user.
+
+**Enrichment is now list-based** (commits 05f7927 + a8a4853) — the old
+dashboard's system, ported faithfully per its handoff's hard rules:
+- Funnel order preserved: FREE verify → Reoon → title gate + ICP (one
+  scrape+extraction) → write copy reusing that context. Terminal statuses
+  invalid/unsafe/skipped/error/done; resume never re-charges finished leads.
+- Free verifier: syntax / MX via DNS-over-HTTPS / disposable / role-flag,
+  SAFE-rejections-only, fails open to Reoon. Reoon real with REOON_API_KEY
+  (demo verdict without it). Two-column display (System check + Reoon) kept.
+- Old sections, new UI: Lists (import CSV → grid with live full-list chips,
+  select-all-in-view, test-first-N cap, hard Stop, per-view export),
+  Client Profile + ICP definition, Formats (accepts the same Format JSON),
+  Rules (one line each, injected into the writer).
+
+### To activate on Railway — YOU
+`git push`, then add to BOTH services: `REOON_API_KEY` (real verification)
+— `OPENAI_API_KEY` should already be set for real ICP/writing.
+Then: pick a workspace → Outbound → Lists → New list (import a small CSV)
+→ set Test first = 10 → **Verify → Enrich**.
+
+### Seed the config from the old system (10 min, per workspace)
+Old dashboard → copy Client Profile JSON → paste fields into Outbound →
+Client Profile. Copy each Format JSON → Formats → "Paste Format JSON" →
+Fill → Save. Copy Rules text → Rules. (Old files also in
+outbound_personalization_v3 2/variable_sets/ + client_profiles/.)
+
+### Still open from this request (next sessions, in order)
+1. Reply-module port (per CLAUDE_HANDOFF): formats/response types/rules/
+   auto-send as workspace settings + live reply bridge → Inbound mode.
+2. Enrichment extras from the old system not yet ported: competitor finder,
+   ESP column, split-by-industry, Database faceted view, import-field
+   mapping UI (auto-map only today), industry taxonomy.
+3. Inbound visitor pipeline (visitor webhook → enrich → draft in 10 min).
+
 ## ✅ Session 11 (2026-07-12) — full-width UI, grouped nav, Replies, CSV in/out
 
 Shipped from your feedback:
