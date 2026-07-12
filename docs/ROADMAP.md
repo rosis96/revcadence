@@ -1,0 +1,114 @@
+# RevCadence — Revenue Engine Roadmap (Studio, Onboarding, Post-Meeting)
+
+_A concrete, approvable plan. The goal: one workspace per client that runs the
+whole revenue lifecycle — Onboarding → Outbound → Inbound → Meeting →
+Post-Meeting (proposals) — with nothing done manually and nothing duplicated._
+
+## Where we are (built + at parity)
+Outbound (enrich/verify/ICP/personalize + list pipeline) · Reply Management
+(engine, inbox, dashboard, test-thread, settings, Calendly scheduling with
+anti-double-booking) · CRM (companies/contacts/deals, interested→Opportunity,
+booked→Meeting Booked) · Inbound visitor capture · full migration toolchain ·
+premium UI design system. Workspace = package (auto-provisioned).
+
+## The two things you asked for
+
+### 1. Studio inside the CRM — NOT hard (it's wiring, not a rebuild)
+Your portals Document service (blueprint.ascendly.one / agreement.ascendly.one)
+already generates, hosts, and e-signs documents. The legacy Studio (`revenue.py`)
+just orchestrates it over a Service API (`X-Service-Key`). We copy that pattern
+into RevCadence: a thin `svc()` client + a `/api/studio/*` router + React pages
+under the CRM. **The portals service stays a separate Railway project** — we
+talk to it, we don't absorb it. Document generation/signing/PDF/hosting are
+already solved; we only build orchestration + UI.
+
+What you provide once: on the portals service set `SERVICE_API_KEY=<random>`;
+on RevCadence set `PORTALS_API_URL` + `PORTALS_API_KEY` (= that same value).
+Then Studio is live inside RevCadence.
+
+### 2. Client Onboarding — a first-class section
+When a client is onboarded, a checklist tracks what's pending and captures the
+info the system needs to run automatically — most importantly the client's
+`sales@theirdomain.com` mailbox, which, once provided, is linked straight into
+Reply Management as a follow-up channel (no manual setup). This closes your
+Post-Meeting follow-up loop: proposals CC that mailbox, and our reply engine
+follows up on the same thread.
+
+---
+
+## Phased plan (each phase ships independently, tested, no manual steps)
+
+### Phase 1 — Studio core (Service API client + Home + Clients)  ·  ~1 session
+- `app/studio/service.py`: `svc(method, path, body)` → portals with
+  `X-Service-Key`; graceful when env unset.
+- `app/routers/studio.py`: list clients, get client, `/service/info` health,
+  activity feed — all proxied, workspace-scoped.
+- Frontend (CRM mode → Studio): Home command center (stage-chip pipeline
+  Draft→Published→Signed→Executed→Active, MRR, awaiting-countersign, drafts,
+  live), Clients list. Studio Settings (portals connection status, models,
+  default engagement).
+- **Done when:** RevCadence shows every portals client + status, live.
+
+### Phase 2 — Promote from CRM + transcript → proposal  ·  ~1 session
+- `POST /api/studio/promote?deal_id=` → creates a DRAFT portals client
+  prefilled from the CRM deal (contact/company/enrichment). Manual trigger,
+  never automatic.
+- Transcript intake: paste/attach a Fathom (or any) transcript →
+  `POST /service/clients/{slug}/ai` (skipAI upsert then forced regen) → banner
+  reports "call pricing applied: $X" or "no pricing — defaults kept" + MISMATCH
+  warning. Add Fathom API pull so you click once instead of pasting (optional).
+- Client workspace tabs: Overview / Blueprint / Agreement / Sales Intel
+  (INTERNAL only) / Timeline / Notes.
+- **Done when:** deal → promote → transcript → generated proposal at
+  proposal/blueprint `.ascendly.one/{slug}`, reviewable.
+
+### Phase 3 — Publish / present / sign / countersign  ·  ~1 session
+- Blueprint tab: preview / Present (`?present=1`) / copy link / publish–
+  unpublish / Regenerate AI / custom-HTML upload+revert.
+- Agreement tab: signature status, countersign link, resend executed email,
+  terms editor (locked once executed), download executed PDF.
+- Sales Intel tab: opportunity score + sales coach + missing info (internal).
+- **Done when:** full lifecycle promote→publish→sign→countersign→executed works
+  end-to-end against the live portals API.
+
+### Phase 4 — Client Onboarding section  ·  ~1 session
+- `OnboardingChecklist` model per workspace: items with status
+  (pending/received), types (sales_mailbox, calendly, sending_platform_key,
+  icp_confirmed, profile_confirmed, billing).
+- Onboarding page (CRM mode): progress bar + what's pending + a client-facing
+  intake form. When the client submits `sales@theirdomain` + app password, it
+  auto-creates/links a Reply Management space (Bison/Instantly or IMAP) — no
+  manual setup.
+- **Done when:** onboarding a client is a guided checklist that wires their
+  mailbox into the system automatically.
+
+### Phase 5 — Post-Meeting follow-up loop (Scenario 1 + 2)  ·  ~1–2 sessions
+- Scenario 2 (transcript-based): done by Phases 2–3 (we generate the proposal).
+- Scenario 1 (client's own proposal): upload a proposal doc → read every line
+  (same AI layer) → generate a follow-up sequence → follow up through the reply
+  engine using the client's `sales@` mailbox (CC'd on the thread). Reuses the
+  reply engine end-to-end — proposals become "threads" the follow-up loop owns.
+- Proposal open/read tracking on the hosted pages → notify + auto follow-up if
+  unopened in N days (job queue).
+- **Done when:** both proposal scenarios follow up automatically, tracked in CRM.
+
+### Phase 6 — Meeting layer polish  ·  ~1 session
+- Pre-call: qualification form + agenda + full conversation context surfaced on
+  the CRM deal (Calendly booking already creates the Meeting + brief hooks).
+- No-show reminder + re-book nudge (job queue).
+
+---
+
+## Guardrails (non-negotiable, applied every phase)
+- Be my own QA: build passes + every new button tested before shipping.
+- Nothing manual, nothing duplicated, everything synced through the one object
+  model. Portals stays a separate service (Service API only).
+- Clients only ever see blueprint./agreement.ascendly.one; Studio is internal;
+  no reply-inbox data leaks into client-facing pages.
+- Additive migrations; secrets encrypted at rest.
+
+## What I need from you to start Phase 1
+1. On the portals Railway service: `SERVICE_API_KEY=<long random string>`.
+2. On RevCadence (web + worker): `PORTALS_API_URL=<portals URL>` and
+   `PORTALS_API_KEY=<same value as SERVICE_API_KEY>`.
+That's it — then I build Phase 1.
