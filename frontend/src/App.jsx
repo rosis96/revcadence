@@ -15,7 +15,10 @@ import EnrichConfigPage from "./pages/EnrichConfig";
 import Blueprints from "./pages/Blueprints";
 import BlueprintDetail from "./pages/BlueprintDetail";
 import ActivityPage from "./pages/Activity";
+import ReplyDashboard from "./pages/ReplyDashboard";
 import ReplyInbox from "./pages/ReplyInbox";
+import ReplyTest from "./pages/ReplyTest";
+import ReplySettings from "./pages/ReplySettings";
 import ReplySetup from "./pages/ReplySetup";
 import ReplyWorkspaces from "./pages/ReplyWorkspaces";
 import InboundVisitors from "./pages/InboundVisitors";
@@ -42,8 +45,11 @@ const MODES = {
   reply: {
     label: "Reply Management", icon: "✉",
     nav: [
-      ["/reply", "Inbox", "✉"],
+      ["/reply", "Dashboard", "▦"],
+      ["/reply/inbox", "Inbox", "✉"],
+      ["/reply/test", "Test Thread", "⚗"],
       ["/reply/setup", "Setup", "⚙"],
+      ["/reply/settings", "Reply Settings", "⛭"],
       ["/reply/workspaces", "Extra Channels", "⚑"],
     ],
   },
@@ -173,7 +179,10 @@ function Protected() {
         <Route path="/enrichment/formats" element={<EnrichConfigPage tab="formats" />} />
         <Route path="/enrichment/rules" element={<EnrichConfigPage tab="rules" />} />
         <Route path="/enrichment/companies" element={<Enrichment />} />
-        <Route path="/reply" element={<ReplyInbox />} />
+        <Route path="/reply" element={<ReplyDashboard />} />
+        <Route path="/reply/inbox" element={<ReplyInbox />} />
+        <Route path="/reply/test" element={<ReplyTest />} />
+        <Route path="/reply/settings" element={<ReplySettings />} />
         <Route path="/reply/setup" element={<ReplySetup />} />
         <Route path="/reply/workspaces" element={<ReplyWorkspaces />} />
         <Route path="/inbound" element={<InboundVisitors />} />

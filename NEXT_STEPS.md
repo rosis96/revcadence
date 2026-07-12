@@ -1,5 +1,28 @@
 # NEXT_STEPS — living document
 
+## ✅ Session 16 (2026-07-12) — reply management parity (one-to-one audit)
+
+Read the legacy code + the "reply management system" build session; audit in
+`docs/REPLY_PARITY_AUDIT.md`. Closed every gap:
+- **Dedicated Reply dashboard** — Performance Overview (Total / Replied /
+  Meeting Booked / Needs Review / Stopped) + Recent Leads Activity, clickable
+  through to the inbox. Reply Management now leads with this.
+- **Webhook → CRM + enrichment sync**: every inbound reply creates/links a CRM
+  contact + company from the platform lead_data and queues enrichment by email
+  (never blocks the reply pipeline).
+- **Meeting booked → CRM deal**: marking a reply booked creates/updates a deal
+  in the Meeting Booked stage, linked to the synced contact/company.
+- **Test Thread**: paste a thread → exact engine run (profile/format/rules/
+  provider) → decision + drafted reply + follow-ups, with a "model didn't run"
+  flag. ZERO side effects (verified nothing is written or sent).
+- **Reply Settings** (global): OpenAI/Gemini keys (encrypted) + models,
+  human-review webhook, default Bison base URL, reply delay, trigger tags.
+- **Richer lead drawer**: lead details (website / LinkedIn / company LinkedIn /
+  location / title from the sending platform) + full threaded conversation.
+- Wider layouts throughout.
+
+Verified 9/9 parity checks + 40/40 smoke.
+
 ## ✅ Session 15 (2026-07-12) — workspace = package + structured reply editor
 
 **A workspace is now a package.** Creating a client workspace (e.g. Ascendly)

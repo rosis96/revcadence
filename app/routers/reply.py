@@ -250,12 +250,14 @@ def reply_lead_detail(lead_id: int, ctx: AuthContext = Depends(get_ctx)):
     l = ctx.db.get(ReplyLead, lead_id)
     if not l or (l.workspace_id is not None and l.workspace_id not in ctx.allowed_workspace_ids()):
         raise HTTPException(404, "Not found")
+    from ..reply.sync import extract_lead_enrichment
     return {"id": l.id, "name": l.name, "email": l.email, "company": l.company,
             "workspace": l.reply_workspace, "platform": l.platform, "intent": l.intent,
             "confidence": l.confidence, "action": l.action, "stage": l.stage,
             "replied": l.replied, "reviewed": l.reviewed, "reply_text": l.reply_text,
             "main_reply": l.main_reply, "followups": l.followups or [],
-            "thread": l.thread or [], "send_meta_present": bool(l.send_meta)}
+            "thread": l.thread or [], "send_meta_present": bool(l.send_meta),
+            "lead_details": extract_lead_enrichment(l.lead_data or {})}
 
 
 class LeadAction(BaseModel):
@@ -274,11 +276,89 @@ def reply_lead_action(lead_id: int, body: LeadAction, ctx: AuthContext = Depends
         l.main_reply = body.main_reply
     if body.stage is not None:
         l.stage = body.stage
+        if body.stage == "booked":
+            try:
+                from ..reply.sync import sync_booked_to_deal
+                sync_booked_to_deal(ctx.db, l)
+            except Exception:
+                pass
     if body.reviewed is not None:
         l.reviewed = body.reviewed
     if body.action is not None:
         l.action = body.action
     l.updated_at = datetime.utcnow()
+    ctx.db.commit()
+    return {"ok": True}
+
+
+# ================================================================ test thread (zero side effects)
+class TestThreadIn(BaseModel):
+    reply_workspace_id: int
+    thread: str
+
+
+@router.post("/test-thread")
+def test_thread(body: TestThreadIn, ctx: AuthContext = Depends(require_master)):
+    """Paste a thread → run the exact engine (profile, format, rules, provider)
+    → return the decision + drafted reply + follow-ups. NOTHING is sent, saved,
+    or reserved. Detects the model-didn't-run fallback."""
+    from ..reply import engine as E
+    w = ctx.db.get(ReplyWorkspace, body.reply_workspace_id)
+    if not w:
+        raise HTTPException(404, "Reply workspace not found")
+    ctx.require_workspace(w.workspace_id)
+    thread = [{"direction": "in", "text": body.thread.strip()}]
+    ai = E.call_llm(*E.build_reply_prompt(w, thread), E.build_ai_cfg(w))
+    action = E.decide_reply_action(ai, w.reply_format or {}, body.thread)
+    if ai.get("_fallback") and action == "send":
+        action = "skip_enrich"
+    reply = E.add_signature(str(ai.get("main_reply", "")), w.sender_name, w.website) if ai.get("main_reply") else ""
+    return {
+        "intent": ai.get("intent"), "confidence": ai.get("confidence"),
+        "decision": action, "would_auto_send": action == "send" and E.auto_send_enabled(),
+        "model_ran": not ai.get("_fallback"),
+        "reply": reply,
+        "followups": [ai.get(f"followup_{i}") for i in range(1, 7) if ai.get(f"followup_{i}")],
+    }
+
+
+# ================================================================ global reply settings
+SETTING_KEYS = [
+    ("openai_api_key", True), ("gemini_api_key", True), ("openai_model", False),
+    ("gemini_model", False), ("review_webhook_url", False), ("default_bison_base_url", False),
+    ("reply_delay_seconds", False), ("reply_trigger_tag", False), ("followup_trigger_tag", False),
+]
+
+
+@router.get("/settings")
+def get_settings(ctx: AuthContext = Depends(require_master)):
+    from ..models.settings import AppSetting
+    rows = {s.key: s for s in ctx.db.query(AppSetting).all()}
+    out = {}
+    for key, secret in SETTING_KEYS:
+        s = rows.get(f"reply.{key}")
+        if secret:
+            out[key] = ""
+            out[f"{key}_set"] = bool(s and s.value)
+        else:
+            out[key] = decrypt(s.value) if s else ""
+    return out
+
+
+@router.put("/settings")
+def put_settings(body: dict, ctx: AuthContext = Depends(require_master)):
+    from ..models.settings import AppSetting
+    for key, secret in SETTING_KEYS:
+        if key not in body:
+            continue
+        val = str(body[key])
+        if secret and val == "":
+            continue  # blank = keep existing secret
+        row = ctx.db.get(AppSetting, f"reply.{key}")
+        if row is None:
+            row = AppSetting(key=f"reply.{key}", is_secret=1 if secret else 0)
+            ctx.db.add(row)
+        row.value = encrypt(val) if secret else val
     ctx.db.commit()
     return {"ok": True}
 

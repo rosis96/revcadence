@@ -1,6 +1,6 @@
 // Reply Management → Inbox: the review console (Needs Review queue, drawer with
 // editable draft + Approve & Send). Its OWN section — nothing else shown.
-import { useState } from "react";
+import { useState } from "react";  // eslint-disable-line
 import { api, timeAgo } from "../api";
 import { Badge, Drawer, Empty, ErrorBox, Spinner, useApi } from "../components";
 
@@ -24,8 +24,31 @@ function LeadDrawer({ id, onClose, onChanged }) {
         <div className="k">Intent</div><div>{l.intent ? <Badge tone="indigo">{l.intent}</Badge> : "—"} {l.confidence}</div>
         <div className="k">Decision</div><div><Badge tone={actionTone(l.action)}>{l.action}</Badge> {l.replied && <Badge tone="green">sent</Badge>}</div>
       </div>
-      <h3 style={{ fontSize: 13, margin: "12px 0 6px" }}>Prospect's reply</h3>
-      <div className="card" style={{ padding: 12, fontSize: 13, background: "#fafbfc" }}>{l.reply_text || "—"}</div>
+      {l.lead_details && Object.values(l.lead_details).some(Boolean) && (
+        <>
+          <h3 style={{ fontSize: 13, margin: "12px 0 6px" }}>Lead details (from sending platform)</h3>
+          <div className="kv" style={{ margin: 0 }}>
+            {l.lead_details.website && <><div className="k">Website</div><div><a href={l.lead_details.website.startsWith("http") ? l.lead_details.website : `https://${l.lead_details.website}`} target="_blank" rel="noreferrer">{l.lead_details.website}</a></div></>}
+            {l.lead_details.contact_linkedin && <><div className="k">LinkedIn</div><div><a href={l.lead_details.contact_linkedin} target="_blank" rel="noreferrer">profile ↗</a></div></>}
+            {l.lead_details.company_linkedin && <><div className="k">Company LinkedIn</div><div><a href={l.lead_details.company_linkedin} target="_blank" rel="noreferrer">company ↗</a></div></>}
+            {l.lead_details.location && <><div className="k">Location</div><div>{l.lead_details.location}</div></>}
+            {l.lead_details.title && <><div className="k">Title</div><div>{l.lead_details.title}</div></>}
+          </div>
+        </>
+      )}
+      <h3 style={{ fontSize: 13, margin: "12px 0 6px" }}>Conversation</h3>
+      {(l.thread || []).length > 0 ? (
+        <div className="card" style={{ padding: 12, fontSize: 12.5, background: "#fafbfc", maxHeight: 220, overflowY: "auto" }}>
+          {l.thread.map((m, i) => (
+            <div key={i} style={{ marginBottom: 8 }}>
+              <b style={{ color: m.direction === "in" ? "var(--accent)" : "var(--muted)" }}>{m.direction === "in" ? "Prospect" : "Us"}</b>
+              <div style={{ whiteSpace: "pre-wrap" }}>{m.text}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="card" style={{ padding: 12, fontSize: 13, background: "#fafbfc" }}>{l.reply_text || "—"}</div>
+      )}
       <h3 style={{ fontSize: 13, margin: "14px 0 6px" }}>Reply to send</h3>
       <textarea rows={8} style={{ width: "100%" }} value={body} onChange={(e) => setDraft(e.target.value)} />
       <div className="toolbar" style={{ marginTop: 10 }}>
@@ -49,8 +72,9 @@ function LeadDrawer({ id, onClose, onChanged }) {
 }
 
 export default function ReplyInbox() {
-  const [status, setStatus] = useState("needs_review");
-  const [open, setOpen] = useState(null);
+  const params = new URLSearchParams(window.location.hash.split("?")[1] || "");
+  const [status, setStatus] = useState(params.get("status") ?? "needs_review");
+  const [open, setOpen] = useState(params.get("open") ? Number(params.get("open")) : null);
   const { data, error, loading, reload } = useApi("/api/reply/leads", { status });
   return (
     <>

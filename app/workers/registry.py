@@ -248,6 +248,13 @@ def process_reply_job(db, job):
             lead.action = "error"
             lead.lead_data = {**(lead.lead_data or {}), "_send_error": str(e)[:300]}
 
+    # sync to CRM + enrichment (legacy: webhook lead → contact/company + enrich by email)
+    try:
+        from ..reply.sync import sync_reply_lead_to_crm
+        sync_reply_lead_to_crm(db, lead, queue_enrich=True)
+    except Exception:
+        pass  # CRM sync must never block the reply pipeline
+
     # write follow-up variables back (Bison merge fix)
     if platform == "bison" and lead.followups and action in ("send", "would_send", "skip_enrich"):
         try:
