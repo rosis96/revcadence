@@ -1,4 +1,5 @@
-import { HashRouter, NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { useState } from "react";
+import { HashRouter, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth";
 import { useApi } from "./components";
 import Login from "./pages/Login";
@@ -8,6 +9,9 @@ import Companies from "./pages/Companies";
 import CompanyDetail from "./pages/CompanyDetail";
 import Contacts from "./pages/Contacts";
 import Enrichment from "./pages/Enrichment";
+import EnrichLists from "./pages/EnrichLists";
+import EnrichListDetail from "./pages/EnrichListDetail";
+import EnrichConfigPage from "./pages/EnrichConfig";
 import Blueprints from "./pages/Blueprints";
 import BlueprintDetail from "./pages/BlueprintDetail";
 import ActivityPage from "./pages/Activity";
@@ -16,32 +20,49 @@ import Jobs from "./pages/Jobs";
 import Settings from "./pages/Settings";
 import Admin from "./pages/Admin";
 
-// Grouped IA: Outbound (enrichment/personalization), Inbound (replies,
-// visitor pipeline later), CRM (everything synced), System.
-const NAV_GROUPS = [
-  ["", [["/", "Dashboard", "▦"]]],
-  ["Outbound", [
-    ["/enrichment", "Enrichment", "✦"],
-    ["/blueprints", "Blueprints", "▤"],
-  ]],
-  ["Inbound", [
-    ["/replies", "Replies", "✉"],
-  ]],
-  ["CRM", [
-    ["/pipeline", "Pipeline", "☰"],
-    ["/companies", "Companies", "◫"],
-    ["/contacts", "Contacts", "◔"],
-    ["/activity", "Activity", "↺"],
-  ]],
-  ["System", [
-    ["/jobs", "Jobs", "⚙"],
-    ["/settings", "Settings", "⚒"],
-  ]],
-];
-const NAV = NAV_GROUPS.flatMap(([, items]) => items);
+// MODES: like the workspace switcher, but for the *kind of work* — pick a
+// mode and the sidebar shows ONLY that mode's navigation.
+const MODES = {
+  outbound: {
+    label: "Outbound", icon: "✦",
+    nav: [
+      ["/enrichment", "Lists", "▦"],
+      ["/enrichment/profile", "Client Profile", "◐"],
+      ["/enrichment/formats", "Formats", "≡"],
+      ["/enrichment/rules", "Rules", "✓"],
+      ["/blueprints", "Blueprints", "▤"],
+    ],
+  },
+  inbound: {
+    label: "Inbound", icon: "✉",
+    nav: [
+      ["/replies", "Replies", "✉"],
+      ["/activity", "Activity", "↺"],
+    ],
+  },
+  crm: {
+    label: "CRM", icon: "☰",
+    nav: [
+      ["/pipeline", "Pipeline", "☰"],
+      ["/companies", "Companies", "◫"],
+      ["/contacts", "Contacts", "◔"],
+      ["/activity", "Activity", "↺"],
+    ],
+  },
+};
+const COMMON_NAV = [["/", "Dashboard", "▦"]];
+const SYSTEM_NAV = [["/jobs", "Jobs", "⚙"], ["/settings", "Settings", "⚒"]];
+const NAV = [...COMMON_NAV, ...Object.values(MODES).flatMap((m) => m.nav), ...SYSTEM_NAV];
 
 function Sidebar() {
   const { me, logout, workspaceId, setWorkspaceId } = useAuth();
+  const [mode, setModeRaw] = useState(localStorage.getItem("rc_mode") || "outbound");
+  const nav = useNavigate();
+  const setMode = (m) => {
+    localStorage.setItem("rc_mode", m);
+    setModeRaw(m);
+    nav(MODES[m].nav[0][0]);   // land on the mode's first screen
+  };
   return (
     <aside className="sidebar">
       <div className="logo">Rev<span>Cadence</span></div>
@@ -55,16 +76,26 @@ function Sidebar() {
       ) : (
         <div className="ws-badge">◫ {me.workspaces[0]?.name || "Workspace"}</div>
       )}
+      <div className="mode-switch">
+        {Object.entries(MODES).map(([key, m]) => (
+          <button key={key} className={mode === key ? "on" : ""} onClick={() => setMode(key)}>
+            {m.icon} {m.label}
+          </button>
+        ))}
+      </div>
       <nav className="nav">
-        {NAV_GROUPS.map(([group, items]) => (
-          <div key={group || "top"}>
-            {group && <div className="group">{group}</div>}
-            {items.map(([to, label, icon]) => (
-              <NavLink key={to} to={to} end={to === "/"}>
-                <span className="icon">{icon}</span>{label}
-              </NavLink>
-            ))}
-          </div>
+        {COMMON_NAV.map(([to, label, icon]) => (
+          <NavLink key={to} to={to} end><span className="icon">{icon}</span>{label}</NavLink>
+        ))}
+        <div className="group">{MODES[mode].label}</div>
+        {MODES[mode].nav.map(([to, label, icon]) => (
+          <NavLink key={to} to={to} end={to.split("/").length <= 2}>
+            <span className="icon">{icon}</span>{label}
+          </NavLink>
+        ))}
+        <div className="group">System</div>
+        {SYSTEM_NAV.map(([to, label, icon]) => (
+          <NavLink key={to} to={to}><span className="icon">{icon}</span>{label}</NavLink>
         ))}
         {me.is_master && <NavLink to="/admin"><span className="icon">⛭</span>Admin</NavLink>}
       </nav>
@@ -120,7 +151,12 @@ function Protected() {
         <Route path="/companies" element={<Companies />} />
         <Route path="/companies/:id" element={<CompanyDetail />} />
         <Route path="/contacts" element={<Contacts />} />
-        <Route path="/enrichment" element={<Enrichment />} />
+        <Route path="/enrichment" element={<EnrichLists />} />
+        <Route path="/enrichment/lists/:id" element={<EnrichListDetail />} />
+        <Route path="/enrichment/profile" element={<EnrichConfigPage tab="profile" />} />
+        <Route path="/enrichment/formats" element={<EnrichConfigPage tab="formats" />} />
+        <Route path="/enrichment/rules" element={<EnrichConfigPage tab="rules" />} />
+        <Route path="/enrichment/companies" element={<Enrichment />} />
         <Route path="/blueprints" element={<Blueprints />} />
         <Route path="/blueprints/:id" element={<BlueprintDetail />} />
         <Route path="/activity" element={<ActivityPage />} />
