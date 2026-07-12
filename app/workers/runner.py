@@ -48,7 +48,8 @@ def run_one(db, job) -> None:
         if handler is None:
             raise RuntimeError(f"No handler registered for kind '{job.kind}'")
         result = handler(db, job) or {}
-        job.status = "done"
+        if job.status != "cancelled":   # handlers may honor a mid-run Stop
+            job.status = "done"
         job.result = result
         job.error = ""
     except Exception:

@@ -68,6 +68,44 @@ def generate_blueprint_job(db, job):
     doc = generate_blueprint(db, job.workspace_id, company, contact, job.payload.get("deal_id"))
     return {"document_id": doc.id, "slug": doc.slug, "title": doc.title}
 
+@register("run_enrich_list")
+def run_enrich_list(db, job):
+    """List pipeline runner. payload: {list_id, lead_ids?: [..], steps: 'verify'|'pipeline',
+    limit?: int}. Processes non-terminal leads only (resume semantics); checks for
+    cancellation between leads; updates job progress live."""
+    from ..models.enrich import TERMINAL_STATUSES, EnrichLead, EnrichList
+    from ..models.jobs import Job as JobModel
+    from ..enrichment.pipeline import _config, process_lead
+
+    lst = db.get(EnrichList, int(job.payload.get("list_id", 0)))
+    if lst is None or lst.workspace_id != job.workspace_id:
+        raise RuntimeError("list not found in this job's workspace")
+    cfg = _config(db, job.workspace_id)
+    q = db.query(EnrichLead).filter(EnrichLead.list_id == lst.id,
+                                    EnrichLead.status.notin_(TERMINAL_STATUSES))
+    ids = job.payload.get("lead_ids") or []
+    if ids:
+        q = q.filter(EnrichLead.id.in_([int(i) for i in ids]))
+    limit = int(job.payload.get("limit") or 0)
+    leads = q.order_by(EnrichLead.id).limit(limit if limit > 0 else 100000).all()
+    steps = job.payload.get("steps", "pipeline")
+    counts = {"processed": 0, "done": 0, "invalid": 0, "unsafe": 0, "skipped": 0, "error": 0}
+    total = len(leads)
+    for i, lead in enumerate(leads):
+        # hard Stop: re-read job status so Cancel takes effect mid-run
+        db.expire(job)
+        if db.get(JobModel, job.id).status == "cancelled":
+            job.status = "cancelled"
+            break
+        status = process_lead(db, lead, cfg, steps=steps)
+        counts["processed"] += 1
+        counts[status] = counts.get(status, 0) + 1
+        job.progress = int(((i + 1) / max(total, 1)) * 100)
+        job.progress_note = f"{i + 1}/{total} · {lead.email or lead.company}"[:250]
+        db.commit()
+    return {"total_selected": total, **counts}
+
+
 # Future handlers, one decorator each:
 #   @register("same_day_nudge")     — handoff doc §12
 #   @register("proposal_follow_up") — unopened-proposal reminder
