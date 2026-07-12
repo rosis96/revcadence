@@ -1,5 +1,25 @@
 # NEXT_STEPS — living document
 
+## ✅ Session 18 (2026-07-12) — Calendly scheduling ported into the reply engine
+
+Closed REPLY_PORT_SPEC GAP A.6:
+- `app/reply/calendly.py`: real open times from the client's Calendly, in the
+  PROSPECT's timezone (US-state + country maps), weekday 10 AM–2 PM (relaxes to
+  9–5), one slot per day.
+- Anti-double-booking: `proposed_slots` (migration `58211d822529`) — every
+  proposed time reserved per workspace, excluded for the next prospect, past
+  slots pruned; follow-ups get 6 distinct times.
+- Wired into `process_reply`: scheduling context injected into the prompt; fully
+  graceful (no token/error → normal reply).
+- Reply-delay parity: webhooks enqueue with `run_at = now + reply_delay_seconds`.
+- Diagnostic: `GET /api/reply/workspaces/{id}/calendly-probe` + a **Check
+  Calendly availability** button in Setup. Read-only scopes; never books.
+- Verified: TZ mapping, graceful degradation, reservation + pruning;
+  40/40 + 25/25 + 20/20.
+
+**Still outstanding:** Ascendly Studio / blueprints-agreements (GAP E — the big
+proposal-lifecycle module) and the inbound visitor 10-min draft SLA.
+
 ## ✅ Session 17 (2026-07-12) — interested→Opportunity + legacy reply import
 
 - **Every interested reply auto-syncs to an Opportunity deal.** Any inbound
