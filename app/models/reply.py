@@ -51,6 +51,7 @@ class ReplyLead(Base):
     reply_workspace = Column(String(255), default="", index=True)            # ReplyWorkspace.name or "Unrouted"
     platform = Column(String(20), default="")
     dedupe_key = Column(String(512), index=True)
+    legacy_id = Column(Integer, index=True)     # original Reply Manager leads.id (traceability)
     external_lead_id = Column(String(255), default="")
     reply_id = Column(String(255), default="")
 

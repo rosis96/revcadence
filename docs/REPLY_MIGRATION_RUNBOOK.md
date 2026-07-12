@@ -124,23 +124,35 @@ Management → **Reply Settings** should show your models + "key · set".
 
 Still in the web Console.
 
-**Dry run:**
+**Dry run** (default — writes nothing; `--dry-run` is also accepted explicitly):
 ```bash
 /opt/venv/bin/python -m scripts.import_reply_leads --legacy-db-url "<LEGACY_URL>"
 ```
-Read the JSON:
-- `seen` / `imported` — total legacy replies and how many will import.
-- `crm_contacts` / `deals` — CRM contacts and pipeline deals it will create.
-- `unmapped` — same alias check as before; fix in step 3 if non-empty.
+The report prints: `legacy_leads_total`, `considered`, `imported`,
+`already_imported`, `unmapped_workspaces`, `skipped_workspaces`, an operational
+summary (`conversations` / `messages` / `replies` / `replied` / `needs_review` /
+`reviewed` / `meeting_booked` / `stopped`), `crm_contacts` / `crm_deals`, and
+`reply_leads_before` / `reply_leads_after` (record-count verification).
+
+**Import only specific clients** (skip the ones you don't want; repeatable):
+```bash
+/opt/venv/bin/python -m scripts.import_reply_leads --legacy-db-url "<LEGACY_URL>" \
+  --include-workspace "Ascendly: mainreplybison" \
+  --include-workspace "Webaholics"
+```
 
 **Apply:**
 ```bash
 /opt/venv/bin/python -m scripts.import_reply_leads --legacy-db-url "<LEGACY_URL>" --apply
 ```
-Every legacy reply lands in RevCadence exactly as it was (intent, confidence,
-action, drafted reply, follow-ups, full thread, raw lead_data, stage) AND each
-one syncs into the CRM: a contact + company, and a **deal** — booked leads go to
-the *Meeting Booked* stage, every other interested reply to *Opportunity*.
+Every legacy reply lands in RevCadence exactly as it was — the original
+`leads.id` is preserved in `ReplyLead.legacy_id`, along with intent, confidence,
+action, drafted reply, follow-ups, full thread (conversation/messages), raw
+lead_data, review status, and stage. Each one syncs into the CRM: a contact +
+company, and a **deal** — booked leads to *Meeting Booked*, every other
+interested reply to *Opportunity*. Dashboard stats are derived, so they rebuild
+from the imported rows automatically. Idempotent by `legacy_id`/`dedupe_key`;
+`--apply` aborts on any unmapped (non-skipped) workspace.
 
 **Verify:** Reply Management → **Dashboard** (counts populate) and **Inbox**
 (replies listed; open one — lead details + full conversation show). CRM →
