@@ -67,4 +67,5 @@ class EnrichConfig(Base):
     formats = Column(JSON, default=list)        # [{label,name,guidance,template,min_words,max_words,placeholders:[...]}]
     rules = Column(Text, default="")            # one correction rule per line, injected into the writer
     skip_title_gate = Column(Integer, default=0)
+    only_safe = Column(Integer, default=1)      # 1: catch_all/unknown stop as unsafe (default on)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

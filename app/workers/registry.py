@@ -106,6 +106,41 @@ def run_enrich_list(db, job):
     return {"total_selected": total, **counts}
 
 
+@register("find_competitors")
+def find_competitors_job(db, job):
+    """payload: {list_id, lead_ids: [..]}. Skips leads that already have
+    competitors (or a recorded empty attempt). Cancellable mid-run."""
+    from ..enrichment.ai import find_competitors
+    from ..models.enrich import EnrichLead, EnrichList
+    from ..models.jobs import Job as JobModel
+
+    lst = db.get(EnrichList, int(job.payload.get("list_id", 0)))
+    if lst is None or lst.workspace_id != job.workspace_id:
+        raise RuntimeError("list not found in this job's workspace")
+    ids = [int(i) for i in (job.payload.get("lead_ids") or [])]
+    leads = (db.query(EnrichLead).filter(EnrichLead.list_id == lst.id,
+                                         EnrichLead.id.in_(ids)).order_by(EnrichLead.id).all())
+    found = skipped = 0
+    total = len(leads)
+    for i, lead in enumerate(leads):
+        db.expire(job)
+        if db.get(JobModel, job.id).status == "cancelled":
+            job.status = "cancelled"
+            break
+        if lead.competitors or (lead.result or {}).get("_competitors_ran"):
+            skipped += 1
+            continue
+        services = ((lead.result or {}).get("_facts") or {}).get("services", [])
+        comps = find_competitors(lead.company, lead.industry, services)
+        lead.competitors = comps
+        lead.result = {**(lead.result or {}), "_competitors_ran": True}
+        found += 1 if comps else 0
+        job.progress = int(((i + 1) / max(total, 1)) * 100)
+        job.progress_note = f"{i + 1}/{total} · {lead.company}"[:250]
+        db.commit()
+    return {"total_selected": total, "found_for": found, "skipped_existing": skipped}
+
+
 # Future handlers, one decorator each:
 #   @register("same_day_nudge")     — handoff doc §12
 #   @register("proposal_follow_up") — unopened-proposal reminder

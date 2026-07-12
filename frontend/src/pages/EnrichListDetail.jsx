@@ -61,6 +61,15 @@ export default function EnrichListDetail() {
     } catch (e) { alert(e.message); }
   };
   const stop = async () => { if (job) { try { await api(`/api/jobs/${job}/cancel`, { method: "POST" }); } catch (e) { alert(e.message); } } };
+  const findCompetitors = async () => {
+    const body = {};
+    if (allInView || ids.length === 0) body.view = view;
+    else body.lead_ids = ids;
+    try {
+      const r = await api(`/api/enrich-lists/${id}/find-competitors`, { method: "POST", body });
+      setJob(r.job_id); setSel({}); setAllInView(false);
+    } catch (e) { alert(e.message); }
+  };
   const clearAction = async (what) => {
     if (!confirm(`${what === "clear-results" ? "Clear enrichment results" : "Clear verification"} for view "${view}"?`)) return;
     try { await api(`/api/enrich-lists/${id}/${what}?view=${view}`, { method: "POST" }); reload(); }
@@ -117,6 +126,7 @@ export default function EnrichListDetail() {
         )}
         {allInView && <button className="btn ghost sm" onClick={() => setAllInView(false)}>Clear selection</button>}
         <div className="spacer" />
+        <button className="btn ghost sm" disabled={!!job} onClick={findCompetitors}>◎ Find competitors</button>
         <button className="btn ghost sm" onClick={() => clearAction("clear-results")}>Clear results</button>
         <button className="btn ghost sm" onClick={() => clearAction("clear-verification")}>Clear verification</button>
         <button className="btn ghost sm" onClick={exportCsv}>⇓ Export view</button>
@@ -127,7 +137,7 @@ export default function EnrichListDetail() {
           <th className="checkbox-cell"><input type="checkbox"
             checked={allInView || (data.leads.length > 0 && ids.length === data.leads.length)}
             onChange={(e) => { setAllInView(false); setSel(Object.fromEntries(data.leads.map((l) => [l.id, e.target.checked]))); }} /></th>
-          <th>Lead</th><th>System check</th><th>Reoon</th><th>Title gate</th><th>ICP</th><th>Industry</th><th>Status</th>
+          <th>Lead</th><th>System check</th><th>Reoon</th><th>Title gate</th><th>ICP</th><th>Industry</th><th>Competitors</th><th>Status</th>
         </tr></thead>
         <tbody>
           {data.leads.map((l) => (
@@ -143,10 +153,15 @@ export default function EnrichListDetail() {
               <td>{l.icp_decision ? <Badge tone={l.icp_decision === "ICP" ? "green" : l.icp_decision === "Non-ICP" ? "red" : "amber"}>
                 {l.icp_decision}{l.icp_score != null ? ` ${l.icp_score}` : ""}</Badge> : "—"}</td>
               <td style={{ fontSize: 12.5 }}>{l.industry || "—"}</td>
+              <td style={{ fontSize: 12 }}>
+                {(l.competitors || []).length === 0 ? "—" :
+                  l.competitors.map((c, i) => (
+                    <span key={i} title={c.why} style={{ display: "block" }}>{c.name}</span>))}
+              </td>
               <td><Badge tone={stTone[l.status] || ""}>{l.status || "not run"}</Badge></td>
             </tr>
           ))}
-          {data.leads.length === 0 && <tr><td colSpan={8} className="empty">Nothing in this view</td></tr>}
+          {data.leads.length === 0 && <tr><td colSpan={9} className="empty">Nothing in this view</td></tr>}
         </tbody>
       </table>
 

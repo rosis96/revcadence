@@ -89,10 +89,15 @@ export default function EnrichConfigPage({ tab }) {
                      onChange={(e) => setCfg({ ...cfg, skip_title_gate: e.target.checked })} />
               Skip title gate (run ICP on every title, not just senior decision-makers)
             </label>
+            <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8, fontSize: 13 }}>
+              <input type="checkbox" checked={cfg.only_safe}
+                     onChange={(e) => setCfg({ ...cfg, only_safe: e.target.checked })} />
+              Only Safe — catch-all / unknown emails stop as unsafe (recommended; saves writer spend)
+            </label>
           </div>
           <div className="toolbar" style={{ marginTop: 14 }}>
             <button className="btn" disabled={busy}
-                    onClick={() => save({ profile: cfg.profile, icp_definition: cfg.icp_definition, skip_title_gate: cfg.skip_title_gate })}>
+                    onClick={() => save({ profile: cfg.profile, icp_definition: cfg.icp_definition, skip_title_gate: cfg.skip_title_gate, only_safe: cfg.only_safe })}>
               Save profile</button>
           </div>
         </>

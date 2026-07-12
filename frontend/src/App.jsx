@@ -76,12 +76,13 @@ function Sidebar() {
       ) : (
         <div className="ws-badge">◫ {me.workspaces[0]?.name || "Workspace"}</div>
       )}
-      <div className="mode-switch">
-        {Object.entries(MODES).map(([key, m]) => (
-          <button key={key} className={mode === key ? "on" : ""} onClick={() => setMode(key)}>
-            {m.icon} {m.label}
-          </button>
-        ))}
+      {/* Mode switcher — same clean dropdown pattern as the workspace switcher */}
+      <div className="ws-switch">
+        <select value={mode} onChange={(e) => setMode(e.target.value)}>
+          {Object.entries(MODES).map(([key, m]) => (
+            <option key={key} value={key}>{m.icon}  {m.label}</option>
+          ))}
+        </select>
       </div>
       <nav className="nav">
         {COMMON_NAV.map(([to, label, icon]) => (

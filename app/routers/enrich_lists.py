@@ -131,7 +131,7 @@ def list_leads(list_id: int, view: str = "all", page: int = 1, page_size: int = 
             "free_status": l.free_status, "email_status": l.email_status,
             "verify_source": l.verify_source, "title_status": l.title_status,
             "icp_decision": l.icp_decision, "icp_score": l.icp_score, "icp_reason": l.icp_reason,
-            "industry": l.industry, "status": l.status,
+            "industry": l.industry, "status": l.status, "competitors": l.competitors or [],
             "vars": {k: v for k, v in (l.result or {}).items() if not k.startswith("_")},
         } for l in rows],
     }
@@ -160,6 +160,53 @@ def run(list_id: int, body: RunIn, ctx: AuthContext = Depends(get_ctx)):
     ctx.db.add(j)
     ctx.db.commit()
     return {"job_id": j.id, "selected": len(lead_ids), "capped_at": body.limit or None}
+
+
+# ---------------------------------------------------------------- competitor finder
+class CompetitorsIn(BaseModel):
+    lead_ids: list[int] = []
+    view: str = "enriched"   # used when lead_ids empty (select-all-in-view semantics)
+
+
+@router.post("/{list_id}/find-competitors")
+def find_competitors_ep(list_id: int, body: CompetitorsIn, ctx: AuthContext = Depends(get_ctx)):
+    """Model-knowledge competitor finder (no web search — cheap by design).
+    Runs as a background job; skips leads that already have competitors."""
+    lst = _get_list(ctx, list_id)
+    lead_ids = body.lead_ids
+    if not lead_ids:
+        base = ctx.db.query(EnrichLead.id).filter(EnrichLead.list_id == lst.id)
+        lead_ids = [r[0] for r in _view_filter(base, body.view).all()]
+    if not lead_ids:
+        raise HTTPException(422, "Nothing selected")
+    j = Job(kind="find_competitors", workspace_id=lst.workspace_id,
+            payload={"list_id": lst.id, "lead_ids": lead_ids})
+    ctx.db.add(j)
+    ctx.db.commit()
+    return {"job_id": j.id, "selected": len(lead_ids)}
+
+
+# ---------------------------------------------------------------- DNS / email diagnostics
+@router.get("/diag/dns")
+def diag_dns(ctx: AuthContext = Depends(get_ctx)):
+    """Proves whether the free MX layer is live on this host. dns_working is
+    True ONLY if a real domain resolves True AND a nonsense domain resolves
+    False — otherwise the layer is failing open and rejecting nothing."""
+    from ..enrichment.verify_free import _doh_mx
+    good = {d: _doh_mx(d) for d in ("gmail.com", "outlook.com")}
+    dead = {d: _doh_mx(d) for d in ("no-such-domain-zzqx-1928374.com",)}
+    working = any(v is True for v in good.values()) and all(v is False for v in dead.values())
+    return {"dns_working": working,
+            "results": {**good, **dead},
+            "verdict": ("MX layer live — dead domains are being rejected" if working
+                        else "MX layer NOT conclusive — free verifier is failing open; "
+                             "only Reoon is filtering")}
+
+
+@router.get("/diag/email")
+def diag_email(e: str, ctx: AuthContext = Depends(get_ctx)):
+    from ..enrichment.verify_free import check
+    return {"email": e, **check(e)}
 
 
 # ---------------------------------------------------------------- clear actions (mirror pair)
@@ -219,11 +266,13 @@ def export(list_id: int, view: str = "enriched", ctx: AuthContext = Depends(get_
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["first_name", "last_name", "title", "company", "website", "email",
-                "system_check", "reoon", "icp", "icp_score", "industry", "status"] + var_names)
+                "system_check", "reoon", "icp", "icp_score", "industry", "status",
+                "Top Competitors"] + var_names)
     for l in rows:
+        comps = "; ".join(f"{c.get('name')} ({c.get('why')})" for c in (l.competitors or []) if c.get("name"))
         w.writerow([l.first_name, l.last_name, l.title, l.company, l.website, l.email,
                     l.free_status, l.email_status, l.icp_decision, l.icp_score or "",
-                    l.industry, l.status] + [(l.result or {}).get(v, "") for v in var_names])
+                    l.industry, l.status, comps] + [(l.result or {}).get(v, "") for v in var_names])
     return PlainTextResponse(buf.getvalue(), media_type="text/csv",
                              headers={"Content-Disposition":
                                       f"attachment; filename={lst.name.replace(' ', '_')}-{view}.csv"})
@@ -236,6 +285,7 @@ class ConfigIn(BaseModel):
     formats: list | None = None
     rules: str | None = None
     skip_title_gate: bool | None = None
+    only_safe: bool | None = None
 
 
 @router.get("/config/{workspace_id}")
@@ -246,7 +296,7 @@ def get_config(workspace_id: int, ctx: AuthContext = Depends(get_ctx)):
     ctx.db.commit()
     return {"profile": cfg.profile or {}, "icp_definition": cfg.icp_definition or "",
             "formats": cfg.formats or [], "rules": cfg.rules or "",
-            "skip_title_gate": bool(cfg.skip_title_gate)}
+            "skip_title_gate": bool(cfg.skip_title_gate), "only_safe": bool(cfg.only_safe)}
 
 
 @router.put("/config/{workspace_id}")
@@ -264,5 +314,7 @@ def put_config(workspace_id: int, body: ConfigIn, ctx: AuthContext = Depends(get
         cfg.rules = body.rules
     if body.skip_title_gate is not None:
         cfg.skip_title_gate = 1 if body.skip_title_gate else 0
+    if body.only_safe is not None:
+        cfg.only_safe = 1 if body.only_safe else 0
     ctx.db.commit()
     return {"ok": True}

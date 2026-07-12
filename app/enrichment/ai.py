@@ -10,6 +10,31 @@ import requests
 
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 
+# Model split (env-configurable — NEVER hardcode a model in a call path).
+# Extraction/ICP: cheap. Writer: gpt-4.1-mini (~6x cheaper input than gpt-4o,
+# materially better copy than gpt-4o-mini); override WRITER_MODEL=gpt-4.1 for
+# higher quality or gpt-4o to revert — no code change.
+def extract_model() -> str:
+    return os.getenv("EXTRACT_MODEL", os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
+
+
+def writer_model() -> str:
+    return os.getenv("WRITER_MODEL", "gpt-4.1-mini")
+
+
+def competitor_model() -> str:
+    return os.getenv("COMPETITOR_MODEL", "gpt-4o-mini")
+
+
+# Content budgets (env cost levers — input tokens dominate ~10:1).
+# Reference incident: EXTRACT_CONTENT_CHARS=22000 caused runaway spend. Keep modest.
+def extract_content_chars() -> int:
+    return int(os.getenv("EXTRACT_CONTENT_CHARS", "8000"))
+
+
+def writer_content_chars() -> int:
+    return int(os.getenv("WRITER_CONTENT_CHARS", "6000"))
+
 COMPANY_SCHEMA = {
     "industry": "primary industry, 2-4 words",
     "description": "one factual sentence about what the company does",
@@ -31,13 +56,13 @@ def has_ai() -> bool:
     return bool(os.getenv("OPENAI_API_KEY"))
 
 
-def _call_openai(system: str, user: str) -> dict:
+def _call_openai(system: str, user: str, model: str = "") -> dict:
     resp = requests.post(
         OPENAI_URL,
         headers={"Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",
                  "Content-Type": "application/json"},
         json={
-            "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+            "model": (model or extract_model()).lower(),
             "temperature": 0.2,
             "response_format": {"type": "json_object"},
             "messages": [{"role": "system", "content": system},
@@ -56,7 +81,8 @@ def extract_company(crawl: dict) -> dict:
                   "supports — never invent. Return JSON with keys: "
                   + json.dumps(COMPANY_SCHEMA))
         user = (f"Website: {crawl.get('url')}\nTitle: {crawl.get('title')}\n"
-                f"Meta: {crawl.get('meta_description')}\n\nSite text:\n{crawl.get('text')[:8000]}")
+                f"Meta: {crawl.get('meta_description')}\n\nSite text:\n"
+                f"{crawl.get('text')[:extract_content_chars()]}")
         try:
             data = _call_openai(system, user)
             data["_source"] = "openai"
@@ -93,6 +119,28 @@ def _demo_company(crawl: dict) -> dict:
         "icp_fit": "possible" if b2b else "unknown",
         "icp_reason": "site mentions serving businesses" if b2b else "no clear B2B signal in demo mode",
     }
+
+
+def find_competitors(company_name: str, industry: str = "", services=None) -> list:
+    """Top-3 real competitors from model knowledge (NO web search — the cheap
+    version was chosen deliberately). Anti-fabrication is mandatory: never
+    invent a name to fill a slot. Returns [{name, why}] (possibly fewer/empty)."""
+    if not has_ai():
+        return []  # demo mode: no fabrication, return none
+    system = ("You identify real competitor companies from your knowledge. "
+              "CRITICAL: only name companies you are confident genuinely exist; "
+              "never invent a name to fill a slot; return fewer or none if unsure. "
+              'Return JSON: {"competitors": [{"name": str, "why": one short sentence}]} '
+              "with at most 3 entries.")
+    user = json.dumps({"company": company_name, "industry": industry,
+                       "services": services or []})
+    try:
+        out = _call_openai(system, user, model=competitor_model())
+        comps = out.get("competitors", [])
+        return [{"name": str(c.get("name", "")).strip(), "why": str(c.get("why", "")).strip()}
+                for c in comps if c.get("name")][:3]
+    except Exception:
+        return []
 
 
 def generate_blueprint_content(company: dict, contact: dict, enrichment: dict) -> dict:

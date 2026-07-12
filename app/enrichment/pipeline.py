@@ -9,7 +9,6 @@ _pipeline_one. Cheapest-first funnel — ORDER IS DELIBERATE, DO NOT REORDER:
 Resume semantics: leads already in a TERMINAL status are never re-processed.
 """
 import json
-import os
 from datetime import datetime
 
 from ..models.enrich import TERMINAL_STATUSES, EnrichConfig, EnrichLead
@@ -45,9 +44,10 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
                   + (cfg.icp_definition or "B2B companies selling high-value services to other businesses.")
                   + '\nReturn JSON: {"icp_decision": "ICP"|"Non-ICP"|"Needs Review", "icp_score": 0-100, '
                     '"icp_reason": str, "industry": str, "facts": {"description": str, "services": [str]}}')
-        user = f"Company: {lead.company}\nSite: {crawl.get('url')}\nText:\n{crawl.get('text')[:8000]}"
+        user = (f"Company: {lead.company}\nSite: {crawl.get('url')}\nText:\n"
+                f"{crawl.get('text')[:ai.extract_content_chars()]}")
         try:
-            out = ai._call_openai(system, user)
+            out = ai._call_openai(system, user, model=ai.extract_model())
             out["crawl"] = crawl
             out["source"] = "openai"
             return out
@@ -81,9 +81,9 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict) -> dict:
         user = ("LEAD: " + json.dumps({"first_name": lead.first_name, "company": lead.company,
                                        "title": lead.title}) +
                 "\nVERIFIED FACTS: " + json.dumps(ctx.get("facts", {})) +
-                "\nSITE EXCERPT:\n" + (ctx.get("crawl", {}).get("text", "")[:6000]))
+                "\nSITE EXCERPT:\n" + (ctx.get("crawl", {}).get("text", "")[:ai.writer_content_chars()]))
         try:
-            out = ai._call_openai(system, user)
+            out = ai._call_openai(system, user, model=ai.writer_model())
             return {"vars": {f["name"]: out.get(f["name"], "") for f in formats}, "source": "openai"}
         except Exception:
             pass
@@ -110,19 +110,21 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
             db.commit()
             return lead.status
 
-    # 2. Reoon (mailbox-level)
+    # 2. Reoon (mailbox-level). Single explicit decision:
+    #    safe/valid            → deliverable, proceed
+    #    catch_all/unknown     → proceed ONLY if the workspace's Only Safe is off
+    #    anything else         → unsafe, stop (no ICP, no writer tokens)
     if not lead.email_status or lead.email_status == "skipped":
         r = verify_one(lead.email)
         lead.email_status = r["status"]
         lead.verify_source = "reoon"
         lead.result = {**(lead.result or {}), "_reoon": r["raw"]}
-        if r["status"] not in ("safe", "valid", "catch_all", "unknown"):
+        deliverable = r["status"] in ("safe", "valid")
+        uncertain = r["status"] in ("catch_all", "unknown")
+        if not deliverable and not (uncertain and not cfg.only_safe):
             lead.status = "unsafe"
             db.commit()
             return lead.status
-        if r["status"] in ("catch_all", "unknown") and os.getenv("ONLY_SAFE", "1") == "1" \
-                and r["status"] == "invalid":
-            pass  # explicitness; invalid handled above
     if steps == "verify":
         db.commit()
         return lead.status or "pending"

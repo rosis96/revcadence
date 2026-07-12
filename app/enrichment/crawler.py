@@ -14,9 +14,18 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 INTERESTING = ("about", "service", "product", "solution", "pricing", "team", "case", "industr", "who-we")
-MAX_PAGES = 4
-MAX_CHARS = 9000
 TIMEOUT = 12
+
+# Env cost levers — see ai.py note on the 22000-char runaway-spend incident.
+import os  # noqa: E402
+
+
+def _max_pages() -> int:
+    return int(os.getenv("ENRICH_MAX_PAGES", "4"))
+
+
+def _max_chars() -> int:
+    return int(os.getenv("MAX_TOTAL_CONTENT_CHARS", "10000"))
 
 
 def _clean(soup: BeautifulSoup) -> str:
@@ -50,7 +59,7 @@ def crawl_site(website: str, html_override: str = "", on_progress=None) -> dict:
         result["title"] = soup.title.get_text(strip=True) if soup.title else ""
         md = soup.find("meta", attrs={"name": "description"})
         result["meta_description"] = (md.get("content") or "").strip() if md else ""
-        result["text"] = _clean(soup)[:MAX_CHARS]
+        result["text"] = _clean(soup)[:_max_chars()]
         result["pages"] = [url or "override"]
         return result
 
@@ -82,7 +91,7 @@ def crawl_site(website: str, html_override: str = "", on_progress=None) -> dict:
         if any(k in full.lower() for k in INTERESTING):
             queue.append(full)
             seen.add(full)
-    for link in queue[:MAX_PAGES - 1]:
+    for link in queue[:_max_pages() - 1]:
         note(f"fetching {link}")
         try:
             r = requests.get(link, headers=HEADERS, timeout=TIMEOUT)
@@ -92,5 +101,5 @@ def crawl_site(website: str, html_override: str = "", on_progress=None) -> dict:
         except Exception:
             continue
 
-    result["text"] = " ".join(texts)[:MAX_CHARS]
+    result["text"] = " ".join(texts)[:_max_chars()]
     return result
