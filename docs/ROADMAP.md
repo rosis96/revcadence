@@ -71,16 +71,20 @@ follows up on the same thread.
 - **Done when:** full lifecycle promote→publish→sign→countersign→executed works
   end-to-end against the live portals API.
 
-### Phase 4 — Client Onboarding section  ·  ~1 session
+### Phase 4 — Client Onboarding section + mailbox connection  ·  ~1 session
 - `OnboardingChecklist` model per workspace: items with status
   (pending/received), types (sales_mailbox, calendly, sending_platform_key,
-  icp_confirmed, profile_confirmed, billing).
-- Onboarding page (CRM mode): progress bar + what's pending + a client-facing
-  intake form. When the client submits `sales@theirdomain` + app password, it
-  auto-creates/links a Reply Management space (Bison/Instantly or IMAP) — no
-  manual setup.
-- **Done when:** onboarding a client is a guided checklist that wires their
-  mailbox into the system automatically.
+  icp_confirmed, profile_confirmed, billing, features_chosen).
+- One client-facing intake form. When they connect a mailbox (OAuth for
+  Google/Microsoft, or app password) it's stored encrypted and auto-linked as
+  the workspace's follow-up sender — the checklist item flips to received and
+  no manual setup is needed.
+- Per-client feature toggles (proposals/agreements/e-sign) chosen here drive
+  which onboarding items even appear.
+- Onboarding page (CRM mode): progress bar + what's pending + the intake link.
+- **Done when:** onboarding is a guided checklist that wires the client's
+  mailbox + preferences into the system automatically, with no post-onboarding
+  asks.
 
 ### Phase 5 — Post-Meeting follow-up loop (Scenario 1 + 2)  ·  ~1–2 sessions
 - Scenario 2 (transcript-based): done by Phases 2–3 (we generate the proposal).
@@ -98,6 +102,30 @@ follows up on the same thread.
 - No-show reminder + re-book nudge (job queue).
 
 ---
+
+## Product decisions (locked in)
+
+### Per-workspace feature toggles
+Proposals, Agreements, and E-sign are each on/off **per client**. A client who
+doesn't want signing turns off Agreements/E-sign; Studio then only produces the
+blueprint/proposal for them. Stored on the workspace/Studio settings; Studio and
+the onboarding checklist respect them (e.g. no signing tasks when e-sign is off).
+
+### How follow-up emails are sent — connect one mailbox, reply in-thread
+The client connects ONE sending mailbox on their domain at onboarding
+(rep's mailbox or `sales@theirdomain`) — Google/Microsoft = one OAuth click;
+anything else = an app password we store encrypted. Every post-meeting email +
+follow-up is then sent **from that mailbox as a reply in the existing thread**,
+so continuity is automatic (same From, same thread, no new participant, no
+prospect effort). Auto-CC `sales@` on booking is an optional augmentation (so
+the client sees the full history), NOT the send mechanism. We do NOT rely on the
+prospect CC'ing anything, and we do NOT create mailboxes on domains we don't
+control — we automate the connection + everything after it.
+
+### Minimal client effort
+One intake form at onboarding captures everything (mailbox connection, ICP,
+profile, billing, which features they want). The checklist auto-completes as
+items arrive; after that the system runs with no further asks.
 
 ## Guardrails (non-negotiable, applied every phase)
 - Be my own QA: build passes + every new button tested before shipping.
