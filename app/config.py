@@ -15,7 +15,7 @@ DATABASE_URL = _normalize_db_url(os.getenv("DATABASE_URL", "sqlite:///./revcaden
 # Secret used to sign JWTs. MUST be set in production (Railway → Variables).
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-only-secret-change-me")
 JWT_ALGORITHM = "HS256"
-ACCESS_TOKEN_HOURS = int(os.getenv("ACCESS_TOKEN_HOURS", "12"))
+ACCESS_TOKEN_HOURS = int(os.getenv("ACCESS_TOKEN_HOURS", "720"))  # 30 days — no constant re-login
 
 APP_NAME = "RevCadence"
 VERSION = "0.1.0"

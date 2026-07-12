@@ -15,14 +15,20 @@ export function AuthProvider({ children }) {
   const logout = useCallback(() => { setToken(""); setMe(null); }, []);
   useEffect(() => { setUnauthorizedHandler(() => setMe(null)); }, []);
 
-  const loadMe = useCallback(async () => {
+  const loadMe = useCallback(async (retries = 4) => {
     try {
       const data = await api("/api/auth/me");
       setMe(data);
       // Clients (and members with one workspace) are pinned to it.
       if (!data.is_master && data.workspaces.length >= 1) setWorkspaceId(String(data.workspaces[0].id));
-    } catch { setMe(null); }
-    setLoading(false);
+      setLoading(false);
+    } catch (e) {
+      // Only log out on a real auth failure (401 clears the token). A transient
+      // error during a redeploy leaves the token intact — retry, don't bounce.
+      if (!getToken()) { setMe(null); setLoading(false); return; }
+      if (retries > 0) { setTimeout(() => loadMe(retries - 1), 1500); return; }
+      setMe(null); setLoading(false);
+    }
   }, []);
 
   useEffect(() => { if (getToken()) loadMe(); }, [loadMe]);

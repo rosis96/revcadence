@@ -17,11 +17,12 @@ app = FastAPI(title=config.APP_NAME, version=config.VERSION)
 def _startup():
     init_db()
     print(f"[revcadence] DB backend: {engine.dialect.name.upper()}")
-    from .bootstrap import bootstrap_from_env
+    from .bootstrap import bootstrap_from_env, maybe_reset_admin
     from .db import SessionLocal
     db = SessionLocal()
     try:
         bootstrap_from_env(db)
+        maybe_reset_admin(db)  # ADMIN_FORCE_RESET=1 recovery path
         from .provision import backfill_all
         backfill_all(db)  # existing workspaces gain any missing package pieces
     finally:
