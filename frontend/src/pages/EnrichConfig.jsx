@@ -61,7 +61,7 @@ export default function EnrichConfigPage({ tab }) {
   };
 
   return (
-    <div style={{ maxWidth: 860 }}>
+    <div style={{ maxWidth: 1100 }}>
       {saved && <div className="card" style={{ padding: "8px 14px", marginBottom: 12, color: "var(--ok)", borderColor: "var(--ok)" }}>Saved.</div>}
 
       {tab === "profile" && (

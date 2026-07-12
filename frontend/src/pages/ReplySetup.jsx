@@ -131,7 +131,7 @@ export default function ReplySetup() {
   );
 
   return (
-    <div style={{ maxWidth: 900 }}>
+    <div>
       <div className="toolbar">
         <h1 style={{ fontSize: 18 }}>Reply Setup — {me.workspaces.find((x) => x.id === Number(wsId))?.name}</h1>
         {w.active ? <Badge tone="green">active</Badge> : <Badge tone="amber">inactive</Badge>}
@@ -140,6 +140,7 @@ export default function ReplySetup() {
         <button className="btn" disabled={busy} onClick={save}>{busy ? "Saving…" : "Save all"}</button>
       </div>
 
+      <div className="grid" style={{ gridTemplateColumns: "1.4fr 1fr", alignItems: "start" }}>
       <div className="card" style={{ padding: 18 }}>
         <h2 style={{ fontSize: 14, marginBottom: 12 }}>Connection</h2>
         <Field label="Reply-space name (must match webhook ?workspace_name= / ?reply_workspace=)">
@@ -166,7 +167,8 @@ export default function ReplySetup() {
           <input type="checkbox" checked={w.active} onChange={(e) => set("active", e.target.checked)} /> Active (receives webhooks)</label>
       </div>
 
-      <div className="card" style={{ padding: 18, marginTop: 14 }}>
+      <div>
+      <div className="card" style={{ padding: 18 }}>
         <h2 style={{ fontSize: 14, marginBottom: 8 }}>AI model</h2>
         <div style={{ display: "flex", gap: 12 }}>
           <Field label="Provider"><select value={w.ai_provider} onChange={(e) => set("ai_provider", e.target.value)}><option value="openai">OpenAI</option><option value="gemini">Gemini</option></select></Field>
@@ -176,9 +178,11 @@ export default function ReplySetup() {
 
       <div className="card" style={{ padding: 18, marginTop: 14 }}>
         <h2 style={{ fontSize: 14, marginBottom: 8 }}>Client profile (JSON)</h2>
-        <textarea rows={4} style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
+        <textarea rows={8} style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
                   value={JSON.stringify(w.client_profile || {}, null, 2)}
                   onChange={(e) => { try { set("client_profile", JSON.parse(e.target.value || "{}")); } catch { /* keep typing */ } }} />
+      </div>
+      </div>
       </div>
 
       <div className="section">

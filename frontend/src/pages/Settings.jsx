@@ -5,7 +5,7 @@ export default function Settings() {
   const { me } = useAuth();
   const { data: health } = useApi("/healthz");
   return (
-    <div style={{ maxWidth: 560 }}>
+    <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", alignItems: "start" }}>
       <div className="card" style={{ padding: 18 }}>
         <h2 style={{ fontSize: 15, marginBottom: 12 }}>Account</h2>
         <div className="kv" style={{ margin: 0 }}>
@@ -15,7 +15,7 @@ export default function Settings() {
           <div className="k">Workspaces</div><div>{me.workspaces.map((w) => w.name).join(", ") || "—"}</div>
         </div>
       </div>
-      <div className="card" style={{ padding: 18, marginTop: 14 }}>
+      <div className="card" style={{ padding: 18 }}>
         <h2 style={{ fontSize: 15, marginBottom: 12 }}>System</h2>
         <div className="kv" style={{ margin: 0 }}>
           <div className="k">API</div><div>{health?.ok ? <Badge tone="green">healthy</Badge> : <Badge tone="red">down</Badge>}</div>

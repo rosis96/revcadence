@@ -136,7 +136,8 @@ table.tbl { width: 100%; border-collapse: collapse; background: var(--card); bor
 .field label { display: block; font-size: 12.5px; font-weight: 600; margin-bottom: 5px; }
 .field input, .field select { width: 100%; }
 .modal { position: fixed; inset: 0; background: rgba(15,18,26,.45); z-index: 60; display: flex; align-items: center; justify-content: center; }
-.modal .box { background: #fff; border-radius: 12px; padding: 24px; width: 460px; max-width: 94vw; max-height: 88vh; overflow-y: auto; }
+.modal .box { background: #fff; border-radius: 12px; padding: 24px; width: 620px; max-width: 94vw; max-height: 90vh; overflow-y: auto; }
+.modal .box.wide { width: 900px; }
 .modal h2 { font-size: 16px; margin-bottom: 14px; }
 .modal .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
 
