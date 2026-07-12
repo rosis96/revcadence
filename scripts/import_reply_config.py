@@ -148,8 +148,21 @@ def run(legacy_db_url, apply=False, include=None):
             rws = db.query(ReplyWorkspace).filter(ReplyWorkspace.name == name).first()
             new = rws is None
             if new:
-                rws = ReplyWorkspace(workspace_id=wsid, name=name)
-                db.add(rws)
+                # Adopt the workspace's empty auto-provisioned placeholder (no API
+                # key, inactive, no response types) instead of creating a duplicate.
+                candidates = (db.query(ReplyWorkspace)
+                              .filter(ReplyWorkspace.workspace_id == wsid,
+                                      (ReplyWorkspace.api_key_enc == "") | (ReplyWorkspace.api_key_enc.is_(None)),
+                                      ReplyWorkspace.active == False)  # noqa: E712
+                              .order_by(ReplyWorkspace.id).all())
+                placeholder = next((p for p in candidates
+                                    if not (p.reply_format or {}).get("response_types")), None)
+                if placeholder is not None:
+                    rws = placeholder  # renamed to `name` + filled below
+                else:
+                    rws = ReplyWorkspace(workspace_id=wsid, name=name)
+                    db.add(rws)
+            rws.name = name
             rws.workspace_id = wsid
             rws.platform = w.get("platform") or "bison"
             rws.mode = w.get("mode") or "reply"

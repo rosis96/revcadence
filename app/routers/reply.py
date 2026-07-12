@@ -125,23 +125,35 @@ def list_rws(workspace_id: int | None = None, ctx: AuthContext = Depends(require
     return [_rws_out(w) for w in q.order_by(ReplyWorkspace.name).all()]
 
 
+def _best_reply_space(spaces):
+    """Pick the reply space the Setup page should show: the CONFIGURED one, not
+    an empty auto-provisioned placeholder. Rank: has an API key > is active >
+    has response types > lowest id. This makes imported config appear on refresh
+    even though provisioning left an empty placeholder at a lower id."""
+    def score(w):
+        rf = w.reply_format or {}
+        return (
+            1 if (w.api_key_enc or "") else 0,
+            1 if w.active else 0,
+            1 if rf.get("response_types") else 0,
+            -w.id,  # tie-break: earliest
+        )
+    return max(spaces, key=score) if spaces else None
+
+
 @router.get("/workspaces/for/{workspace_id}")
 def reply_space_for(workspace_id: int, ctx: AuthContext = Depends(require_master)):
-    """The workspace's default reply space — auto-provisioned, always exists.
-    This is what the Reply Management → Setup page edits (no 'create' step)."""
+    """The workspace's primary reply space — the one Setup edits. Returns the
+    most-configured space (so imported config shows), auto-provisioning if none."""
     ctx.require_workspace(workspace_id)
-    w = (ctx.db.query(ReplyWorkspace)
-         .filter(ReplyWorkspace.workspace_id == workspace_id)
-         .order_by(ReplyWorkspace.id).first())
-    if not w:
-        # workspace predates provisioning — create its package piece now
+    spaces = ctx.db.query(ReplyWorkspace).filter(ReplyWorkspace.workspace_id == workspace_id).all()
+    if not spaces:
         from ..provision import provision_workspace
         from ..models.identity import Workspace
         provision_workspace(ctx.db, ctx.db.get(Workspace, workspace_id))
         ctx.db.commit()
-        w = (ctx.db.query(ReplyWorkspace)
-             .filter(ReplyWorkspace.workspace_id == workspace_id).order_by(ReplyWorkspace.id).first())
-    return _rws_out(w)
+        spaces = ctx.db.query(ReplyWorkspace).filter(ReplyWorkspace.workspace_id == workspace_id).all()
+    return _rws_out(_best_reply_space(spaces))
 
 
 @router.get("/workspaces/{rws_id}")
