@@ -92,7 +92,19 @@ Read the JSON:
 - `unmapped` — legacy names with no alias yet. **If non-empty, go back to step 3**,
   add those aliases, and re-run the dry run until `unmapped` is `[]`.
 
-**Apply:**
+**Import only specific clients** (recommended — skips legacy workspaces you
+don't want, e.g. Insight Media Labs / Maildoso / Revcadence). Repeat
+`--include-workspace` per client; everything else is reported as `skipped` and
+never blocks the run:
+```bash
+/opt/venv/bin/python -m scripts.import_reply_config --legacy-db-url "<LEGACY_URL>" \
+  --include-workspace "Ascendly: mainreplybison" \
+  --include-workspace "Webaholics"
+```
+Add `--apply` to commit. `--apply` still aborts if an *included* workspace is
+unmapped (create its alias, re-run).
+
+**Apply (all mapped):**
 ```bash
 /opt/venv/bin/python -m scripts.import_reply_config --legacy-db-url "<LEGACY_URL>" --apply
 ```

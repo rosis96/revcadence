@@ -67,10 +67,16 @@ def _normalize_reply_format(rf):
     return {"response_types": rts, "followups": fus}
 
 
-def run(legacy_db_url, apply=False):
+def run(legacy_db_url, apply=False, include=None):
+    """include: optional list of legacy workspace names to import. When given,
+    ONLY those are considered; every other legacy workspace is reported under
+    `skipped` (never blocks --apply). --apply still aborts if an *included*
+    workspace is unmapped."""
     legacy = create_engine(_norm(legacy_db_url))
     init_db()
-    rep = {"workspaces_seen": 0, "mapped": [], "unmapped": [], "reply_formats_found": 0,
+    include_set = set(include or [])
+    rep = {"workspaces_seen": 0, "mapped": [], "unmapped": [], "skipped": [],
+           "include_filter": sorted(include_set), "reply_formats_found": 0,
            "rules_found": False, "settings_found": [], "reply_spaces_created": 0,
            "reply_spaces_updated": 0, "global_settings": 0, "apply": apply, "aborted": False}
     _unmapped = set()
@@ -109,9 +115,14 @@ def run(legacy_db_url, apply=False):
             raise SystemExit(f"Could not read legacy workspaces table: {e}")
 
         # PRE-FLIGHT: resolve every workspace first so we can abort BEFORE writing.
+        # When an include filter is set, only included names are "considered";
+        # all others are `skipped` (they never affect the abort decision).
         for w in wrows:
             rep["workspaces_seen"] += 1
             name = w.get("name")
+            if include_set and name not in include_set:
+                rep["skipped"].append(name)
+                continue
             if resolve_ws(db, name) is None:
                 _unmapped.add(name)
             else:
@@ -119,14 +130,18 @@ def run(legacy_db_url, apply=False):
             if _normalize_reply_format(w.get("reply_format")).get("response_types"):
                 rep["reply_formats_found"] += 1
         rep["unmapped"] = sorted(x for x in _unmapped if x)
+        rep["skipped"] = sorted(x for x in rep["skipped"] if x)
 
+        # Abort only when an INCLUDED (considered) workspace is unmapped.
         if _unmapped and apply:
             db.rollback()
             rep["aborted"] = True
-            return rep  # requirement 8: never write when anything is unmapped
+            return rep
 
         for w in wrows:
             name = w.get("name")
+            if include_set and name not in include_set:
+                continue  # skipped — not imported
             wsid = resolve_ws(db, name)
             if wsid is None:
                 continue
@@ -170,14 +185,18 @@ def run(legacy_db_url, apply=False):
 def _print_report(rep):
     print("\n=== REPLY CONFIG IMPORT ===")
     print(f"  legacy workspaces found : {rep['workspaces_seen']}")
+    if rep["include_filter"]:
+        print(f"  include filter          : {', '.join(rep['include_filter'])}")
     print(f"  mapped ({len(rep['mapped'])}): {', '.join(rep['mapped']) or '—'}")
+    print(f"  skipped ({len(rep['skipped'])}): {', '.join(rep['skipped']) or '—'}")
     print(f"  UNMAPPED ({len(rep['unmapped'])}): {', '.join(rep['unmapped']) or '—'}")
     print(f"  reply formats found     : {rep['reply_formats_found']}")
     print(f"  ai rules found          : {'yes' if rep['rules_found'] else 'no'}")
     print(f"  global settings found   : {', '.join(rep['settings_found']) or '—'}")
     if rep["aborted"]:
-        print("\n  ABORTED — some workspaces are unmapped. Create their reply_manager "
-              "aliases (Admin → Workspace aliases) and re-run. Nothing was written.")
+        print("\n  ABORTED — an INCLUDED workspace is unmapped: "
+              f"{', '.join(rep['unmapped'])}. Create its reply_manager alias "
+              "(Admin → Workspace aliases) and re-run. Nothing was written.")
     elif rep["apply"]:
         print(f"\n  APPLIED · reply spaces created {rep['reply_spaces_created']} · "
               f"updated {rep['reply_spaces_updated']} · global settings {rep['global_settings']}")
@@ -192,8 +211,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--legacy-db-url", required=True)
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--include-workspace", action="append", default=[], dest="include",
+                    metavar="NAME",
+                    help="import ONLY this legacy workspace name; repeatable. "
+                         "All others are skipped (not unmapped).")
     args = ap.parse_args()
-    rep = run(args.legacy_db_url, apply=args.apply)
+    rep = run(args.legacy_db_url, apply=args.apply, include=args.include)
     _print_report(rep)
     if rep["aborted"]:
         raise SystemExit(1)

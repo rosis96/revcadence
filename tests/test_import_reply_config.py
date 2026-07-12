@@ -24,7 +24,8 @@ def check(name, cond):
     assert cond, name
 
 
-def _legacy_db(with_unmapped=False):
+def _legacy_db(extra=None):
+    """extra: list of (id, name) legacy workspaces to add beyond the mapped one."""
     path = tempfile.mktemp(suffix=".db")
     c = sqlite3.connect(path)
     c.executescript("""
@@ -41,9 +42,9 @@ def _legacy_db(with_unmapped=False):
         'https://calendly.com/rosis/x','openai',1,'','','{"client_name":"Ascendly"}',
         '{"response_types":[{"id":"simple_positive","auto_send":true}],"followups":[{"label":"FUP 1"}]}');
     """)
-    if with_unmapped:
+    for wid, name in (extra or []):
         c.execute("INSERT INTO workspaces (id,name,platform,client_profile,reply_format) "
-                  "VALUES (2,'Orphan Client','bison','{}','{}')")
+                  "VALUES (?,?,'bison','{}','{}')", (wid, name))
     c.commit(); c.close()
     return f"sqlite:///{path}"
 
@@ -56,6 +57,10 @@ def main():
         provision_workspace(db, w)
         db.add(WorkspaceAlias(workspace_id=w.id, source_system="reply_manager",
                               external_name="Ascendly: mainreplybison"))
+        wb = Workspace(org_id=org.id, name="Webaholics", slug="webaholics"); db.add(wb); db.flush()
+        provision_workspace(db, wb)
+        db.add(WorkspaceAlias(workspace_id=wb.id, source_system="reply_manager",
+                              external_name="Webaholics"))
 
     url = _legacy_db()
 
@@ -86,13 +91,49 @@ def main():
     check("still exactly one reply space",
           SessionLocal().query(ReplyWorkspace).filter(ReplyWorkspace.name == "Ascendly: mainreplybison").count() == 1)
 
-    # abort on unmapped
-    url2 = _legacy_db(with_unmapped=True)
+    # abort on unmapped (no include filter — all considered)
+    url2 = _legacy_db(extra=[(2, "Orphan Client")])
     rep3 = run(url2, apply=True)
     check("apply aborts when a workspace is unmapped", rep3["aborted"] and "Orphan Client" in rep3["unmapped"])
     db = SessionLocal()
     check("abort wrote nothing new", db.query(ReplyWorkspace).filter(ReplyWorkspace.name == "Orphan Client").count() == 0)
     db.close()
+
+    # ---- include filter: the exact production scenario. Legacy has Webaholics
+    # (mapped), plus the three the user does NOT want, plus one included-unmapped.
+    url3 = _legacy_db(extra=[(2, "Insight Media Labs"), (3, "Maildoso"), (4, "Revcadence"),
+                             (5, "Webaholics"), (6, "Nomap Client")])
+
+    # dry run with repeated --include-workspace (Ascendly + Webaholics)
+    inc = run(url3, include=["Ascendly: mainreplybison", "Webaholics"])
+    check("repeated include: only included are considered/mapped",
+          set(inc["mapped"]) == {"Ascendly: mainreplybison", "Webaholics"})
+    check("repeated include: filter recorded", inc["include_filter"] == ["Ascendly: mainreplybison", "Webaholics"])
+    check("unincluded legacy workspaces are SKIPPED not unmapped",
+          set(inc["skipped"]) == {"Insight Media Labs", "Maildoso", "Revcadence", "Nomap Client"} and inc["unmapped"] == [])
+
+    # apply with include must NOT abort despite the unmapped extras (they're skipped)
+    inc_apply = run(url3, apply=True, include=["Ascendly: mainreplybison", "Webaholics"])
+    check("apply with include does NOT abort on skipped workspaces", inc_apply["aborted"] is False)
+    check("apply with include imports exactly the 2 included spaces",
+          inc_apply["reply_spaces_created"] + inc_apply["reply_spaces_updated"] == 2)
+    db = SessionLocal()
+    check("skipped workspaces were not imported",
+          db.query(ReplyWorkspace).filter(ReplyWorkspace.name.in_(
+              ["Insight Media Labs", "Maildoso", "Revcadence", "Nomap Client"])).count() == 0)
+    db.close()
+
+    # included-but-unmapped still aborts (Nomap Client is in legacy but has no alias)
+    bad = run(url3, apply=True, include=["Ascendly: mainreplybison", "Nomap Client"])
+    check("included but unmapped workspace still aborts", bad["aborted"] and "Nomap Client" in bad["unmapped"])
+    check("abort wrote nothing (Nomap not imported)",
+          SessionLocal().query(ReplyWorkspace).filter(ReplyWorkspace.name == "Nomap Client").count() == 0)
+
+    # idempotent re-run with include: no duplicates
+    inc_apply2 = run(url3, apply=True, include=["Ascendly: mainreplybison", "Webaholics"])
+    check("include re-apply creates no duplicates", inc_apply2["reply_spaces_created"] == 0)
+    check("still exactly one Ascendly reply space after include re-apply",
+          SessionLocal().query(ReplyWorkspace).filter(ReplyWorkspace.name == "Ascendly: mainreplybison").count() == 1)
 
     print(f"\n{sum(PASS)}/{len(PASS)} checks passed")
 
