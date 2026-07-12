@@ -28,6 +28,43 @@ export const Empty = ({ icon = "○", title, hint }) => (
 export function Badge({ children, tone = "" }) {
   return <span className={`badge ${tone}`}>{children}</span>;
 }
+
+// Semantic status pill (reusable across Lists/Database/CRM). tone: green/blue/red/amber/gray/indigo
+export function StatusBadge({ tone = "gray", children }) {
+  return <span className={`pill-badge pb-${tone}`}><span className="bd" />{children}</span>;
+}
+
+// Compact metric card for page summaries.
+export function Metric({ icon, label, value, sub }) {
+  return (
+    <div className="metric">
+      <div className="m-top">{icon && <span className="m-ic">{icon}</span>}<span className="m-label">{label}</span></div>
+      <div className="m-val">{value}</div>
+      {sub && <div className="m-sub">{sub}</div>}
+    </div>
+  );
+}
+
+// Standard page header: title + description + right-aligned actions.
+export function PageHeader({ title, desc, actions }) {
+  return (
+    <div className="page-head">
+      <div><h1>{title}</h1>{desc && <p>{desc}</p>}</div>
+      {actions && <div className="acts">{actions}</div>}
+    </div>
+  );
+}
+
+// Skeleton table rows while loading.
+export function SkeletonRows({ cols = 6, rows = 8 }) {
+  return [...Array(rows)].map((_, r) => (
+    <tr key={r}>
+      {[...Array(cols)].map((_, c) => (
+        <td key={c}><div className="sk" style={{ width: c === 0 ? "70%" : `${40 + ((r + c) % 4) * 12}%` }} /></td>
+      ))}
+    </tr>
+  ));
+}
 export const fitTone = (fit) => ({ strong: "green", possible: "indigo", weak: "amber" }[fit] || "");
 export const scoreTone = (s) => (s >= 60 ? "green" : s >= 35 ? "indigo" : s > 0 ? "amber" : "");
 

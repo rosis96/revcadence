@@ -1,5 +1,11 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { HashRouter, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import {
+  LayoutGrid, ListChecks, Database, CircleUser, Target, AlignLeft, CheckCheck, FileText,
+  Mail, Inbox, FlaskConical, Settings2, SlidersHorizontal, Flag, Globe, Rows3, Building2,
+  Contact, Activity as ActivityIcon, Cog, Wrench, ShieldCheck, ChevronDown, MoreHorizontal,
+  LogOut, Search,
+} from "lucide-react";
 import { AuthProvider, useAuth } from "./auth";
 import { useApi } from "./components";
 import Login from "./pages/Login";
@@ -29,49 +35,50 @@ import Admin from "./pages/Admin";
 
 // MODES: the four sections. Pick a mode → the sidebar shows ONLY that section.
 // Master Dashboard + System are always present. Each section is self-contained.
+const I = 18;
 const MODES = {
   outbound: {
-    label: "Outbound", icon: "✦",
+    label: "Outbound",
     nav: [
-      ["/enrichment", "Lists", "▦"],
-      ["/enrichment/database", "Database", "▤"],
-      ["/enrichment/profile", "Client Profile", "◐"],
-      ["/enrichment/icp", "ICP / Non-ICP", "◎"],
-      ["/enrichment/formats", "Formats", "≡"],
-      ["/enrichment/rules", "Rules", "✓"],
-      ["/blueprints", "Blueprints", "▧"],
+      ["/enrichment", "Lists", ListChecks],
+      ["/enrichment/database", "Database", Database],
+      ["/enrichment/profile", "Client Profile", CircleUser],
+      ["/enrichment/icp", "ICP / Non-ICP", Target],
+      ["/enrichment/formats", "Formats", AlignLeft],
+      ["/enrichment/rules", "Rules", CheckCheck],
+      ["/blueprints", "Blueprints", FileText],
     ],
   },
   reply: {
-    label: "Reply Management", icon: "✉",
+    label: "Reply Management",
     nav: [
-      ["/reply", "Dashboard", "▦"],
-      ["/reply/inbox", "Inbox", "✉"],
-      ["/reply/test", "Test Thread", "⚗"],
-      ["/reply/setup", "Setup", "⚙"],
-      ["/reply/settings", "Reply Settings", "⛭"],
-      ["/reply/workspaces", "Extra Channels", "⚑"],
+      ["/reply", "Dashboard", LayoutGrid],
+      ["/reply/inbox", "Inbox", Inbox],
+      ["/reply/test", "Test Thread", FlaskConical],
+      ["/reply/setup", "Setup", Settings2],
+      ["/reply/settings", "Reply Settings", SlidersHorizontal],
+      ["/reply/workspaces", "Extra Channels", Flag],
     ],
   },
   inbound: {
-    label: "Inbound (Visitors)", icon: "◍",
-    nav: [
-      ["/inbound", "Website Visitors", "◍"],
-    ],
+    label: "Inbound (Visitors)",
+    nav: [["/inbound", "Website Visitors", Globe]],
   },
   crm: {
-    label: "CRM", icon: "☰",
+    label: "CRM",
     nav: [
-      ["/pipeline", "Pipeline", "☰"],
-      ["/companies", "Companies", "◫"],
-      ["/contacts", "Contacts", "◔"],
-      ["/activity", "Activity", "↺"],
+      ["/pipeline", "Pipeline", Rows3],
+      ["/companies", "Companies", Building2],
+      ["/contacts", "Contacts", Contact],
+      ["/activity", "Activity", ActivityIcon],
     ],
   },
 };
-const COMMON_NAV = [["/", "Master Dashboard", "▦"]];
-const SYSTEM_NAV = [["/jobs", "Jobs", "⚙"], ["/settings", "Settings", "⚒"]];
+const MODE_ICON = { outbound: Mail, reply: Inbox, inbound: Globe, crm: Rows3 };
+const COMMON_NAV = [["/", "Master Dashboard", LayoutGrid]];
+const SYSTEM_NAV = [["/jobs", "Jobs", Cog], ["/settings", "Settings", Wrench]];
 const NAV = [...COMMON_NAV, ...Object.values(MODES).flatMap((m) => m.nav), ...SYSTEM_NAV];
+const NavIcon = ({ ic: Ic }) => <span className="icon"><Ic size={I} /></span>;
 
 function Sidebar() {
   const { me, logout, workspaceId, setWorkspaceId } = useAuth();
@@ -82,9 +89,11 @@ function Sidebar() {
     setModeRaw(m);
     nav(MODES[m].nav[0][0]);   // land on the mode's first screen
   };
+  const [menu, setMenu] = useState(false);
+  const initials = (me.user.name || me.user.email).slice(0, 2).toUpperCase();
   return (
     <aside className="sidebar">
-      <div className="logo">Rev<span>Cadence</span></div>
+      <div className="logo"><span className="mark">R</span>Rev<span>Cadence</span></div>
       {me.is_master ? (
         <div className="ws-switch">
           <select value={workspaceId} onChange={(e) => setWorkspaceId(e.target.value)}>
@@ -95,34 +104,36 @@ function Sidebar() {
       ) : (
         <div className="ws-badge">◫ {me.workspaces[0]?.name || "Workspace"}</div>
       )}
-      {/* Mode switcher — same clean dropdown pattern as the workspace switcher */}
       <div className="ws-switch">
         <select value={mode} onChange={(e) => setMode(e.target.value)}>
-          {Object.entries(MODES).map(([key, m]) => (
-            <option key={key} value={key}>{m.icon}  {m.label}</option>
-          ))}
+          {Object.entries(MODES).map(([key, m]) => <option key={key} value={key}>{m.label}</option>)}
         </select>
       </div>
       <nav className="nav">
-        {COMMON_NAV.map(([to, label, icon]) => (
-          <NavLink key={to} to={to} end><span className="icon">{icon}</span>{label}</NavLink>
+        {COMMON_NAV.map(([to, label, ic]) => (
+          <NavLink key={to} to={to} end><NavIcon ic={ic} /><span>{label}</span></NavLink>
         ))}
         <div className="group">{MODES[mode].label}</div>
-        {MODES[mode].nav.map(([to, label, icon]) => (
-          <NavLink key={to} to={to} end={to.split("/").length <= 2}>
-            <span className="icon">{icon}</span>{label}
-          </NavLink>
+        {MODES[mode].nav.map(([to, label, ic]) => (
+          <NavLink key={to} to={to} end={to.split("/").length <= 2}><NavIcon ic={ic} /><span>{label}</span></NavLink>
         ))}
         <div className="group">System</div>
-        {SYSTEM_NAV.map(([to, label, icon]) => (
-          <NavLink key={to} to={to}><span className="icon">{icon}</span>{label}</NavLink>
+        {SYSTEM_NAV.map(([to, label, ic]) => (
+          <NavLink key={to} to={to}><NavIcon ic={ic} /><span>{label}</span></NavLink>
         ))}
-        {me.is_master && <NavLink to="/admin"><span className="icon">⛭</span>Admin</NavLink>}
+        {me.is_master && <NavLink to="/admin"><NavIcon ic={ShieldCheck} /><span>Admin</span></NavLink>}
       </nav>
       <div className="foot">
-        <div className="who">{me.user.name || me.user.email}<br />
-          <span style={{ color: "#7b8499" }}>{me.role}</span></div>
-        <button onClick={logout}>Sign out</button>
+        {menu && (
+          <div className="profile-menu">
+            <button onClick={logout}><LogOut size={15} /> Sign out</button>
+          </div>
+        )}
+        <div className="profile" onClick={() => setMenu((v) => !v)}>
+          <div className="pa">{initials}</div>
+          <div className="pn"><b>{me.user.name || me.user.email}</b><span>{me.role}</span></div>
+          <MoreHorizontal size={16} className="dots" />
+        </div>
       </div>
     </aside>
   );
@@ -131,17 +142,39 @@ function Sidebar() {
 function Topbar() {
   const loc = useLocation();
   const { data: health } = useApi("/healthz", undefined, [loc.pathname]);
+  const [statusOpen, setStatusOpen] = useState(false);
+  const popRef = useRef(null);
+  useEffect(() => {
+    const h = (e) => { if (popRef.current && !popRef.current.contains(e.target)) setStatusOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
   const title = (NAV.find(([to]) => to === loc.pathname)?.[1]) ||
     (loc.pathname.startsWith("/admin") ? "Admin" :
      loc.pathname.startsWith("/companies") ? "Companies" :
      loc.pathname.startsWith("/blueprints") ? "Blueprints" : "RevCadence");
   const workerOk = health?.worker?.alive;
+  const allOk = workerOk && health?.ok;
   return (
     <header className="topbar">
       <h1>{title}</h1>
       <div className="right">
-        <span><span className={`dot ${workerOk ? "ok" : "bad"}`} /> worker {workerOk ? "online" : "offline"}</span>
-        <span><span className={`dot ${health?.ok ? "ok" : "bad"}`} /> api</span>
+        <button className="cmdbtn" title="Search (coming soon)" disabled>
+          <Search size={15} /> Search <kbd>⌘K</kbd>
+        </button>
+        <div ref={popRef} style={{ position: "relative" }}>
+          <button className="iconbtn" title="System status" onClick={() => setStatusOpen((v) => !v)}>
+            <span className={`dot ${allOk ? "ok" : "bad"}`} />
+          </button>
+          {statusOpen && (
+            <div className="status-pop">
+              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".4px", marginBottom: 6 }}>System status</div>
+              <div className="row"><span>API</span><span><span className={`dot ${health?.ok ? "ok" : "bad"}`} /> {health?.ok ? "online" : "down"}</span></div>
+              <div className="row"><span>Worker</span><span><span className={`dot ${workerOk ? "ok" : "bad"}`} /> {workerOk ? "online" : "offline"}</span></div>
+              <div className="row"><span>Database</span><span style={{ color: "var(--muted)" }}>{health?.db || "—"}</span></div>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );
