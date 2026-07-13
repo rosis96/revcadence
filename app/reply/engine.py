@@ -46,17 +46,65 @@ def auto_send_enabled() -> bool:
     return os.getenv("AUTO_SEND_ENABLED", "0") == "1"
 
 
+# ---------------------------------------------------------------- names & spacing
+# Fill literal name placeholders the model sometimes echoes verbatim, plus give a
+# graceful fallback ("there") when we don't know the prospect's first name.
+_NAME_TOKENS = re.compile(r"\{\{\s*(first[\s_]?name|firstname|fname|name|lead[\s_]?name)\s*\}\}", re.I)
+
+
+def first_name_of(full: str) -> str:
+    return (full or "").strip().split(" ")[0] if (full or "").strip() else ""
+
+
+def fill_name(text: str, first_name: str) -> str:
+    if not text:
+        return text
+    return _NAME_TOKENS.sub((first_name or "").strip() or "there", text)
+
+
+def normalize_reply(text: str) -> str:
+    """Tidy spacing so replies read like a real email: normalize newlines, trim
+    trailing spaces, and collapse 3+ blank lines to a single blank line (one gap
+    between paragraphs). Never merges paragraphs — only cleans up."""
+    if not text:
+        return ""
+    lines = [ln.rstrip() for ln in str(text).replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    out, blanks = [], 0
+    for ln in lines:
+        if ln == "":
+            blanks += 1
+            if blanks <= 1 and out:      # at most one blank line, never leading
+                out.append("")
+        else:
+            blanks = 0
+            out.append(ln)
+    return "\n".join(out).strip()
+
+
 # ---------------------------------------------------------------- signatures (exactly one)
-_SIG_MARKERS = ("best regards", "kind regards", "regards,", "best,", "cheers,", "thanks,",
-                "thank you,", "sincerely", "warm regards")
+_SIG_MARKERS = ("best regards", "kind regards", "regards", "best,", "cheers", "thanks,",
+                "thank you,", "sincerely", "warm regards", "warmly", "talk soon", "speak soon")
 
 
 def strip_existing_signature(message: str) -> str:
-    lines = (message or "").rstrip().splitlines()
+    """Remove a trailing sign-off the model may have added, whether on its own
+    line ('Best regards,\\nRS') or inline as the last line ('… Regards, RS'), so
+    the system can append exactly one clean signature."""
+    body = (message or "").rstrip()
+    lines = body.splitlines()
+    # (a) sign-off on its own line within the last 6 lines
     for i in range(len(lines) - 1, max(len(lines) - 6, -1), -1):
         if any(lines[i].strip().lower().startswith(m) for m in _SIG_MARKERS):
             return "\n".join(lines[:i]).rstrip()
-    return (message or "").rstrip()
+    # (b) inline sign-off tacked onto the final line ("… invitation. Regards, RS")
+    if lines:
+        last = lines[-1]
+        m = re.search(r"[.!?]\s+((?:best|kind|warm)?\s*regards|cheers|thanks|thank you|sincerely|"
+                      r"talk soon|speak soon|warmly)\b.*$", last, re.I)
+        if m:
+            lines[-1] = last[:m.start() + 1].rstrip()
+            return "\n".join(lines).rstrip()
+    return body
 
 
 def add_signature(message: str, sender_name: str, website: str) -> str:
@@ -145,17 +193,29 @@ def call_llm(prompt: str, system: str, cfg: dict) -> dict:
 
 
 # ---------------------------------------------------------------- prompt (legacy shape)
-def build_reply_prompt(rws, thread: list, scheduling_context: str = "") -> tuple:
+def build_reply_prompt(rws, thread: list, scheduling_context: str = "", prospect: dict = None) -> tuple:
     fmt = rws.reply_format or {}
     rules = [ln.strip() for ln in (rws.ai_rules or "").splitlines() if ln.strip()]
+    prospect = prospect or {}
+    first = (prospect.get("first_name") or "").strip()
     system = (
         "You are an expert B2B email responder writing on behalf of the client below. "
         "Read the prospect's energy and match their tone. STEP 0: if the matched response "
         "type has a template, keep its structure and only fill the placeholders. "
-        "NEVER include a sign-off or signature — the system appends it. "
+        "NEVER include a sign-off or signature (no 'Best', 'Regards', name, or website) — "
+        "the system appends exactly one.\n"
+        "FORMATTING (applies to main_reply AND every follow-up): open with a greeting line "
+        + (f"addressed to the prospect by first name ('{first}')" if first
+           else "addressed to the prospect by first name") +
+        ", then a blank line, then the body as SHORT paragraphs separated by a blank line "
+        "(a real email, never one dense wall of text), and a blank line before any closing "
+        "question. Use actual line breaks (\\n). Do NOT output the literal token "
+        "'{{firstName}}' — use the real first name" + (f" ('{first}')" if first else "") + ".\n"
         "Return STRICT JSON: {\"intent\": str, \"confidence\": \"high|medium|low\", "
         "\"human_review_needed\": bool, \"main_reply\": str, "
         "\"followup_1\": str, ... up to \"followup_6\"}.\n"
+        + (f"PROSPECT: first name = {first}"
+           + (f", company = {prospect.get('company')}" if prospect.get("company") else "") + "\n" if first else "") +
         "CLIENT PROFILE:\n" + json.dumps(rws.client_profile or {}) +
         "\nRESPONSE TYPES (match the incoming reply to one; obey its rules/template/auto_send):\n"
         + json.dumps(fmt.get("response_types", [])) +
@@ -170,6 +230,47 @@ def build_reply_prompt(rws, thread: list, scheduling_context: str = "") -> tuple
 
 
 # ---------------------------------------------------------------- platform sends (legacy fixes)
+def lookup_instantly_reply_target(api_key: str, lead_email: str, campaign_id: str = "") -> dict:
+    """Recover {reply_to_uuid, eaccount} from Instantly when the webhook didn't
+    include them (e.g. a lead_interested event). Finds the lead's most recent
+    email — preferring one received FROM the prospect — and uses its id +
+    eaccount. Returns {} on any failure (caller then reports the clear error)."""
+    if not (api_key and lead_email):
+        return {}
+    items = []
+    try:
+        r = requests.get("https://api.instantly.ai/api/v2/emails",
+                         headers={"Authorization": f"Bearer {api_key}"},
+                         params={"lead": lead_email, "limit": 30}, timeout=20)
+        if r.status_code >= 300:
+            return {}
+        body = r.json()
+        items = body.get("items") or body.get("data") or (body if isinstance(body, list) else [])
+    except Exception:
+        return {}
+    items = [e for e in items if isinstance(e, dict)]
+    if campaign_id:
+        scoped = [e for e in items if str(e.get("campaign") or e.get("campaign_id") or "") == str(campaign_id)]
+        items = scoped or items
+
+    def ts(e):
+        return str(e.get("timestamp_email") or e.get("timestamp_created") or e.get("created_at") or "")
+
+    def received(e):
+        # ue_type 2 = received in Instantly; also treat a message whose sender is
+        # the prospect as received. Tolerant to schema differences.
+        return (e.get("ue_type") in (2, "2")
+                or str(e.get("from_address_email") or "").lower() == str(lead_email).lower())
+
+    items.sort(key=ts, reverse=True)
+    pick = next((e for e in items if received(e)), None) or (items[0] if items else None)
+    if not pick:
+        return {}
+    uuid = pick.get("id") or pick.get("uuid") or pick.get("message_id")
+    eaccount = pick.get("eaccount") or pick.get("email_account")
+    return {"reply_to_uuid": uuid, "eaccount": eaccount} if (uuid and eaccount) else {}
+
+
 def bison_headers(api_key):
     return {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
@@ -243,9 +344,15 @@ def send_instantly_reply(rws, send_meta: dict, message: str, subject: str = "") 
         raise RuntimeError("No Instantly API key set on this reply space (Setup → API key).")
     reply_to_uuid = send_meta.get("reply_to_uuid")
     eaccount = send_meta.get("eaccount")
+    # Some Instantly webhooks (e.g. lead_interested) don't carry the reply
+    # target. Recover it from the lead's most recent email so we can still send.
+    if not (reply_to_uuid and eaccount):
+        found = lookup_instantly_reply_target(api_key, send_meta.get("lead_email"), send_meta.get("campaign_id"))
+        reply_to_uuid = reply_to_uuid or found.get("reply_to_uuid")
+        eaccount = eaccount or found.get("eaccount")
     # Instantly's reply API MUST know which email to reply to and from which
-    # mailbox. If the webhook payload didn't carry these, say so plainly instead
-    # of letting Instantly return a cryptic 400.
+    # mailbox. If we still can't find them, say so plainly instead of letting
+    # Instantly return a cryptic 400.
     missing = [k for k, v in (("reply_to_uuid", reply_to_uuid), ("eaccount", eaccount)) if not v]
     if missing:
         raise RuntimeError(

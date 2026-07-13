@@ -407,13 +407,15 @@ def test_thread(body: TestThreadIn, ctx: AuthContext = Depends(require_master)):
     action = E.decide_reply_action(ai, w.reply_format or {}, body.thread)
     if ai.get("_fallback") and action == "send":
         action = "skip_enrich"
-    reply = E.add_signature(str(ai.get("main_reply", "")), w.sender_name, w.website) if ai.get("main_reply") else ""
+    main = E.normalize_reply(str(ai.get("main_reply", "")))
+    reply = E.add_signature(main, w.sender_name, w.website) if main else ""
     return {
         "intent": ai.get("intent"), "confidence": ai.get("confidence"),
         "decision": action, "would_auto_send": action == "send" and E.auto_send_enabled(),
         "model_ran": not ai.get("_fallback"),
         "reply": reply,
-        "followups": [ai.get(f"followup_{i}") for i in range(1, 7) if ai.get(f"followup_{i}")],
+        "followups": [E.normalize_reply(str(ai.get(f"followup_{i}")))
+                      for i in range(1, 7) if ai.get(f"followup_{i}")],
     }
 
 

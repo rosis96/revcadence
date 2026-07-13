@@ -224,14 +224,20 @@ def process_reply_job(db, job):
     if db.query(ReplyLead).filter(ReplyLead.dedupe_key == dedupe).first():
         return {"skipped": "duplicate reply"}
 
+    from ..reply.sync import _deep_get
+    # Name can arrive as first_name, firstName (camelCase), name, or nested — dig
+    # for it so greetings personalize reliably (the AI shouldn't have to guess).
+    lead_name = (str(lead_obj.get("first_name") or lead_obj.get("firstName") or lead_obj.get("name") or "").strip()
+                 or str(_deep_get(payload, {"first_name", "firstname"}) or "").strip())
     lead = ReplyLead(
         workspace_id=rws.workspace_id if rws else None,
         reply_workspace=p.get("reply_workspace") or "Unrouted",
         platform=platform, dedupe_key=dedupe, external_lead_id=external_id, reply_id=reply_id,
-        name=str(lead_obj.get("first_name") or lead_obj.get("name") or "").strip(),
-        email=email, company=str(lead_obj.get("company") or lead_obj.get("company_name") or ""),
+        name=lead_name,
+        email=email, company=str(lead_obj.get("company") or lead_obj.get("company_name")
+                                 or lead_obj.get("companyName") or _deep_get(payload, {"company", "companyname"}) or ""),
         campaign=str(data.get("campaign_name") or data.get("campaign_id") or ""),
-        subject=str(data.get("subject") or ""), lead_data=payload)
+        subject=str(data.get("subject") or data.get("reply_subject") or ""), lead_data=payload)
     db.add(lead)
     db.commit()
 
@@ -276,7 +282,11 @@ def process_reply_job(db, job):
                       or _deep_get(payload, {"reply_to_uuid", "email_id", "message_id", "uuid", "id"}))
         eaccount = (data.get("eaccount")
                     or _deep_get(payload, {"eaccount", "email_account", "from_email", "sender_email"}))
-        send_meta = {"reply_to_uuid": reply_uuid, "eaccount": eaccount, "subject": lead.subject}
+        # Carry the lead email + campaign so we can look the reply target up later
+        # if this webhook (e.g. lead_interested) didn't include reply_to_uuid/eaccount.
+        send_meta = {"reply_to_uuid": reply_uuid, "eaccount": eaccount, "subject": lead.subject,
+                     "lead_email": email,
+                     "campaign_id": str(data.get("campaign_id") or _deep_get(payload, {"campaign_id"}) or "")}
     lead.thread = thread
     lead.send_meta = send_meta
 
@@ -292,12 +302,16 @@ def process_reply_job(db, job):
         sched = ""
 
     # generate + decide
-    prompt, system = E.build_reply_prompt(rws, thread, scheduling_context=sched)
+    first = E.first_name_of(lead.name)
+    prompt, system = E.build_reply_prompt(rws, thread, scheduling_context=sched,
+                                          prospect={"first_name": first, "company": lead.company})
     ai = E.call_llm(prompt, system, E.build_ai_cfg(rws))
     lead.intent = str(ai.get("intent", ""))
     lead.confidence = str(ai.get("confidence", ""))
-    lead.main_reply = str(ai.get("main_reply", ""))
-    lead.followups = [ai.get(f"followup_{i}") for i in range(1, 7) if ai.get(f"followup_{i}")]
+    # Fill any literal name token, then tidy spacing so it reads like a real email.
+    lead.main_reply = E.normalize_reply(E.fill_name(str(ai.get("main_reply", "")), first))
+    lead.followups = [E.normalize_reply(E.fill_name(str(ai.get(f"followup_{i}")), first))
+                      for i in range(1, 7) if ai.get(f"followup_{i}")]
     lead.reply_added = bool(lead.main_reply) and not ai.get("_fallback")
     action = E.decide_reply_action(ai, rws.reply_format or {}, lead.reply_text)
     # detectable fallback is NEVER sent — but a stop (unsubscribe/OOO) still wins
