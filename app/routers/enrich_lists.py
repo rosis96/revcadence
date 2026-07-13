@@ -377,6 +377,8 @@ def export(list_id: int, view: str = "enriched", ctx: AuthContext = Depends(get_
 
     from fastapi.responses import PlainTextResponse
 
+    from ..enrichment.pipeline import sanitize_text as _s
+
     lst = _get_list(ctx, list_id)
     base = ctx.db.query(EnrichLead).filter(EnrichLead.list_id == lst.id)
     rows = _view_filter(base, view).order_by(EnrichLead.id).all()
@@ -408,11 +410,14 @@ def export(list_id: int, view: str = "enriched", ctx: AuthContext = Depends(get_
         d = l.data or {}
         res = l.result or {}
         comps = "; ".join(f"{c.get('name')} ({c.get('why')})" for c in (l.competitors or []) if c.get("name"))
-        w.writerow([l.first_name, l.last_name, l.title, l.company, l.website, l.email]
-                   + [d.get(c, "") for c in orig_cols]
-                   + [res.get(v, "") for v in var_names]
-                   + [l.free_status, l.email_status, l.icp_decision, l.icp_score or "",
-                      l.industry, l.status, comps])
+        # sanitize every cell — strips invisible/control chars so Instantly, Excel,
+        # and CRMs accept the file ("characters that cannot be stored" error).
+        w.writerow([_s(x) for x in
+                    ([l.first_name, l.last_name, l.title, l.company, l.website, l.email]
+                     + [d.get(c, "") for c in orig_cols]
+                     + [res.get(v, "") for v in var_names]
+                     + [l.free_status, l.email_status, l.icp_decision, l.icp_score or "",
+                        l.industry, l.status, comps])])
     return PlainTextResponse(buf.getvalue(), media_type="text/csv",
                              headers={"Content-Disposition":
                                       f"attachment; filename={lst.name.replace(' ', '_')}-{view}.csv"})

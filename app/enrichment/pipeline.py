@@ -9,6 +9,7 @@ _pipeline_one. Cheapest-first funnel — ORDER IS DELIBERATE, DO NOT REORDER:
 Resume semantics: leads already in a TERMINAL status are never re-processed.
 """
 import json
+import unicodedata
 from datetime import datetime
 
 from ..models.enrich import TERMINAL_STATUSES, EnrichConfig, EnrichLead
@@ -17,6 +18,34 @@ from .crawler import crawl_site
 from .engine import SENIOR_TITLES
 from .reoon import verify_one
 from .verify_free import check as free_check
+
+# Invisible / control characters that make downstream tools (Instantly, Excel,
+# some CRMs) reject a cell as "characters that cannot be stored". AI writers and
+# copy-paste routinely sneak these in: zero-width spaces/joiners, BOM, soft
+# hyphen, directional marks, and line/paragraph separators.
+_KILL_CHARS = {0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF, 0x00AD,
+               0x200E, 0x200F, 0x061C, 0x2028, 0x2029, 0x180E, 0xFFFE, 0xFFFF}
+
+
+def sanitize_text(v):
+    """Make any value safe to drop into a CSV cell: normalize to NFC, strip
+    zero-width/format/control characters, fold stray newlines/tabs to spaces,
+    and collapse runs of whitespace. Visible content is preserved exactly."""
+    if v is None:
+        return ""
+    s = unicodedata.normalize("NFC", str(v))
+    out = []
+    for ch in s:
+        o = ord(ch)
+        cat = unicodedata.category(ch)
+        if ch in ("\n", "\r", "\t") or cat in ("Zl", "Zp"):
+            out.append(" "); continue          # line/para breaks → space (keep words apart)
+        if o in _KILL_CHARS:
+            continue
+        if cat in ("Cc", "Cf", "Cs", "Co"):
+            continue
+        out.append(ch)
+    return " ".join("".join(out).split())
 
 
 def _config(db, workspace_id) -> EnrichConfig:
@@ -186,7 +215,8 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
 
     # 4. Write copy — reuses icp ctx; no second scrape/extraction
     written = _write_copy(lead, cfg, icp, enrichments=enrichments)
-    lead.result = {**(lead.result or {}), **written["vars"],
+    clean_vars = {k: sanitize_text(v) for k, v in written["vars"].items()}
+    lead.result = {**(lead.result or {}), **clean_vars,
                    "_facts": icp.get("facts", {}), "_writer": written["source"]}
     lead.status = "done"
     lead.updated_at = datetime.utcnow()
