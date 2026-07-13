@@ -281,6 +281,63 @@ def reply_leads(status: str = "", q: str = "", page: int = 1, workspace_id: int 
         "at": l.created_at.isoformat() if l.created_at else None} for l in rows]}
 
 
+@router.get("/processing")
+def reply_processing(workspace_id: int | None = None, ctx: AuthContext = Depends(get_ctx)):
+    """Live view of the reply pipeline: every inbound webhook becomes a
+    `process_reply` job that is held for the reply-delay, then run. This shows
+    the queue (scheduled → running → done/failed) with countdowns, so you can
+    see WHETHER webhooks are arriving and WHAT happened to each — the answer to
+    'I replied but nothing showed up yet'."""
+    from datetime import datetime, timedelta
+    from ..models.jobs import Job, Heartbeat
+
+    now = datetime.utcnow()
+    ws_ids = ctx.workspace_ids_for_query(workspace_id)
+    show_unrouted = ctx.is_master and workspace_id is None
+    base = ctx.db.query(Job).filter(Job.kind == "process_reply").filter(
+        (Job.workspace_id.in_(ws_ids)) |
+        (Job.workspace_id.is_(None) if show_unrouted else False))
+
+    day_ago = now - timedelta(hours=24)
+    recent = base.filter(Job.created_at >= day_ago)
+    summary = {
+        "last_24h": recent.count(),
+        "scheduled": base.filter(Job.status == "pending", Job.run_at > now).count(),
+        "due_now": base.filter(Job.status == "pending", Job.run_at <= now).count(),
+        "running": base.filter(Job.status == "running").count(),
+        "done_24h": recent.filter(Job.status == "done").count(),
+        "failed": base.filter(Job.status == "failed").count(),
+    }
+    # worker liveness — if the worker is down, nothing in the queue moves
+    hb = ctx.db.get(Heartbeat, "worker")
+    worker_alive = bool(hb and hb.at and (now - hb.at).total_seconds() < 120)
+
+    def _email(p):
+        d = (p or {}).get("webhook") or {}
+        d = d.get("data") or d
+        lo = d.get("lead") or d
+        return str(lo.get("email") or lo.get("lead_email") or "").lower()
+
+    rows = base.order_by(Job.id.desc()).limit(40).all()
+    jobs = []
+    for j in rows:
+        p = j.payload or {}
+        secs = int((j.run_at - now).total_seconds()) if (j.status == "pending" and j.run_at) else 0
+        jobs.append({
+            "id": j.id, "status": j.status,
+            "routed_to": p.get("reply_workspace") or "Unrouted",
+            "platform": p.get("platform"), "flow": p.get("flow", "reply"),
+            "email": _email(p),
+            "seconds_until_run": max(0, secs),
+            "note": j.progress_note or "",
+            "error": (j.error or "")[:300],
+            "result": {k: v for k, v in (j.result or {}).items()} if j.result else {},
+            "created_at": j.created_at.isoformat() if j.created_at else None,
+            "finished_at": j.finished_at.isoformat() if j.finished_at else None,
+        })
+    return {"summary": summary, "worker_alive": worker_alive, "jobs": jobs}
+
+
 @router.get("/leads/{lead_id}")
 def reply_lead_detail(lead_id: int, ctx: AuthContext = Depends(get_ctx)):
     l = ctx.db.get(ReplyLead, lead_id)

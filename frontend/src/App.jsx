@@ -4,7 +4,7 @@ import {
   LayoutGrid, ListChecks, Database, CircleUser, Target, AlignLeft, CheckCheck, FileText,
   Mail, Inbox, FlaskConical, Settings2, SlidersHorizontal, Flag, Globe, Rows3, Building2,
   Contact, Activity as ActivityIcon, Cog, Wrench, ShieldCheck, ChevronDown, MoreHorizontal,
-  LogOut, Search, ClipboardList,
+  LogOut, Search, ClipboardList, Radar,
 } from "lucide-react";
 import { AuthProvider, useAuth } from "./auth";
 import { useApi } from "./components";
@@ -23,6 +23,7 @@ import BlueprintDetail from "./pages/BlueprintDetail";
 import ActivityPage from "./pages/Activity";
 import ReplyDashboard from "./pages/ReplyDashboard";
 import ReplyInbox from "./pages/ReplyInbox";
+import ReplyProcessing from "./pages/ReplyProcessing";
 import ReplyTest from "./pages/ReplyTest";
 import ReplySettings from "./pages/ReplySettings";
 import ReplySetup from "./pages/ReplySetup";
@@ -56,6 +57,7 @@ const MODES = {
     nav: [
       ["/reply", "Dashboard", LayoutGrid],
       ["/reply/inbox", "Inbox", Inbox],
+      ["/reply/processing", "Processing", Radar],
       ["/reply/test", "Test Thread", FlaskConical],
       ["/reply/setup", "Setup", Settings2],
       ["/reply/settings", "Reply Settings", SlidersHorizontal],
@@ -217,6 +219,7 @@ function Protected() {
         <Route path="/enrichment/companies" element={<Enrichment />} />
         <Route path="/reply" element={<ReplyDashboard />} />
         <Route path="/reply/inbox" element={<ReplyInbox />} />
+        <Route path="/reply/processing" element={<ReplyProcessing />} />
         <Route path="/reply/test" element={<ReplyTest />} />
         <Route path="/reply/settings" element={<ReplySettings />} />
         <Route path="/reply/setup" element={<ReplySetup />} />
