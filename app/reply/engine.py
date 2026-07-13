@@ -107,11 +107,37 @@ def strip_existing_signature(message: str) -> str:
     return body
 
 
+def _name_from_signoff(message: str) -> str:
+    """Recover the name the model wrote under its own sign-off (e.g. after
+    'Kind regards,\\n\\nRosis Sitoula'), so we don't lose it when Sender name is
+    blank. Skips URLs / emails / initials-only lines."""
+    lines = (message or "").rstrip().splitlines()
+    for i in range(len(lines) - 1, max(len(lines) - 6, -1), -1):
+        if any(lines[i].strip().lower().startswith(m) for m in _SIG_MARKERS):
+            for j in range(i + 1, min(i + 4, len(lines))):
+                cand = lines[j].strip().rstrip(",")
+                if not cand:
+                    continue
+                low = cand.lower()
+                if "http" in low or "@" in cand or "." in cand.split()[0] or "/" in cand:
+                    return ""            # it's a website/handle, not a name
+                if len(cand) <= 3 and cand.isupper():
+                    return ""            # initials only (e.g. "RS") — skip
+                return cand
+            break
+    return ""
+
+
 def add_signature(message: str, sender_name: str, website: str) -> str:
+    # Effective name: configured Sender name first, else recover the name the AI
+    # already signed with — NEVER emit "Best regards," + blank line + website.
+    name = (sender_name or "").strip() or _name_from_signoff(message)
     body = strip_existing_signature(message)
-    sig = "\n\nBest regards,\n" + (sender_name or "").strip()
+    sig = "\n\nBest regards,"
+    if name:
+        sig += "\n" + name
     if website:
-        sig += f"\n{website.strip()}"
+        sig += "\n" + website.strip()
     return body + sig
 
 
