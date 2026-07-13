@@ -60,7 +60,12 @@ export default function EnrichListDetail() {
   const selectedCount = allInView ? data.total_in_view : ids.length;
 
   const run = async (steps) => {
-    const body = { steps, limit: Number(limit) || 0 };
+    // An explicit selection (individual rows or select-all-in-view) runs EVERY
+    // selected lead. The "Test first" cap is only a safety net for the default,
+    // nothing-selected run — otherwise a leftover cap of 10 would silently
+    // truncate a big selection.
+    const explicit = allInView || ids.length > 0;
+    const body = { steps, limit: explicit ? 0 : Number(limit) || 0 };
     if (outputs) body.enrichments = outputs;
     if (allInView || ids.length === 0) body.view = view === "all" ? "notrun" : view;
     else body.lead_ids = ids;
@@ -125,8 +130,17 @@ export default function EnrichListDetail() {
           Reoon: {reoon.demo ? "demo" : (reoon.credits != null ? `${reoon.credits.toLocaleString()} credits` : "connected")}
         </span>}
         <div className="spacer" />
-        <label style={{ fontSize: 12.5, color: "var(--muted)" }}>Test first</label>
-        <input type="number" min="0" value={limit} onChange={(e) => setLimit(e.target.value)} style={{ width: 70 }} title="0 = no cap" />
+        {selectedCount > 0 ? (
+          <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
+            Runs all <b>{selectedCount.toLocaleString()}</b> selected
+          </span>
+        ) : (
+          <>
+            <label style={{ fontSize: 12.5, color: "var(--muted)" }}>Test first</label>
+            <input type="number" min="0" value={limit} onChange={(e) => setLimit(e.target.value)} style={{ width: 70 }}
+                   title="Caps the default run when nothing is selected. 0 = no cap. Select leads to run all of them." />
+          </>
+        )}
         <button className="btn ghost" disabled={!!job} onClick={() => run("verify")}>Verify</button>
         <button className="btn" disabled={!!job} onClick={() => run("pipeline")}>▶ Verify → Enrich</button>
         {job && <button className="btn danger" onClick={stop}>■ Stop</button>}
