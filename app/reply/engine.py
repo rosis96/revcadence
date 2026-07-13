@@ -239,16 +239,34 @@ def send_instantly_reply(rws, send_meta: dict, message: str, subject: str = "") 
     """Replies to the PROSPECT'S inbound email (legacy fix: replying to our own
     last sent message sent replies to ourselves) using its eaccount as sender."""
     api_key = decrypt(rws.api_key_enc)
+    if not api_key:
+        raise RuntimeError("No Instantly API key set on this reply space (Setup → API key).")
+    reply_to_uuid = send_meta.get("reply_to_uuid")
+    eaccount = send_meta.get("eaccount")
+    # Instantly's reply API MUST know which email to reply to and from which
+    # mailbox. If the webhook payload didn't carry these, say so plainly instead
+    # of letting Instantly return a cryptic 400.
+    missing = [k for k, v in (("reply_to_uuid", reply_to_uuid), ("eaccount", eaccount)) if not v]
+    if missing:
+        raise RuntimeError(
+            "Instantly reply needs " + " and ".join(missing) + ", but the webhook payload didn't include "
+            + ("it" if len(missing) == 1 else "them") + ". Make sure the Instantly webhook fires on the "
+            "reply event (which carries the email id + sending account), not just a tag/status change.")
     quote_html = send_meta.get("quote_html", "")
     body_html = "<br>".join(message.splitlines()) + (f"<br><br>{quote_html}" if quote_html else "")
-    r = requests.post("https://api.instantly.ai/api/v2/emails/reply",
-                      headers={"Authorization": f"Bearer {api_key}"},
-                      json={"reply_to_uuid": send_meta.get("reply_to_uuid"),
-                            "eaccount": send_meta.get("eaccount"),
-                            "subject": subject or send_meta.get("subject", ""),
-                            "body": {"html": body_html, "text": message}},
-                      timeout=45)
-    r.raise_for_status()
+    try:
+        r = requests.post("https://api.instantly.ai/api/v2/emails/reply",
+                          headers={"Authorization": f"Bearer {api_key}"},
+                          json={"reply_to_uuid": reply_to_uuid, "eaccount": eaccount,
+                                "subject": subject or send_meta.get("subject", ""),
+                                "body": {"html": body_html, "text": message}},
+                          timeout=20)
+    except requests.Timeout:
+        raise RuntimeError("Instantly did not respond in time (timeout). Try again in a moment.")
+    except requests.RequestException as e:
+        raise RuntimeError(f"Could not reach Instantly: {e}")
+    if r.status_code >= 300:
+        raise RuntimeError(f"Instantly API {r.status_code}: {(r.text or '')[:400]}")
     return {"ok": True}
 
 

@@ -51,6 +51,18 @@ function LeadDrawer({ id, onClose, onChanged }) {
         <div className="card" style={{ padding: 12, fontSize: 13, background: "#fafbfc" }}>{l.reply_text || "—"}</div>
       )}
       <h3 style={{ fontSize: 13, margin: "14px 0 6px" }}>Reply to send</h3>
+      {l.send_error && (
+        <div className="error-box" style={{ marginBottom: 8, fontSize: 12.5 }}>
+          Last send failed: {l.send_error}
+        </div>
+      )}
+      {l.platform === "instantly" && l.can_send_instantly === false && (
+        <div className="card" style={{ padding: 10, marginBottom: 8, fontSize: 12.5, borderColor: "var(--amber, #f0b429)" }}>
+          This reply can't be sent through Instantly because the webhook didn't include the reply target
+          (<code>reply_to_uuid</code> + <code>eaccount</code>). Make sure the Instantly webhook fires on the
+          <b> reply-received</b> event (not just a tag/status change), which carries the email id and sending mailbox.
+        </div>
+      )}
       <textarea rows={8} style={{ width: "100%" }} value={body} onChange={(e) => setDraft(e.target.value)} />
       <div className="toolbar" style={{ marginTop: 10 }}>
         <button className="btn ghost sm" disabled={busy} onClick={() => act(() => api(`/api/reply/leads/${id}/action`, { method: "POST", body: { main_reply: body } }), "save")}>Save draft</button>

@@ -350,6 +350,8 @@ def reply_lead_detail(lead_id: int, ctx: AuthContext = Depends(get_ctx)):
             "replied": l.replied, "reviewed": l.reviewed, "reply_text": l.reply_text,
             "main_reply": l.main_reply, "followups": l.followups or [],
             "thread": l.thread or [], "send_meta_present": bool(l.send_meta),
+            "can_send_instantly": bool((l.send_meta or {}).get("reply_to_uuid") and (l.send_meta or {}).get("eaccount")),
+            "send_error": l.send_error or "",
             "lead_details": extract_lead_enrichment(l.lead_data or {})}
 
 
@@ -477,9 +479,15 @@ def approve_and_send(lead_id: int, ctx: AuthContext = Depends(get_ctx)):
         else:
             send_instantly_reply(rws, l.send_meta or {}, message, l.subject)
     except Exception as e:
-        raise HTTPException(502, f"Send failed: {e}")
+        # 400 (not 502) so the client reliably shows this JSON detail instead of a
+        # bare gateway error; record it on the lead so the reason is visible later.
+        l.action = "error"
+        l.send_error = str(e)[:500]
+        ctx.db.commit()
+        raise HTTPException(400, f"Send failed: {e}")
     l.replied = True
     l.reviewed = True
     l.stage = "replied"
+    l.send_error = ""
     ctx.db.commit()
     return {"ok": True, "sent_via": l.platform}

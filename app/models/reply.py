@@ -92,6 +92,7 @@ class ReplyLead(Base):
     thread = Column(JSON, default=list)
     lead_data = Column(JSON, default=dict)      # full raw platform payload (CRM enrichment depends on it)
     send_meta = Column(JSON, default=dict)      # everything needed to (re)send
+    send_error = Column(Text, default="")       # last send failure reason (blank once sent)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

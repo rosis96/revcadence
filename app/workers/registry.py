@@ -265,11 +265,18 @@ def process_reply_job(db, job):
             send_meta = {"reply_id": inbound[-1].get("reply_id"),
                          "to_name": lead.name, "to_email": lead.email}
     else:
+        from ..reply.sync import _deep_get
         body_text = str(data.get("reply_text") or data.get("text") or data.get("body") or "")
         lead.reply_text = body_text
         thread = [{"direction": "in", "text": body_text}]
-        send_meta = {"reply_to_uuid": data.get("reply_to_uuid") or data.get("email_id"),
-                     "eaccount": data.get("eaccount"), "subject": lead.subject}
+        # Instantly nests the reply target under different keys/levels depending on
+        # the event — deep-search the whole payload so the reply-to UUID and the
+        # sending mailbox (eaccount) are found wherever they live.
+        reply_uuid = (data.get("reply_to_uuid") or data.get("email_id")
+                      or _deep_get(payload, {"reply_to_uuid", "email_id", "message_id", "uuid", "id"}))
+        eaccount = (data.get("eaccount")
+                    or _deep_get(payload, {"eaccount", "email_account", "from_email", "sender_email"}))
+        send_meta = {"reply_to_uuid": reply_uuid, "eaccount": eaccount, "subject": lead.subject}
     lead.thread = thread
     lead.send_meta = send_meta
 
