@@ -17,6 +17,39 @@ function Field({ label, children, hint }) {
   );
 }
 
+// The exact, copy-ready webhook URL to paste into Instantly/Bison. This is the
+// single most-missed setup step: if the sending platform isn't POSTing here,
+// no replies ever reach RevCadence (the queue stays empty).
+function WebhookBox({ platform, name }) {
+  const [copied, setCopied] = useState(false);
+  const origin = typeof window !== "undefined" ? window.location.origin : "https://engine.revcadence.com";
+  const path = platform === "bison"
+    ? `/api/reply/webhooks/bison?reply_workspace=${encodeURIComponent(name || "")}`
+    : `/api/reply/webhooks/instantly?workspace_name=${encodeURIComponent(name || "")}`;
+  const url = origin + path;
+  const copy = () => { navigator.clipboard?.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); };
+  return (
+    <div className="card" style={{ padding: 14, margin: "4px 0 14px", background: "var(--bg-soft, #f7f8fb)" }}>
+      <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>
+        Webhook URL — paste this into {platform === "bison" ? "Bison" : "Instantly"} so replies reach RevCadence
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <input readOnly value={url} onFocus={(e) => e.target.select()}
+               style={{ flex: 1, fontFamily: "monospace", fontSize: 12, padding: "7px 9px" }} />
+        <button className="btn ghost sm" onClick={copy}>{copied ? "Copied ✓" : "Copy"}</button>
+      </div>
+      <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 8, lineHeight: 1.55 }}>
+        {platform === "instantly"
+          ? <>In Instantly: <b>Settings → Integrations → Webhooks</b> (or the campaign's webhook), add this URL and trigger it
+             on <b>Reply Received</b> / <b>Lead marked Interested</b>. The <code>workspace_name</code> must match the reply-space
+             name above <b>exactly</b>. Instantly's own “AI Reply Agent” is separate — this is RevCadence's engine, so you don't
+             need Instantly's paid AI agent.</>
+          : <>In Bison: add this as the reply webhook. The <code>reply_workspace</code> must match the reply-space name above exactly.</>}
+      </div>
+    </div>
+  );
+}
+
 // ----- structured response types (Type id / intent / examples / template / rules / auto_send)
 function ResponseTypes({ items, onChange }) {
   const set = (i, k, v) => onChange(items.map((t, j) => (j === i ? { ...t, [k]: v } : t)));
@@ -151,6 +184,8 @@ export default function ReplySetup() {
         <h2 style={{ fontSize: 14, marginBottom: 12 }}>Connection</h2>
         <Field label="Reply-space name (must match webhook ?workspace_name= / ?reply_workspace=)">
           <input style={{ width: "100%" }} value={w.name} onChange={(e) => set("name", e.target.value)} /></Field>
+        <WebhookBox platform={w.platform} name={w.name} />
+
         <div style={{ display: "flex", gap: 12 }}>
           <Field label="Platform"><select value={w.platform} onChange={(e) => set("platform", e.target.value)}><option value="bison">Bison</option><option value="instantly">Instantly</option></select></Field>
           <Field label="Mode"><select value={w.mode} onChange={(e) => set("mode", e.target.value)}><option value="reply">reply</option><option value="followup">followup</option></select></Field>
