@@ -332,9 +332,13 @@ def process_reply_job(db, job):
                 E.send_instantly_reply(rws, send_meta, message, lead.subject)
             lead.replied = True
             lead.stage = "replied"
+            lead.send_error = ""
             sent = True
         except Exception as e:
+            # persist on the same column the manual path + drawer use, so the
+            # failure reason is visible for auto-send failures too.
             lead.action = "error"
+            lead.send_error = str(e)[:500]
             lead.lead_data = {**(lead.lead_data or {}), "_send_error": str(e)[:300]}
 
     # sync to CRM + enrichment: contact/company + enrich by email, and every

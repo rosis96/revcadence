@@ -240,21 +240,36 @@ def lookup_instantly_reply_target(api_key: str, lead_email: str, campaign_id: st
     failure (caller then reports the clear error)."""
     if not (api_key and lead_email):
         return {}
-    items = []
-    try:
-        params = {"search": lead_email, "limit": 25}
-        if campaign_id:
-            params["campaign_id"] = campaign_id
-        r = requests.get("https://api.instantly.ai/api/v2/emails",
-                         headers={"Authorization": f"Bearer {api_key}"},
-                         params=params, timeout=20)
-        if r.status_code >= 300:
-            return {}
-        body = r.json()
-        items = body.get("items") or body.get("data") or (body if isinstance(body, list) else [])
-    except Exception:
-        return {}
-    items = [e for e in items if isinstance(e, dict)]
+
+    def _list(params):
+        # /api/v2/emails is rate-limited (~20 req/min) — retry once on 429.
+        import time
+        for attempt in range(2):
+            try:
+                r = requests.get("https://api.instantly.ai/api/v2/emails",
+                                 headers={"Authorization": f"Bearer {api_key}"},
+                                 params=params, timeout=20)
+                if r.status_code == 429 and attempt == 0:
+                    time.sleep(2); continue
+                if r.status_code >= 300:
+                    return []
+                body = r.json()
+                raw = body.get("items") or body.get("data") or (body if isinstance(body, list) else [])
+                return [e for e in raw if isinstance(e, dict)]
+            except Exception:
+                return []
+        return []
+
+    # IMPORTANT: do NOT filter by campaign_id — a prospect's received reply
+    # often has a null campaign_id and would be excluded (this was returning {}
+    # and producing the "webhook didn't include them" error). Ask for received
+    # emails only, newest thread first; fall back to all emails if none come back.
+    items = _list({"search": lead_email, "email_type": "received",
+                   "latest_of_thread": "true", "limit": 25})
+    if not items:
+        items = _list({"search": lead_email, "email_type": "received", "limit": 25})
+    if not items:
+        items = _list({"search": lead_email, "limit": 25})
     if not items:
         return {}
 
@@ -262,9 +277,16 @@ def lookup_instantly_reply_target(api_key: str, lead_email: str, campaign_id: st
         return str(e.get("from_address_email") or e.get("from_email")
                    or (e.get("from_address_json") or {}).get("email") or "").lower()
 
-    # the prospect's inbound email (reply to THAT, not our own sent email)
-    inbound = next((e for e in items if from_addr(e) == str(lead_email).lower()), None)
-    pick = inbound or items[0]           # fall back to the most recent in the thread
+    le = str(lead_email).lower()
+    # Prefer a RECEIVED email actually from the prospect (ue_type 2 == Received).
+    # Never fall back to one of OUR sent emails (ue_type 1/3) — replying to that
+    # would send the reply back to ourselves. If we can't find an inbound target,
+    # return {} so the caller reports a clear, honest error.
+    pick = (next((e for e in items if e.get("ue_type") == 2 and from_addr(e) == le), None)
+            or next((e for e in items if e.get("ue_type") == 2), None)
+            or next((e for e in items if from_addr(e) == le), None))
+    if not pick:
+        return {}
     uuid = pick.get("id") or pick.get("uuid") or pick.get("message_id")
     eaccount = pick.get("eaccount") or pick.get("email_account")
     return {"reply_to_uuid": uuid, "eaccount": eaccount} if (uuid and eaccount) else {}
