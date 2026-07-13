@@ -58,21 +58,53 @@ def _headers(token):
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
 
+def _list_event_types(token: str) -> tuple[list, dict]:
+    """All event types the token can see, with diagnostics. Event types can be
+    owned by the USER or by the ORGANIZATION; a token created by one member may
+    only surface org-owned ones under the organization filter — so we try user
+    first, then organization, then include inactive as a last resort."""
+    meta = {"user_name": "", "user_link": "", "counts": {}}
+    me = requests.get(f"{API}/users/me", headers=_headers(token), timeout=20)
+    if me.status_code != 200:
+        meta["error"] = f"users/me returned {me.status_code}"
+        return [], meta
+    res = me.json().get("resource", {})
+    user_uri = res.get("uri")
+    org_uri = res.get("current_organization")
+    meta["user_name"] = res.get("name", "")
+    meta["user_link"] = res.get("scheduling_url", "")
+
+    def fetch(params):
+        try:
+            r = requests.get(f"{API}/event_types", headers=_headers(token), params=params, timeout=20)
+            return r.json().get("collection", []) if r.status_code == 200 else []
+        except Exception:
+            return []
+
+    types = fetch({"user": user_uri, "active": "true"})
+    meta["counts"]["user_active"] = len(types)
+    if not types and org_uri:
+        types = fetch({"organization": org_uri, "active": "true"})
+        meta["counts"]["org_active"] = len(types)
+    if not types:                      # last resort — include inactive
+        types = fetch({"user": user_uri}) or (fetch({"organization": org_uri}) if org_uri else [])
+        meta["counts"]["any"] = len(types)
+    return types, meta
+
+
 def resolve_event_type(token: str, scheduling_url: str = "") -> dict:
     """→ {uri, scheduling_url, slug} or {} on failure."""
     try:
-        me = requests.get(f"{API}/users/me", headers=_headers(token), timeout=20).json()
-        user_uri = me["resource"]["uri"]
-        ets = requests.get(f"{API}/event_types", headers=_headers(token),
-                           params={"user": user_uri, "active": "true"}, timeout=20).json()
-        types = ets.get("collection", [])
+        types, _ = _list_event_types(token)
         if not types:
             return {}
+        # prefer active event types once we've fallen back to include inactive
+        pool = [t for t in types if t.get("active", True)] or types
         slug = (scheduling_url or "").rstrip("/").split("/")[-1].lower()
-        for t in types:
+        for t in pool:
             if slug and slug in (t.get("scheduling_url", "").lower()):
                 return {"uri": t["uri"], "scheduling_url": t["scheduling_url"], "slug": slug}
-        t = types[0]
+        t = pool[0]
         return {"uri": t["uri"], "scheduling_url": t["scheduling_url"], "slug": t.get("slug", "")}
     except Exception:
         return {}
@@ -175,10 +207,23 @@ def probe(rws) -> dict:
         return {"ok": False, "error": "No Calendly token set on this reply space."}
     if not rws.calendly_scheduling_url:
         return {"ok": False, "error": "No Calendly scheduling link set."}
+    types, meta = _list_event_types(token)
+    if meta.get("error"):
+        return {"ok": False, "error": f"Calendly rejected the token ({meta['error']}). "
+                                      "Recreate a Personal Access Token with event_types:read + availability:read."}
+    if not types:
+        who = meta.get("user_name") or "this token"
+        link = meta.get("user_link")
+        hint = (f" The token belongs to {who}"
+                + (f" whose own booking link is {link}." if link else ".")
+                + " Make sure the scheduling link above is an ACTIVE event type owned by that same account,"
+                  " or create the token from the account that owns the link.")
+        return {"ok": False, "error": "Token works, but Calendly returned no event types for it." + hint}
     et = resolve_event_type(token, rws.calendly_scheduling_url)
     if not et:
-        return {"ok": False, "error": "Token works but no active event type found (check scopes / link)."}
+        return {"ok": False, "error": "Token works but no active event type matched the scheduling link (check the link)."}
     slots = get_calendly_slots(token, rws.calendly_scheduling_url, "America/New_York", count=3)
-    return {"ok": True, "event_type_slug": et.get("slug"),
+    return {"ok": True, "event_type_slug": et.get("slug"), "token_user": meta.get("user_name"),
+            "event_types_found": len(types),
             "sample_slots": [s["label"] for s in slots],
             "note": "Reads only — the system never books; the prospect books via the link."}
