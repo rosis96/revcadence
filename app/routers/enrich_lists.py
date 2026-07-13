@@ -146,6 +146,7 @@ class RunIn(BaseModel):
     view: str = "notrun"          # used when lead_ids empty ('select all N in view')
     limit: int = 0                # test-first-N safety cap (0 = no cap)
     enrichments: list[str] = []   # output variables to write (empty = all configured)
+    workers: int = 1              # concurrent leads to process at once (1–25)
 
 
 @router.get("/{list_id}/active-job")
@@ -212,12 +213,13 @@ def run(list_id: int, body: RunIn, ctx: AuthContext = Depends(get_ctx)):
         lead_ids = [r[0] for r in _view_filter(base, body.view).all()]
     if not lead_ids:
         raise HTTPException(422, "Nothing to run in this selection")
+    workers = max(1, min(int(body.workers or 1), 25))
     j = Job(kind="run_enrich_list", workspace_id=lst.workspace_id,
             payload={"list_id": lst.id, "lead_ids": lead_ids, "steps": body.steps,
-                     "limit": body.limit, "enrichments": body.enrichments})
+                     "limit": body.limit, "enrichments": body.enrichments, "workers": workers})
     ctx.db.add(j)
     ctx.db.commit()
-    return {"job_id": j.id, "selected": len(lead_ids), "capped_at": body.limit or None}
+    return {"job_id": j.id, "selected": len(lead_ids), "capped_at": body.limit or None, "workers": workers}
 
 
 # ---------------------------------------------------------------- competitor finder

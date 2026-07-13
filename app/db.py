@@ -13,10 +13,16 @@ class Base(DeclarativeBase):
     pass
 
 
+_is_sqlite = config.DATABASE_URL.startswith("sqlite")
 engine = create_engine(
     config.DATABASE_URL,
     pool_pre_ping=True,
-    connect_args={"check_same_thread": False} if config.DATABASE_URL.startswith("sqlite") else {},
+    # Headroom for the enrichment worker pool: a run with N concurrent workers
+    # opens N sessions at once. Postgres only — SQLite uses a single connection.
+    **({} if _is_sqlite else {"pool_size": 30, "max_overflow": 20}),
+    # timeout: let concurrent workers wait for the write lock (dev/SQLite) rather
+    # than erroring "database is locked". Postgres handles concurrency natively.
+    connect_args={"check_same_thread": False, "timeout": 30} if _is_sqlite else {},
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 

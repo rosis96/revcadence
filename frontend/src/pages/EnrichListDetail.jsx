@@ -24,6 +24,7 @@ export default function EnrichListDetail() {
   const [sel, setSel] = useState({});
   const [allInView, setAllInView] = useState(false);
   const [limit, setLimit] = useState(10);   // test-first-N credit safeguard
+  const [workers, setWorkers] = useState(10);   // concurrent leads processed at once
   const [job, setJob] = useState(null);
   const [openLead, setOpenLead] = useState(null);
   const { data, error, loading, reload } = useApi(`/api/enrich-lists/${id}/leads`,
@@ -65,7 +66,8 @@ export default function EnrichListDetail() {
     // nothing-selected run — otherwise a leftover cap of 10 would silently
     // truncate a big selection.
     const explicit = allInView || ids.length > 0;
-    const body = { steps, limit: explicit ? 0 : Number(limit) || 0 };
+    const body = { steps, limit: explicit ? 0 : Number(limit) || 0,
+                   workers: Math.max(1, Math.min(Number(workers) || 1, 25)) };
     if (outputs) body.enrichments = outputs;
     if (allInView || ids.length === 0) body.view = view === "all" ? "notrun" : view;
     else body.lead_ids = ids;
@@ -130,6 +132,9 @@ export default function EnrichListDetail() {
           Reoon: {reoon.demo ? "demo" : (reoon.credits != null ? `${reoon.credits.toLocaleString()} credits` : "connected")}
         </span>}
         <div className="spacer" />
+        <label style={{ fontSize: 12.5, color: "var(--muted)" }} title="How many leads to process at once. Higher = faster; 10 is a safe default, 25 max.">Workers</label>
+        <input type="number" min="1" max="25" value={workers} onChange={(e) => setWorkers(e.target.value)} style={{ width: 60 }}
+               title="How many leads to process at once. Higher = faster; 10 is a safe default, 25 max." />
         {selectedCount > 0 ? (
           <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
             Runs all <b>{selectedCount.toLocaleString()}</b> selected

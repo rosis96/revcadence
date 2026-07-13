@@ -71,8 +71,13 @@ def generate_blueprint_job(db, job):
 @register("run_enrich_list")
 def run_enrich_list(db, job):
     """List pipeline runner. payload: {list_id, lead_ids?: [..], steps: 'verify'|'pipeline',
-    limit?: int}. Processes non-terminal leads only (resume semantics); checks for
-    cancellation between leads; updates job progress live."""
+    limit?: int, workers?: int}. Processes non-terminal leads only (resume
+    semantics); checks for cancellation live; updates job progress live.
+
+    process_lead is almost entirely network I/O (MX/DNS, Reoon, site crawl, AI),
+    so with workers>1 we fan leads out across a thread pool — each thread gets
+    its OWN DB session (Sessions aren't thread-safe). The main thread's session
+    only tracks job progress/cancellation."""
     from ..models.enrich import TERMINAL_STATUSES, EnrichLead, EnrichList
     from ..models.jobs import Job as JobModel
     from ..enrichment.pipeline import _config, process_lead
@@ -80,31 +85,82 @@ def run_enrich_list(db, job):
     lst = db.get(EnrichList, int(job.payload.get("list_id", 0)))
     if lst is None or lst.workspace_id != job.workspace_id:
         raise RuntimeError("list not found in this job's workspace")
-    cfg = _config(db, job.workspace_id)
-    q = db.query(EnrichLead).filter(EnrichLead.list_id == lst.id,
-                                    EnrichLead.status.notin_(TERMINAL_STATUSES))
+    q = db.query(EnrichLead.id).filter(EnrichLead.list_id == lst.id,
+                                       EnrichLead.status.notin_(TERMINAL_STATUSES))
     ids = job.payload.get("lead_ids") or []
     if ids:
         q = q.filter(EnrichLead.id.in_([int(i) for i in ids]))
     limit = int(job.payload.get("limit") or 0)
-    leads = q.order_by(EnrichLead.id).limit(limit if limit > 0 else 100000).all()
+    lead_ids = [r[0] for r in q.order_by(EnrichLead.id).limit(limit if limit > 0 else 100000).all()]
     steps = job.payload.get("steps", "pipeline")
+    enrichments = job.payload.get("enrichments") or None
+    workers = max(1, min(int(job.payload.get("workers") or 1), 25))
     counts = {"processed": 0, "done": 0, "invalid": 0, "unsafe": 0, "skipped": 0, "error": 0}
-    total = len(leads)
-    for i, lead in enumerate(leads):
-        # hard Stop: re-read job status so Cancel takes effect mid-run
+    total = len(lead_ids)
+
+    def _cancelled():
         db.expire(job)
-        if db.get(JobModel, job.id).status == "cancelled":
-            job.status = "cancelled"
-            break
-        status = process_lead(db, lead, cfg, steps=steps,
-                              enrichments=job.payload.get("enrichments") or None)
+        return db.get(JobModel, job.id).status == "cancelled"
+
+    def _tick(i, status, note):
         counts["processed"] += 1
         counts[status] = counts.get(status, 0) + 1
-        job.progress = int(((i + 1) / max(total, 1)) * 100)
-        job.progress_note = f"{i + 1}/{total} · {lead.email or lead.company}"[:250]
+        job.progress = int((i / max(total, 1)) * 100)
+        job.progress_note = f"{i}/{total} · {note}"[:250]
         db.commit()
-    return {"total_selected": total, **counts}
+
+    # Sequential path (workers=1) — unchanged behaviour, shared session.
+    if workers <= 1:
+        wid = job.workspace_id
+        cfg = _config(db, wid)
+        for i, lid in enumerate(lead_ids):
+            if _cancelled():
+                job.status = "cancelled"
+                break
+            lead = db.get(EnrichLead, lid)
+            if lead is None:
+                _tick(i + 1, "error", str(lid)); continue
+            status = process_lead(db, lead, cfg, steps=steps, enrichments=enrichments)
+            _tick(i + 1, status, lead.email or lead.company)
+        return {"total_selected": total, "workers": 1, **counts}
+
+    # Concurrent path — one session per thread, main thread aggregates results.
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from threading import Event
+    from ..db import session as thread_session
+
+    stop = Event()
+    wid = job.workspace_id
+    # Materialize the config row ONCE up front so worker threads only read it —
+    # otherwise every thread races to INSERT the default config for a new
+    # workspace (duplicate rows on Postgres, "database is locked" on SQLite).
+    _config(db, wid)
+    db.commit()
+
+    def work(lid):
+        if stop.is_set():
+            return ("skipped", str(lid), True)  # skipped-because-cancelled → don't count
+        with thread_session() as s:
+            lead = s.get(EnrichLead, lid)
+            if lead is None:
+                return ("error", str(lid), False)
+            cfg = _config(s, wid)
+            status = process_lead(s, lead, cfg, steps=steps, enrichments=enrichments)
+            return (status, lead.email or lead.company, False)
+
+    done = 0
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {ex.submit(work, lid): lid for lid in lead_ids}
+        for fut in as_completed(futures):
+            status, note, cancelled_skip = fut.result()
+            if cancelled_skip:
+                continue
+            done += 1
+            _tick(done, status, note)
+            if not stop.is_set() and _cancelled():
+                stop.set()               # new leads bail out; in-flight ones finish
+                job.status = "cancelled"
+    return {"total_selected": total, "workers": workers, **counts}
 
 
 @register("find_competitors")
