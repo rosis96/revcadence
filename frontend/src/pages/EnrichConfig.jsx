@@ -23,6 +23,20 @@ export default function EnrichConfigPage({ tab }) {
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [formatJson, setFormatJson] = useState("");
+  const [profileJson, setProfileJson] = useState("");
+
+  // Paste Client Profile JSON → fills the boxes. Accepts the training-file
+  // schema incl. aliases (value_prop → what_we_are_pitching) and keeps extra
+  // keys (positioning, core_capabilities) in the stored profile.
+  const fillProfileFromJson = () => {
+    try {
+      const p = JSON.parse(profileJson);
+      const merged = { ...(cfg.profile || {}), ...p };
+      if (p.value_prop && !p.what_we_are_pitching) merged.what_we_are_pitching = p.value_prop;
+      setCfg({ ...cfg, profile: merged, icp_definition: p.icp_definition || cfg.icp_definition });
+      setProfileJson("");
+    } catch (e) { alert("Invalid JSON: " + e.message); }
+  };
 
   useEffect(() => {
     setCfg(null); setError("");
@@ -66,6 +80,13 @@ export default function EnrichConfigPage({ tab }) {
 
       {tab === "profile" && (
         <>
+          <div className="card" style={{ padding: 14, marginBottom: 14 }}>
+            <label style={{ fontSize: 12.5, fontWeight: 600 }}>Paste Client Profile JSON (auto-fills the boxes below)</label>
+            <textarea rows={2} style={{ width: "100%", fontFamily: "monospace", fontSize: 12, marginTop: 4 }}
+                      value={profileJson} onChange={(e) => setProfileJson(e.target.value)}
+                      placeholder='{"client_name":"Ascendly","service_brief":"…","main_offer":"…","what_we_are_pitching":"…","target_outcome":"…","icp_summary":"…"}' />
+            <button className="btn ghost sm" style={{ marginTop: 6 }} onClick={fillProfileFromJson}>Fill boxes from JSON</button>
+          </div>
           <div className="card" style={{ padding: 18 }}>
             <h2 style={{ fontSize: 15, marginBottom: 4 }}>Client Profile</h2>
             <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 14 }}>
