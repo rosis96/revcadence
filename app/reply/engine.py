@@ -232,16 +232,22 @@ def build_reply_prompt(rws, thread: list, scheduling_context: str = "", prospect
 # ---------------------------------------------------------------- platform sends (legacy fixes)
 def lookup_instantly_reply_target(api_key: str, lead_email: str, campaign_id: str = "") -> dict:
     """Recover {reply_to_uuid, eaccount} from Instantly when the webhook didn't
-    include them (e.g. a lead_interested event). Finds the lead's most recent
-    email — preferring one received FROM the prospect — and uses its id +
-    eaccount. Returns {} on any failure (caller then reports the clear error)."""
+    include them (e.g. a lead_interested / tag event). This is the exact method
+    the previous working system used (find_instantly_reply_target): list the
+    lead's emails via the API, pick the prospect's INBOUND email (from-address ==
+    prospect) — its id is reply_to_uuid and its eaccount is the mailbox that
+    received the reply — falling back to the most recent email. Returns {} on any
+    failure (caller then reports the clear error)."""
     if not (api_key and lead_email):
         return {}
     items = []
     try:
+        params = {"search": lead_email, "limit": 25}
+        if campaign_id:
+            params["campaign_id"] = campaign_id
         r = requests.get("https://api.instantly.ai/api/v2/emails",
                          headers={"Authorization": f"Bearer {api_key}"},
-                         params={"lead": lead_email, "limit": 30}, timeout=20)
+                         params=params, timeout=20)
         if r.status_code >= 300:
             return {}
         body = r.json()
@@ -249,23 +255,16 @@ def lookup_instantly_reply_target(api_key: str, lead_email: str, campaign_id: st
     except Exception:
         return {}
     items = [e for e in items if isinstance(e, dict)]
-    if campaign_id:
-        scoped = [e for e in items if str(e.get("campaign") or e.get("campaign_id") or "") == str(campaign_id)]
-        items = scoped or items
-
-    def ts(e):
-        return str(e.get("timestamp_email") or e.get("timestamp_created") or e.get("created_at") or "")
-
-    def received(e):
-        # ue_type 2 = received in Instantly; also treat a message whose sender is
-        # the prospect as received. Tolerant to schema differences.
-        return (e.get("ue_type") in (2, "2")
-                or str(e.get("from_address_email") or "").lower() == str(lead_email).lower())
-
-    items.sort(key=ts, reverse=True)
-    pick = next((e for e in items if received(e)), None) or (items[0] if items else None)
-    if not pick:
+    if not items:
         return {}
+
+    def from_addr(e):
+        return str(e.get("from_address_email") or e.get("from_email")
+                   or (e.get("from_address_json") or {}).get("email") or "").lower()
+
+    # the prospect's inbound email (reply to THAT, not our own sent email)
+    inbound = next((e for e in items if from_addr(e) == str(lead_email).lower()), None)
+    pick = inbound or items[0]           # fall back to the most recent in the thread
     uuid = pick.get("id") or pick.get("uuid") or pick.get("message_id")
     eaccount = pick.get("eaccount") or pick.get("email_account")
     return {"reply_to_uuid": uuid, "eaccount": eaccount} if (uuid and eaccount) else {}
