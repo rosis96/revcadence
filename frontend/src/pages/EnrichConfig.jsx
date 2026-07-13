@@ -58,21 +58,25 @@ export default function EnrichConfigPage({ tab }) {
     setBusy(false);
   };
 
-  const fillFromJson = () => {
+  const slug = (s, i) => (s || `var_${i + 1}`).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const normFormat = (v, i) => ({
+    label: v.label || v.name || `Variable ${i + 1}`,
+    name: v.name || slug(v.label, i),
+    guidance: v.guidance || "", template: v.template || "",
+    min_words: v.min_words ?? null, max_words: v.max_words ?? null,
+    placeholders: v.placeholders || [],
+  });
+  // Fill = LOAD the pasted set into the editor (replace), so re-pasting never
+  // duplicates. Append option kept for adding to an existing set on purpose.
+  const fillFromJson = (append = false) => {
     try {
       const parsed = JSON.parse(formatJson);
-      const items = Array.isArray(parsed) ? parsed : [parsed];
-      const norm = items.map((v, i) => ({
-        label: v.label || `Variable ${i + 1}`,
-        name: v.name || (v.label || `var_${i + 1}`).toLowerCase().replace(/[^a-z0-9]+/g, "_"),
-        guidance: v.guidance || "", template: v.template || "",
-        min_words: v.min_words ?? null, max_words: v.max_words ?? null,
-        placeholders: v.placeholders || [],
-      }));
-      setCfg({ ...cfg, formats: [...(cfg.formats || []), ...norm] });
+      const items = (Array.isArray(parsed) ? parsed : [parsed]).map(normFormat);
+      setCfg({ ...cfg, formats: append ? [...(cfg.formats || []), ...items] : items });
       setFormatJson("");
     } catch (e) { alert("Invalid JSON: " + e.message); }
   };
+  const setFmt = (i, patch) => setCfg({ ...cfg, formats: cfg.formats.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
 
   return (
     <div style={{ maxWidth: 1100 }}>
@@ -149,36 +153,51 @@ export default function EnrichConfigPage({ tab }) {
                       onChange={(e) => setFormatJson(e.target.value)}
                       placeholder='{"label": "Personalized First Line", "guidance": "...", "min_words": 12, "max_words": 25}' />
             <div className="toolbar" style={{ marginTop: 10 }}>
-              <button className="btn ghost" onClick={fillFromJson}>Fill sections from JSON</button>
+              <button className="btn ghost" onClick={() => fillFromJson(false)}>Fill sections from JSON (replace)</button>
+              <button className="btn ghost sm" onClick={() => fillFromJson(true)}>Add to existing</button>
             </div>
           </div>
           {(cfg.formats || []).map((f, i) => (
             <div className="card" style={{ padding: 18, marginTop: 14 }} key={i}>
-              <div className="toolbar" style={{ marginBottom: 8 }}>
-                <b>{f.label}</b> <span className="badge">{f.name}</span>
-                <div className="spacer" />
+              <div style={{ display: "flex", gap: 10, alignItems: "flex-end", marginBottom: 10 }}>
+                <div className="field" style={{ flex: 1, margin: 0 }}>
+                  <label>Variable name</label>
+                  <input style={{ width: "100%" }} value={f.label || ""}
+                         onChange={(e) => setFmt(i, { label: e.target.value, name: slug(e.target.value, i) })}
+                         placeholder="Personalized First Line" />
+                </div>
+                <div className="field" style={{ width: 240, margin: 0 }}>
+                  <label>Output key (slug)</label>
+                  <input style={{ width: "100%", fontFamily: "monospace", fontSize: 12.5 }} value={f.name || ""}
+                         onChange={(e) => setFmt(i, { name: e.target.value })} placeholder="personalized_first_line" />
+                </div>
                 <button className="btn danger sm"
                         onClick={() => setCfg({ ...cfg, formats: cfg.formats.filter((_, j) => j !== i) })}>Remove</button>
               </div>
               <div className="field"><label>How to write it — rules & guidance</label>
                 <textarea rows={3} style={{ width: "100%" }} value={f.guidance}
-                          onChange={(e) => setCfg({ ...cfg, formats: cfg.formats.map((x, j) => j === i ? { ...x, guidance: e.target.value } : x) })} /></div>
+                          onChange={(e) => setFmt(i, { guidance: e.target.value })} /></div>
               <div className="field"><label>Format template (optional, with {"{{placeholders}}"})</label>
                 <input style={{ width: "100%" }} value={f.template || ""}
-                       onChange={(e) => setCfg({ ...cfg, formats: cfg.formats.map((x, j) => j === i ? { ...x, template: e.target.value } : x) })} /></div>
+                       onChange={(e) => setFmt(i, { template: e.target.value })} /></div>
               <div style={{ display: "flex", gap: 10 }}>
                 <div className="field"><label>Min words</label>
                   <input type="number" value={f.min_words ?? ""} style={{ width: 90 }}
-                         onChange={(e) => setCfg({ ...cfg, formats: cfg.formats.map((x, j) => j === i ? { ...x, min_words: Number(e.target.value) || null } : x) })} /></div>
+                         onChange={(e) => setFmt(i, { min_words: Number(e.target.value) || null })} /></div>
                 <div className="field"><label>Max words</label>
                   <input type="number" value={f.max_words ?? ""} style={{ width: 90 }}
-                         onChange={(e) => setCfg({ ...cfg, formats: cfg.formats.map((x, j) => j === i ? { ...x, max_words: Number(e.target.value) || null } : x) })} /></div>
+                         onChange={(e) => setFmt(i, { max_words: Number(e.target.value) || null })} /></div>
               </div>
+              {(f.placeholders || []).length > 0 && (
+                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+                  Placeholders: {f.placeholders.map((p) => p.token || p).join(", ")} <span style={{ color: "var(--muted2)" }}>(edit in the JSON, preserved on save)</span>
+                </div>
+              )}
             </div>
           ))}
           <div className="toolbar" style={{ marginTop: 14 }}>
             <button className="btn ghost"
-                    onClick={() => setCfg({ ...cfg, formats: [...(cfg.formats || []), { label: "New variable", name: `var_${(cfg.formats || []).length + 1}`, guidance: "", min_words: null, max_words: null }] })}>
+                    onClick={() => setCfg({ ...cfg, formats: [...(cfg.formats || []), { label: "New variable", name: `var_${(cfg.formats || []).length + 1}`, guidance: "", template: "", min_words: null, max_words: null, placeholders: [] }] })}>
               + Add variable</button>
             <button className="btn" disabled={busy} onClick={() => save({ formats: cfg.formats })}>Save formats</button>
           </div>
