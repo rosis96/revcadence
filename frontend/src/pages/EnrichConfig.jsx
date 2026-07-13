@@ -59,24 +59,83 @@ export default function EnrichConfigPage({ tab }) {
   };
 
   const slug = (s, i) => (s || `var_${i + 1}`).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const asArr = (v) => (Array.isArray(v) ? v : v == null ? [] : [v]);
+  // {{tokens}} inside a template — deduped, in order.
+  const tokensIn = (tpl) => [...new Set([...(tpl || "").matchAll(/\{\{\s*([^}]+?)\s*\}\}/g)].map((m) => m[1].trim()).filter(Boolean))];
+  // Placeholders may arrive as an array OR as an object map keyed by token
+  // (the two shapes the old dashboard used) — normalize to an array.
+  const normPh = (ph) => {
+    if (!ph) return [];
+    const arr = Array.isArray(ph) ? ph : Object.entries(ph).map(([token, p]) => ({ token, ...(p || {}) }));
+    return arr.filter((p) => p && p.token).map((p) => ({
+      token: p.token, description: p.description || "",
+      min_words: p.min_words ?? null, max_words: p.max_words ?? null,
+      examples: asArr(p.examples).filter(Boolean),
+    }));
+  };
   const normFormat = (v, i) => ({
     label: v.label || v.name || `Variable ${i + 1}`,
     name: v.name || slug(v.label, i),
-    guidance: v.guidance || "", template: v.template || "",
+    guidance: v.guidance || v.purpose || "",
+    template: v.template || "",
     min_words: v.min_words ?? null, max_words: v.max_words ?? null,
-    placeholders: v.placeholders || [],
+    rules: asArr(v.rules || v.writing_rules).filter(Boolean),
+    examples: asArr(v.examples || v.example_outputs).filter(Boolean),
+    placeholders: normPh(v.placeholders),
   });
   // Fill = LOAD the pasted set into the editor (replace), so re-pasting never
-  // duplicates. Append option kept for adding to an existing set on purpose.
+  // duplicates. Accepts a bare array, a single object, or {variables, global_output_rules}.
   const fillFromJson = (append = false) => {
     try {
       const parsed = JSON.parse(formatJson);
-      const items = (Array.isArray(parsed) ? parsed : [parsed]).map(normFormat);
-      setCfg({ ...cfg, formats: append ? [...(cfg.formats || []), ...items] : items });
+      const arr = Array.isArray(parsed) ? parsed : parsed.variables || [parsed];
+      const items = arr.map(normFormat);
+      const patch = { ...cfg, formats: append ? [...(cfg.formats || []), ...items] : items };
+      if (!Array.isArray(parsed) && Array.isArray(parsed.global_output_rules) && parsed.global_output_rules.length)
+        patch.rules = parsed.global_output_rules.join("\n");
+      setCfg(patch);
       setFormatJson("");
     } catch (e) { alert("Invalid JSON: " + e.message); }
   };
   const setFmt = (i, patch) => setCfg({ ...cfg, formats: cfg.formats.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
+  // Editing the template re-syncs placeholder boxes: keep the ones whose token
+  // still appears (with their description/range/examples), add a fresh box for
+  // each new {{token}}, drop the ones no longer referenced.
+  const setTemplate = (i, template) => {
+    const existing = cfg.formats[i].placeholders || [];
+    const byTok = Object.fromEntries(existing.map((p) => [p.token, p]));
+    const placeholders = tokensIn(template).map(
+      (t) => byTok[t] || { token: t, description: "", min_words: null, max_words: null, examples: [] });
+    setFmt(i, { template, placeholders });
+  };
+  const setPh = (i, ti, patch) =>
+    setFmt(i, { placeholders: cfg.formats[i].placeholders.map((p, k) => (k === ti ? { ...p, ...patch } : p)) });
+  const addVariable = () => setCfg({ ...cfg, formats: [
+    ...(cfg.formats || []),
+    { label: "New variable", name: `var_${(cfg.formats || []).length + 1}`, guidance: "",
+      template: "", min_words: null, max_words: null, rules: [], examples: [], placeholders: [] }] });
+  const duplicateVariable = (i) => {
+    const src = cfg.formats[i];
+    const copy = { ...src, label: `${src.label} (copy)`, name: `${src.name}_copy` };
+    const formats = [...cfg.formats]; formats.splice(i + 1, 0, copy);
+    setCfg({ ...cfg, formats });
+  };
+  // Trim blank lines out of the newline-edited arrays right before saving.
+  const cleanFormats = (formats) => (formats || []).map((f) => ({
+    ...f,
+    rules: (f.rules || []).map((s) => s.trim()).filter(Boolean),
+    examples: (f.examples || []).map((s) => s.trim()).filter(Boolean),
+    placeholders: (f.placeholders || []).map((p) => ({ ...p, examples: (p.examples || []).map((s) => s.trim()).filter(Boolean) })),
+  }));
+  const downloadFormats = () => {
+    const blob = new Blob([JSON.stringify({ variables: cleanFormats(cfg.formats) }, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = "formats.json";
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+  };
+  // Lead fields the pipeline fills automatically — flagged so users don't think
+  // they must describe them.
+  const AUTO_TOKENS = new Set(["company_name", "first_name", "last_name", "company", "title", "email", "website", "firstname", "lastname"]);
 
   return (
     <div style={{ maxWidth: 1100 }}>
@@ -148,15 +207,21 @@ export default function EnrichConfigPage({ tab }) {
           <div className="card" style={{ padding: 18 }}>
             <h2 style={{ fontSize: 15, marginBottom: 4 }}>Paste Format JSON</h2>
             <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 10 }}>
-              Same JSON the old Formats editor accepted (label, guidance, template, min/max words, placeholders). Paste, then Fill.</p>
-            <textarea rows={6} style={{ width: "100%" }} value={formatJson}
+              Same JSON the old Formats editor accepted — a bare array of variables, or
+              {" "}<code>{"{ variables: [...], global_output_rules: [...] }"}</code>. Each variable:
+              label, guidance, template, min/max words, rules, examples, and placeholders
+              (each with its own description, word range & examples). Paste, then Fill.</p>
+            <textarea rows={6} style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }} value={formatJson}
                       onChange={(e) => setFormatJson(e.target.value)}
-                      placeholder='{"label": "Personalized First Line", "guidance": "...", "min_words": 12, "max_words": 25}' />
+                      placeholder='[{"label":"Value Proposition","guidance":"…","template":"We help {{industry}} {{result}}.","min_words":15,"max_words":30,"placeholders":[{"token":"industry","description":"the prospect category","examples":["marketing agencies"]}]}]' />
             <div className="toolbar" style={{ marginTop: 10 }}>
               <button className="btn ghost" onClick={() => fillFromJson(false)}>Fill sections from JSON (replace)</button>
               <button className="btn ghost sm" onClick={() => fillFromJson(true)}>Add to existing</button>
+              <div className="spacer" />
+              <button className="btn ghost sm" onClick={downloadFormats}>Download JSON</button>
             </div>
           </div>
+
           {(cfg.formats || []).map((f, i) => (
             <div className="card" style={{ padding: 18, marginTop: 14 }} key={i}>
               <div style={{ display: "flex", gap: 10, alignItems: "flex-end", marginBottom: 10 }}>
@@ -171,35 +236,80 @@ export default function EnrichConfigPage({ tab }) {
                   <input style={{ width: "100%", fontFamily: "monospace", fontSize: 12.5 }} value={f.name || ""}
                          onChange={(e) => setFmt(i, { name: e.target.value })} placeholder="personalized_first_line" />
                 </div>
+                <button className="btn ghost sm" onClick={() => duplicateVariable(i)}>Duplicate</button>
                 <button className="btn danger sm"
                         onClick={() => setCfg({ ...cfg, formats: cfg.formats.filter((_, j) => j !== i) })}>Remove</button>
               </div>
-              <div className="field"><label>How to write it — rules & guidance</label>
+
+              <div className="field"><label>How to write it — guidance</label>
                 <textarea rows={3} style={{ width: "100%" }} value={f.guidance}
-                          onChange={(e) => setFmt(i, { guidance: e.target.value })} /></div>
-              <div className="field"><label>Format template (optional, with {"{{placeholders}}"})</label>
-                <input style={{ width: "100%" }} value={f.template || ""}
-                       onChange={(e) => setFmt(i, { template: e.target.value })} /></div>
-              <div style={{ display: "flex", gap: 10 }}>
-                <div className="field"><label>Min words</label>
+                          onChange={(e) => setFmt(i, { guidance: e.target.value })}
+                          placeholder="Explain in plain words how this should be written. e.g. One sentence on a specific, real detail from the prospect's site. No pitch. No greeting." /></div>
+
+              <div className="field"><label>Rules for this variable <span style={{ color: "var(--muted)", fontWeight: 400 }}>(one rule per line — obeyed while writing THIS variable)</span></label>
+                <textarea rows={3} style={{ width: "100%" }} value={(f.rules || []).join("\n")}
+                          onChange={(e) => setFmt(i, { rules: e.target.value.split("\n") })}
+                          placeholder={"Start with a concrete observation, not praise.\nNever end with a question mark.\nDo not use the words 'impressive' or 'world-class'."} /></div>
+
+              <div className="field"><label>Format template <span style={{ color: "var(--muted)", fontWeight: 400 }}>(optional — leave blank for free-form variables. Use {"{{placeholders}}"} for fill-in-the-blank parts)</span></label>
+                <textarea rows={2} style={{ width: "100%" }} value={f.template || ""}
+                          onChange={(e) => setTemplate(i, e.target.value)}
+                          placeholder="We help {{industry}} get {{ideal_customers}} by {{what_we_do}}." /></div>
+
+              <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+                <div className="field" style={{ margin: 0 }}><label>Whole-variable word range — min</label>
                   <input type="number" value={f.min_words ?? ""} style={{ width: 90 }}
                          onChange={(e) => setFmt(i, { min_words: Number(e.target.value) || null })} /></div>
-                <div className="field"><label>Max words</label>
+                <div className="field" style={{ margin: 0 }}><label>max</label>
                   <input type="number" value={f.max_words ?? ""} style={{ width: 90 }}
                          onChange={(e) => setFmt(i, { max_words: Number(e.target.value) || null })} /></div>
               </div>
-              {(f.placeholders || []).length > 0 && (
-                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
-                  Placeholders: {f.placeholders.map((p) => p.token || p).join(", ")} <span style={{ color: "var(--muted2)" }}>(edit in the JSON, preserved on save)</span>
-                </div>
-              )}
+
+              {/* Placeholders — one explanation box per {{token}} in the template. */}
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Placeholders</div>
+                {(f.placeholders || []).length === 0 ? (
+                  <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
+                    Add {"{{placeholders}}"} in the template above to describe them here.</div>
+                ) : (
+                  f.placeholders.map((p, ti) => (
+                    <div className="card" style={{ padding: 12, marginBottom: 8, background: "var(--bg-soft, transparent)" }} key={p.token}>
+                      <div style={{ fontFamily: "monospace", fontSize: 12.5, color: "var(--accent, #635BFF)", marginBottom: 6 }}>
+                        {"{{"}{p.token}{"}}"}
+                        {AUTO_TOKENS.has(p.token.toLowerCase()) &&
+                          <span style={{ color: "var(--muted)", fontFamily: "inherit", marginLeft: 8 }}>· lead field, filled automatically</span>}
+                      </div>
+                      <div className="field" style={{ margin: 0 }}><label>How to write this placeholder</label>
+                        <textarea rows={2} style={{ width: "100%" }} value={p.description || ""}
+                                  onChange={(e) => setPh(i, ti, { description: e.target.value })}
+                                  placeholder="What goes here and how to phrase it" /></div>
+                      <div style={{ display: "flex", gap: 10, alignItems: "flex-end", marginTop: 8 }}>
+                        <div className="field" style={{ margin: 0 }}><label>words — min</label>
+                          <input type="number" value={p.min_words ?? ""} style={{ width: 80 }}
+                                 onChange={(e) => setPh(i, ti, { min_words: Number(e.target.value) || null })} /></div>
+                        <div className="field" style={{ margin: 0 }}><label>max</label>
+                          <input type="number" value={p.max_words ?? ""} style={{ width: 80 }}
+                                 onChange={(e) => setPh(i, ti, { max_words: Number(e.target.value) || null })} /></div>
+                      </div>
+                      <div className="field" style={{ margin: "8px 0 0" }}><label>Examples <span style={{ color: "var(--muted)", fontWeight: 400 }}>(one per line)</span></label>
+                        <textarea rows={2} style={{ width: "100%" }} value={(p.examples || []).join("\n")}
+                                  onChange={(e) => setPh(i, ti, { examples: e.target.value.split("\n") })}
+                                  placeholder={"book more sales calls\ncut response time"} /></div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="field" style={{ marginTop: 14 }}><label>Examples <span style={{ color: "var(--muted)", fontWeight: 400 }}>(one per line — sample outputs that show the AI what good looks like)</span></label>
+                <textarea rows={3} style={{ width: "100%" }} value={(f.examples || []).join("\n")}
+                          onChange={(e) => setFmt(i, { examples: e.target.value.split("\n") })}
+                          placeholder={"Your work for Acme Dental shows a clear focus on local clinics.\nThe way you bundle SEO with paid search is a sharp combo for B2B teams."} /></div>
             </div>
           ))}
+
           <div className="toolbar" style={{ marginTop: 14 }}>
-            <button className="btn ghost"
-                    onClick={() => setCfg({ ...cfg, formats: [...(cfg.formats || []), { label: "New variable", name: `var_${(cfg.formats || []).length + 1}`, guidance: "", template: "", min_words: null, max_words: null, placeholders: [] }] })}>
-              + Add variable</button>
-            <button className="btn" disabled={busy} onClick={() => save({ formats: cfg.formats })}>Save formats</button>
+            <button className="btn ghost" onClick={addVariable}>+ Add variable</button>
+            <button className="btn" disabled={busy} onClick={() => save({ formats: cleanFormats(cfg.formats) })}>Save formats</button>
           </div>
         </>
       )}
