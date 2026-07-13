@@ -28,8 +28,16 @@ export default function EnrichListDetail() {
   const [openLead, setOpenLead] = useState(null);
   const { data, error, loading, reload } = useApi(`/api/enrich-lists/${id}/leads`,
     { view, page, q, page_size: 50 });
+  const { data: reoon } = useApi("/api/enrich-lists/reoon/balance");
   const [outputs, setOutputs] = useState(null);   // null = all; else selected var names
   const cfg = useApi(data ? `/api/enrich-lists/config/${data.list.workspace_id}` : null);
+
+  // reconnect to a run already in progress (survives page reload — Stop persists)
+  useEffect(() => {
+    if (!data || job) return;
+    api(`/api/enrich-lists/${id}/active-job`).then((r) => { if (r.job_id) setJob(r.job_id); }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.list?.id]);
 
   // live job progress poll
   useEffect(() => {
@@ -86,6 +94,17 @@ export default function EnrichListDetail() {
     try { await api(`/api/enrich-lists/${id}/${what}?view=${view}`, { method: "POST" }); reload(); }
     catch (e) { alert(e.message); }
   };
+  const deleteSelected = async () => {
+    const body = {};
+    if (allInView || ids.length === 0) body.view = view;
+    else body.lead_ids = ids;
+    const n = selectedCount || data.chips[view] || 0;
+    if (!confirm(`Delete ${n.toLocaleString()} lead(s)? This cannot be undone.`)) return;
+    try {
+      const r = await api(`/api/enrich-lists/${id}/delete-leads`, { method: "POST", body });
+      alert(`Deleted ${r.deleted} lead(s).`); setSel({}); setAllInView(false); reload();
+    } catch (e) { alert(e.message); }
+  };
   const exportCsv = async () => {
     const res = await fetch(`/api/enrich-lists/${id}/export?view=${view}`,
       { headers: { Authorization: `Bearer ${getToken()}` } });
@@ -102,6 +121,9 @@ export default function EnrichListDetail() {
       <div className="toolbar">
         <h1 style={{ fontSize: 18 }}>{data.list.name}</h1>
         <span style={{ color: "var(--muted)", fontSize: 12.5 }}>{data.chips.all.toLocaleString()} leads</span>
+        {reoon && <span className="badge" style={{ background: "#f4f5f7" }}>
+          Reoon: {reoon.demo ? "demo" : (reoon.credits != null ? `${reoon.credits.toLocaleString()} credits` : "connected")}
+        </span>}
         <div className="spacer" />
         <label style={{ fontSize: 12.5, color: "var(--muted)" }}>Test first</label>
         <input type="number" min="0" value={limit} onChange={(e) => setLimit(e.target.value)} style={{ width: 70 }} title="0 = no cap" />
@@ -158,6 +180,7 @@ export default function EnrichListDetail() {
         <button className="btn ghost sm" disabled={!!job} onClick={splitByIndustry}>⑃ Split by industry</button>
         <button className="btn ghost sm" onClick={() => clearAction("clear-results")}>Clear results</button>
         <button className="btn ghost sm" onClick={() => clearAction("clear-verification")}>Clear verification</button>
+        <button className="btn danger sm" disabled={!!job} onClick={deleteSelected}>Delete</button>
         <button className="btn ghost sm" onClick={exportCsv}>⇓ Export view</button>
       </div>
 

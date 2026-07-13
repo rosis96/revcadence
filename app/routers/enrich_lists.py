@@ -148,6 +148,61 @@ class RunIn(BaseModel):
     enrichments: list[str] = []   # output variables to write (empty = all configured)
 
 
+@router.get("/{list_id}/active-job")
+def active_job(list_id: int, ctx: AuthContext = Depends(get_ctx)):
+    """The list's currently pending/running job, if any — so the grid reconnects
+    to a run in progress after a page reload (Stop button + live progress
+    persist instead of vanishing)."""
+    lst = _get_list(ctx, list_id)
+    from ..models.jobs import Job
+    jobs = (ctx.db.query(Job)
+            .filter(Job.kind.in_(["run_enrich_list", "find_competitors"]),
+                    Job.status.in_(["pending", "running"]),
+                    Job.workspace_id == lst.workspace_id)
+            .order_by(Job.id.desc()).all())
+    for j in jobs:
+        if int((j.payload or {}).get("list_id", 0)) == lst.id:
+            return {"job_id": j.id, "kind": j.kind, "status": j.status,
+                    "progress": j.progress, "progress_note": j.progress_note}
+    return {"job_id": None}
+
+
+class DeleteLeadsIn(BaseModel):
+    lead_ids: list[int] = []
+    view: str = "all"
+
+
+@router.post("/{list_id}/delete-leads")
+def delete_leads(list_id: int, body: DeleteLeadsIn, ctx: AuthContext = Depends(get_ctx)):
+    """Delete selected leads (or a whole view). Legacy DELETE /lists/{id}/leads."""
+    lst = _get_list(ctx, list_id)
+    base = ctx.db.query(EnrichLead).filter(EnrichLead.list_id == lst.id)
+    q = base.filter(EnrichLead.id.in_([int(i) for i in body.lead_ids])) if body.lead_ids \
+        else _view_filter(base, body.view)
+    n = q.count()
+    q.delete(synchronize_session=False)
+    ctx.db.commit()
+    return {"deleted": n}
+
+
+@router.get("/reoon/balance")
+def reoon_balance(ctx: AuthContext = Depends(get_ctx)):
+    """Reoon credit balance chip. Demo when no key set."""
+    import os
+    import requests
+    key = os.getenv("REOON_API_KEY", "")
+    if not key:
+        return {"demo": True, "credits": None}
+    try:
+        r = requests.get("https://emailverifier.reoon.com/api/v1/account-info",
+                         params={"key": key}, timeout=15)
+        j = r.json() if r.status_code == 200 else {}
+        return {"demo": False, "credits": j.get("credits_remaining") or j.get("credits"),
+                "raw": j}
+    except Exception as e:
+        return {"demo": False, "error": str(e)[:200]}
+
+
 @router.post("/{list_id}/run")
 def run(list_id: int, body: RunIn, ctx: AuthContext = Depends(get_ctx)):
     lst = _get_list(ctx, list_id)
