@@ -115,6 +115,44 @@ def add_signature(message: str, sender_name: str, website: str) -> str:
     return body + sig
 
 
+# ---------------------------------------------------------------- quoted thread
+def strip_quoted_history(text: str) -> str:
+    """Return only the prospect's NEW message — drop everything from the first
+    quoted block ('On … wrote:', a run of '>' lines, or '-----Original')
+    so we don't re-quote the history that's already in their reply."""
+    if not text:
+        return ""
+    t = str(text).replace("\r\n", "\n").replace("\r", "\n")
+    m = re.search(r"\n\s*On .{0,160}? wrote:\s*\n", t)
+    if m:
+        t = t[:m.start()]
+    out = []
+    for ln in t.split("\n"):
+        s = ln.lstrip()
+        if s.startswith(">") or s.startswith("-----Original") or s.startswith("________"):
+            break
+        out.append(ln)
+    return "\n".join(out).strip()
+
+
+def build_reply_quote(name: str, email: str, date_str: str, new_message: str) -> tuple:
+    """Gmail-style quote of the prospect's message → (html, text). Empty if there
+    is nothing to quote."""
+    import html as _html
+    msg = strip_quoted_history(new_message)
+    if not msg:
+        return "", ""
+    who = (name or "").strip() or (email or "").strip() or "they"
+    when = (date_str or "").strip()
+    hdr = (f"On {when}, " if when else "") + who + (f" <{email}>" if email else "") + " wrote:"
+    text = f"\n\n{hdr}\n" + "\n".join("> " + ln for ln in msg.split("\n"))
+    html_body = "<br>".join(_html.escape(ln) for ln in msg.split("\n"))
+    html = (f'<br><br><div>{_html.escape(hdr)}</div>'
+            f'<blockquote type="cite" style="margin:0 0 0 0.8ex;border-left:1px solid #ccc;padding-left:1ex;color:#555;">'
+            f'{html_body}</blockquote>')
+    return html, text
+
+
 # ---------------------------------------------------------------- LLM layer (legacy _call_llm)
 _FALLBACK = {"intent": "human_review", "confidence": "low", "human_review_needed": True,
              "main_reply": "", "_fallback": True}
@@ -319,10 +357,13 @@ def fetch_bison_thread(lead_id: str, api_key: str, base_url: str) -> list:
 
 def send_bison_reply(rws, send_meta: dict, message: str) -> dict:
     api_key = decrypt(rws.api_key_enc)
+    qhtml, _ = build_reply_quote(send_meta.get("to_name"),
+                                 send_meta.get("to_email") or send_meta.get("lead_email"),
+                                 send_meta.get("reply_date", ""), send_meta.get("reply_text_new", ""))
     r = requests.post(f"{rws.base_url}/api/replies",
                       headers=bison_headers(api_key),
                       json={"reply_id": send_meta.get("reply_id"),
-                            "message": message.replace("\n", "<br>"),
+                            "message": message.replace("\n", "<br>") + qhtml,
                             "to_name": send_meta.get("to_name"),
                             "to_email": send_meta.get("to_email")},
                       timeout=45)
@@ -380,14 +421,18 @@ def send_instantly_reply(rws, send_meta: dict, message: str, subject: str = "") 
             "Instantly reply needs " + " and ".join(missing) + ", but the webhook payload didn't include "
             + ("it" if len(missing) == 1 else "them") + ". Make sure the Instantly webhook fires on the "
             "reply event (which carries the email id + sending account), not just a tag/status change.")
-    quote_html = send_meta.get("quote_html", "")
-    body_html = "<br>".join(message.splitlines()) + (f"<br><br>{quote_html}" if quote_html else "")
+    # Gmail-style quoted thread so the reply reads like a real conversation.
+    qhtml, qtext = build_reply_quote(send_meta.get("to_name"),
+                                     send_meta.get("to_email") or send_meta.get("lead_email"),
+                                     send_meta.get("reply_date", ""), send_meta.get("reply_text_new", ""))
+    body_html = "<br>".join(message.splitlines()) + qhtml
+    body_text = message + qtext
     try:
         r = requests.post("https://api.instantly.ai/api/v2/emails/reply",
                           headers={"Authorization": f"Bearer {api_key}"},
                           json={"reply_to_uuid": reply_to_uuid, "eaccount": eaccount,
                                 "subject": subject or send_meta.get("subject", ""),
-                                "body": {"html": body_html, "text": message}},
+                                "body": {"html": body_html, "text": body_text}},
                           timeout=20)
     except requests.Timeout:
         raise RuntimeError("Instantly did not respond in time (timeout). Try again in a moment.")
@@ -417,13 +462,16 @@ def deep_find_lead_id(obj):
 
 
 def scan_for_campaign_id(obj, target: str) -> bool:
-    """Backstop follow-up guard: any *campaign* field equal to the follow-up
-    campaign id anywhere in the payload (legacy §8)."""
+    """Backstop follow-up guard: any *campaign* OR *subsequence* field equal to
+    the follow-up campaign id anywhere in the payload (legacy §8). Instantly runs
+    follow-ups as a subsequence, so a reply that arrives on the follow-up
+    subsequence must also be caught — not just one tagged with campaign_id."""
     if not target:
         return False
     if isinstance(obj, dict):
         for k, v in obj.items():
-            if "campaign" in str(k).lower() and str(v) == str(target):
+            key = str(k).lower()
+            if ("campaign" in key or "subsequence" in key) and str(v) == str(target):
                 return True
             if scan_for_campaign_id(v, target):
                 return True

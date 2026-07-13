@@ -14,6 +14,21 @@ def register(kind: str):
     return deco
 
 
+def _format_reply_date(raw) -> str:
+    """Human 'Mon, Jul 13, 2026 at 5:31 PM' for the quoted-thread header. Accepts
+    an ISO timestamp; falls back to now, or '' if formatting fails."""
+    from datetime import datetime
+    s = str(raw or "").strip()
+    try:
+        if s:
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        else:
+            dt = datetime.utcnow()
+        return dt.strftime("%a, %b %-d, %Y at %-I:%M %p")
+    except Exception:
+        return ""
+
+
 # ---------------------------------------------------------------- built-ins
 @register("noop")
 def noop(db, job):
@@ -261,6 +276,9 @@ def process_reply_job(db, job):
             db.commit()
             return {"recorded": lead.id, "guard": "follow-up loop"}
 
+    from ..reply.sync import _deep_get
+    # A human-readable date for the quoted thread ("On <date>, <name> wrote:").
+    reply_date = _format_reply_date(_deep_get(payload, {"timestamp", "reply_timestamp", "date"}))
     # thread
     thread, send_meta = [], {}
     if platform == "bison" and rws.base_url:
@@ -269,9 +287,9 @@ def process_reply_job(db, job):
         if inbound:
             lead.reply_text = inbound[-1].get("text", "")
             send_meta = {"reply_id": inbound[-1].get("reply_id"),
-                         "to_name": lead.name, "to_email": lead.email}
+                         "to_name": lead.name, "to_email": lead.email,
+                         "reply_text_new": lead.reply_text, "reply_date": reply_date}
     else:
-        from ..reply.sync import _deep_get
         body_text = str(data.get("reply_text") or data.get("text") or data.get("body") or "")
         lead.reply_text = body_text
         thread = [{"direction": "in", "text": body_text}]
@@ -283,9 +301,11 @@ def process_reply_job(db, job):
         eaccount = (data.get("eaccount")
                     or _deep_get(payload, {"eaccount", "email_account", "from_email", "sender_email"}))
         # Carry the lead email + campaign so we can look the reply target up later
-        # if this webhook (e.g. lead_interested) didn't include reply_to_uuid/eaccount.
+        # if this webhook (e.g. lead_interested) didn't include reply_to_uuid/eaccount,
+        # plus the fields needed to build the Gmail-style quoted thread.
         send_meta = {"reply_to_uuid": reply_uuid, "eaccount": eaccount, "subject": lead.subject,
-                     "lead_email": email,
+                     "lead_email": email, "to_name": lead.name, "to_email": email,
+                     "reply_text_new": body_text, "reply_date": reply_date,
                      "campaign_id": str(data.get("campaign_id") or _deep_get(payload, {"campaign_id"}) or "")}
     lead.thread = thread
     lead.send_meta = send_meta
