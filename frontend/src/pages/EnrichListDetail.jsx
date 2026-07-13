@@ -215,6 +215,16 @@ export default function EnrichListDetail() {
                 <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)" }}>{k}</div>
                 <div style={{ fontSize: 13.5 }}>{String(v)}</div>
               </div>))}
+          {Object.keys(openLead.imported || {}).length > 0 && (
+            <>
+              <h3 style={{ fontSize: 13, margin: "16px 0 8px" }}>Uploaded columns</h3>
+              <div className="kv" style={{ margin: 0 }}>
+                {Object.entries(openLead.imported).map(([k, v]) => (
+                  <><div className="k" key={k + "k"}>{k}</div><div key={k + "v"}>{String(v) || "—"}</div></>
+                ))}
+              </div>
+            </>
+          )}
         </Modal>
       )}
     </>

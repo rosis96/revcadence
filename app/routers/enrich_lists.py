@@ -133,6 +133,8 @@ def list_leads(list_id: int, view: str = "all", page: int = 1, page_size: int = 
             "icp_decision": l.icp_decision, "icp_score": l.icp_score, "icp_reason": l.icp_reason,
             "industry": l.industry, "esp": l.esp, "status": l.status, "competitors": l.competitors or [],
             "vars": {k: v for k, v in (l.result or {}).items() if not k.startswith("_")},
+            "imported": {k: v for k, v in (l.data or {}).items()
+                         if not k.startswith("_") and k.lower() not in STD_ALIASES},
         } for l in rows],
     }
 
@@ -299,8 +301,20 @@ def split_by_industry(list_id: int, ctx: AuthContext = Depends(get_ctx)):
 
 
 # ---------------------------------------------------------------- export
+# Original-CSV headers that map to our standard model columns — excluded from
+# the "extra uploaded columns" so we don't duplicate first_name/company/etc.
+STD_ALIASES = {
+    "first_name", "firstname", "first name", "first", "last_name", "lastname", "last name", "last",
+    "email", "email address", "e-mail", "title", "job title", "position", "role",
+    "company", "company_name", "company name", "organization", "website", "company website",
+    "domain", "url", "company_website", "html_override",
+}
+
+
 @router.get("/{list_id}/export")
 def export(list_id: int, view: str = "enriched", ctx: AuthContext = Depends(get_ctx)):
+    """Export = every ORIGINAL uploaded column (preserved on import) + our
+    enrichment outputs. Nothing the client uploaded is dropped."""
     import csv
     import io
 
@@ -309,21 +323,39 @@ def export(list_id: int, view: str = "enriched", ctx: AuthContext = Depends(get_
     lst = _get_list(ctx, list_id)
     base = ctx.db.query(EnrichLead).filter(EnrichLead.list_id == lst.id)
     rows = _view_filter(base, view).order_by(EnrichLead.id).all()
+
+    # original uploaded columns (first-seen order), minus standard + internal keys
+    orig_cols = []
+    for l in rows:
+        for k in (l.data or {}):
+            if k.startswith("_") or k.lower() in STD_ALIASES:
+                continue
+            if k not in orig_cols:
+                orig_cols.append(k)
+    # enrichment result variables (our generated copy)
     var_names = []
     for l in rows:
         for k in (l.result or {}):
             if not k.startswith("_") and k not in var_names:
                 var_names.append(k)
+    # if a result var name collides with an uploaded column, suffix it
+    def vh(v):
+        return f"{v} (enriched)" if v in orig_cols else v
+
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["first_name", "last_name", "title", "company", "website", "email",
-                "system_check", "reoon", "icp", "icp_score", "industry", "status",
-                "Top Competitors"] + var_names)
+    w.writerow(["first_name", "last_name", "title", "company", "website", "email"]
+               + orig_cols + [vh(v) for v in var_names]
+               + ["system_check", "reoon", "icp", "icp_score", "industry", "enrich_status", "Top Competitors"])
     for l in rows:
+        d = l.data or {}
+        res = l.result or {}
         comps = "; ".join(f"{c.get('name')} ({c.get('why')})" for c in (l.competitors or []) if c.get("name"))
-        w.writerow([l.first_name, l.last_name, l.title, l.company, l.website, l.email,
-                    l.free_status, l.email_status, l.icp_decision, l.icp_score or "",
-                    l.industry, l.status, comps] + [(l.result or {}).get(v, "") for v in var_names])
+        w.writerow([l.first_name, l.last_name, l.title, l.company, l.website, l.email]
+                   + [d.get(c, "") for c in orig_cols]
+                   + [res.get(v, "") for v in var_names]
+                   + [l.free_status, l.email_status, l.icp_decision, l.icp_score or "",
+                      l.industry, l.status, comps])
     return PlainTextResponse(buf.getvalue(), media_type="text/csv",
                              headers={"Content-Disposition":
                                       f"attachment; filename={lst.name.replace(' ', '_')}-{view}.csv"})

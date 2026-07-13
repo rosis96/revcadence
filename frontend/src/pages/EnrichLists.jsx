@@ -35,14 +35,21 @@ const HEADER_MAP = {
   website: ["website", "company website", "domain", "url", "company_website"],
 };
 export function mapRows(csvRows) {
-  const headers = csvRows[0].map((h) => h.toLowerCase().trim());
+  const headers = csvRows[0].map((h) => (h || "").trim());
+  const lower = headers.map((h) => h.toLowerCase());
   const idx = {};
   for (const [f, names] of Object.entries(HEADER_MAP)) {
-    const i = headers.findIndex((h) => names.includes(h));
+    const i = lower.findIndex((h) => names.includes(h));
     if (i >= 0) idx[f] = i;
   }
-  return csvRows.slice(1).map((r) =>
-    Object.fromEntries(Object.entries(idx).map(([f, i]) => [f, (r[i] || "").trim()])));
+  return csvRows.slice(1).map((r) => {
+    const row = {};
+    // preserve EVERY uploaded column under its original header (in order)
+    headers.forEach((h, i) => { if (h) row[h] = (r[i] || "").trim(); });
+    // plus the normalized standard fields the backend uses to fill model columns
+    for (const [f, i] of Object.entries(idx)) row[f] = (r[i] || "").trim();
+    return row;
+  });
 }
 
 export default function EnrichLists() {
