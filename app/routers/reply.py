@@ -475,11 +475,24 @@ def approve_and_send(lead_id: int, ctx: AuthContext = Depends(get_ctx)):
     if not rws:
         raise HTTPException(422, "Reply-workspace config not found")
     message = add_signature(l.main_reply, rws.sender_name, rws.website)
+    # Backfill send_meta from the lead record — leads created before send_meta
+    # carried lead_email/campaign_id would otherwise skip the reply-target lookup
+    # entirely (the lead always has .email and its raw payload).
+    from ..reply.sync import _deep_get
+    ld = l.lead_data or {}
+    meta = {**(l.send_meta or {})}
+    meta.setdefault("lead_email", l.email)
+    meta.setdefault("to_name", l.name)
+    meta.setdefault("to_email", l.email)
+    meta.setdefault("subject", l.subject)
+    meta.setdefault("reply_text_new", l.reply_text or "")
+    if not meta.get("campaign_id"):
+        meta["campaign_id"] = str(_deep_get(ld, {"campaign_id"}) or "")
     try:
         if l.platform == "bison":
-            send_bison_reply(rws, l.send_meta or {}, message)
+            send_bison_reply(rws, meta, message)
         else:
-            send_instantly_reply(rws, l.send_meta or {}, message, l.subject)
+            send_instantly_reply(rws, meta, message, l.subject)
     except Exception as e:
         # 400 (not 502) so the client reliably shows this JSON detail instead of a
         # bare gateway error; record it on the lead so the reason is visible later.

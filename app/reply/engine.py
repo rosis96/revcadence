@@ -268,66 +268,78 @@ def build_reply_prompt(rws, thread: list, scheduling_context: str = "", prospect
 
 
 # ---------------------------------------------------------------- platform sends (legacy fixes)
-def lookup_instantly_reply_target(api_key: str, lead_email: str, campaign_id: str = "") -> dict:
+def lookup_instantly_reply_target(api_key: str, lead_email: str, campaign_id: str = "", diag: dict = None) -> dict:
     """Recover {reply_to_uuid, eaccount} from Instantly when the webhook didn't
-    include them (e.g. a lead_interested / tag event). This is the exact method
-    the previous working system used (find_instantly_reply_target): list the
-    lead's emails via the API, pick the prospect's INBOUND email (from-address ==
+    include them (e.g. a lead_interested / tag event): list the lead's emails via
+    the API, pick the prospect's INBOUND email (ue_type 2 / from-address ==
     prospect) — its id is reply_to_uuid and its eaccount is the mailbox that
-    received the reply — falling back to the most recent email. Returns {} on any
-    failure (caller then reports the clear error)."""
+    received it. NEVER falls back to one of our sent emails (would reply to self).
+    Returns {} on failure; `diag` (if provided) is filled with what happened so
+    the caller can report a precise reason instead of a guess."""
+    d = diag if diag is not None else {}
+    d.update({"lead_email": lead_email, "reason": ""})
     if not (api_key and lead_email):
+        d["reason"] = "no API key on the reply space" if not api_key else "lead has no email on record"
         return {}
 
     def _list(params):
-        # /api/v2/emails is rate-limited (~20 req/min) — retry once on 429.
         import time
         for attempt in range(2):
             try:
                 r = requests.get("https://api.instantly.ai/api/v2/emails",
                                  headers={"Authorization": f"Bearer {api_key}"},
                                  params=params, timeout=20)
+                d["http_status"] = r.status_code
                 if r.status_code == 429 and attempt == 0:
                     time.sleep(2); continue
                 if r.status_code >= 300:
+                    d["reason"] = f"Instantly /emails returned HTTP {r.status_code}: {(r.text or '')[:160]}"
                     return []
                 body = r.json()
                 raw = body.get("items") or body.get("data") or (body if isinstance(body, list) else [])
                 return [e for e in raw if isinstance(e, dict)]
-            except Exception:
+            except Exception as e:
+                d["reason"] = f"request error: {str(e)[:160]}"
                 return []
         return []
 
-    # IMPORTANT: do NOT filter by campaign_id — a prospect's received reply
-    # often has a null campaign_id and would be excluded (this was returning {}
-    # and producing the "webhook didn't include them" error). Ask for received
-    # emails only, newest thread first; fall back to all emails if none come back.
+    # do NOT filter by campaign_id — received replies often have null campaign_id.
     items = _list({"search": lead_email, "email_type": "received",
                    "latest_of_thread": "true", "limit": 25})
     if not items:
         items = _list({"search": lead_email, "email_type": "received", "limit": 25})
-    if not items:
-        items = _list({"search": lead_email, "limit": 25})
-    if not items:
-        return {}
+    all_items = items
+    if not all_items:
+        all_items = _list({"search": lead_email, "limit": 25})
+    d["total_emails"] = len(all_items)
 
     def from_addr(e):
         return str(e.get("from_address_email") or e.get("from_email")
                    or (e.get("from_address_json") or {}).get("email") or "").lower()
 
     le = str(lead_email).lower()
-    # Prefer a RECEIVED email actually from the prospect (ue_type 2 == Received).
-    # Never fall back to one of OUR sent emails (ue_type 1/3) — replying to that
-    # would send the reply back to ourselves. If we can't find an inbound target,
-    # return {} so the caller reports a clear, honest error.
-    pick = (next((e for e in items if e.get("ue_type") == 2 and from_addr(e) == le), None)
-            or next((e for e in items if e.get("ue_type") == 2), None)
-            or next((e for e in items if from_addr(e) == le), None))
+    received = [e for e in all_items if e.get("ue_type") == 2 or from_addr(e) == le]
+    d["received_emails"] = len(received)
+    pick = (next((e for e in received if e.get("ue_type") == 2 and from_addr(e) == le), None)
+            or next((e for e in received if e.get("ue_type") == 2), None)
+            or next((e for e in received if from_addr(e) == le), None))
     if not pick:
+        if not d.get("reason"):
+            if d.get("total_emails", 0) == 0:
+                d["reason"] = (f"Instantly returned no emails for {lead_email} with this API key — "
+                               "the key likely belongs to a different Instantly workspace than the "
+                               "one that owns this campaign.")
+            else:
+                d["reason"] = (f"found {d['total_emails']} email(s) for {lead_email} but none received "
+                               "FROM the prospect — can't reply without their inbound email.")
         return {}
     uuid = pick.get("id") or pick.get("uuid") or pick.get("message_id")
     eaccount = pick.get("eaccount") or pick.get("email_account")
-    return {"reply_to_uuid": uuid, "eaccount": eaccount} if (uuid and eaccount) else {}
+    if not (uuid and eaccount):
+        d["reason"] = "found the prospect's email but it lacked an id or eaccount field."
+        return {}
+    d["reason"] = "ok"
+    return {"reply_to_uuid": uuid, "eaccount": eaccount}
 
 
 def bison_headers(api_key):
@@ -406,21 +418,18 @@ def send_instantly_reply(rws, send_meta: dict, message: str, subject: str = "") 
         raise RuntimeError("No Instantly API key set on this reply space (Setup → API key).")
     reply_to_uuid = send_meta.get("reply_to_uuid")
     eaccount = send_meta.get("eaccount")
-    # Some Instantly webhooks (e.g. lead_interested) don't carry the reply
-    # target. Recover it from the lead's most recent email so we can still send.
+    # Most Instantly webhooks (e.g. lead_interested) don't carry the reply target.
+    # Recover it by looking up the prospect's inbound email via the API.
+    diag = {}
     if not (reply_to_uuid and eaccount):
-        found = lookup_instantly_reply_target(api_key, send_meta.get("lead_email"), send_meta.get("campaign_id"))
+        found = lookup_instantly_reply_target(api_key, send_meta.get("lead_email"),
+                                              send_meta.get("campaign_id"), diag=diag)
         reply_to_uuid = reply_to_uuid or found.get("reply_to_uuid")
         eaccount = eaccount or found.get("eaccount")
-    # Instantly's reply API MUST know which email to reply to and from which
-    # mailbox. If we still can't find them, say so plainly instead of letting
-    # Instantly return a cryptic 400.
-    missing = [k for k, v in (("reply_to_uuid", reply_to_uuid), ("eaccount", eaccount)) if not v]
-    if missing:
-        raise RuntimeError(
-            "Instantly reply needs " + " and ".join(missing) + ", but the webhook payload didn't include "
-            + ("it" if len(missing) == 1 else "them") + ". Make sure the Instantly webhook fires on the "
-            "reply event (which carries the email id + sending account), not just a tag/status change.")
+    # If we still can't find them, report the ACTUAL reason from the lookup.
+    if not (reply_to_uuid and eaccount):
+        reason = diag.get("reason") or "the reply target wasn't in the webhook and couldn't be found."
+        raise RuntimeError("Couldn't send via Instantly — " + reason)
     # Gmail-style quoted thread so the reply reads like a real conversation.
     qhtml, qtext = build_reply_quote(send_meta.get("to_name"),
                                      send_meta.get("to_email") or send_meta.get("lead_email"),
