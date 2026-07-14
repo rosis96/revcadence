@@ -212,12 +212,12 @@ def probe(rws) -> dict:
     if meta.get("error"):
         st = meta.get("status")
         if st == 403:
-            msg = ("Calendly returned 403 on this token. A Personal Access Token has full access by "
-                   "default, so a 403 almost always means the Calendly account's PLAN doesn't include "
-                   "API access — Calendly's v2 API requires a paid plan (Standard or higher). Confirm "
-                   "the account is on a paid plan, then create a fresh Personal Access Token at "
-                   "calendly.com/integrations/api_webhooks and paste it here. (Calendly is optional — "
-                   "without it, replies simply invite the prospect to book via your scheduling link.)")
+            msg = ("Calendly returned 403 — your Personal Access Token is scoped too narrowly. It needs "
+                   "to read your user account (the first call is GET /users/me), which availability:read "
+                   "+ event_types:read alone don't allow. Re-create the token and enable ALL read scopes "
+                   "(or at minimum the user/organization read scope) in addition to availability:read and "
+                   "event_types:read, then paste it here. (Calendly is optional — without it, replies "
+                   "invite the prospect to book via your scheduling link.)")
         elif st == 401:
             msg = ("Calendly returned 401 — the token is invalid or expired. Create a fresh Personal "
                    "Access Token at calendly.com/integrations/api_webhooks and paste it here (no "
