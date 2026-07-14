@@ -106,16 +106,35 @@ _SIG_MARKERS = ("best regards", "kind regards", "regards", "best,", "cheers", "t
 
 
 def strip_existing_signature(message: str) -> str:
-    """Remove a trailing sign-off the model may have added, whether on its own
-    line ('Best regards,\\nRS') or inline as the last line ('… Regards, RS'), so
-    the system can append exactly one clean signature."""
+    """Remove a trailing sign-off the model/template added — on its own line
+    ('Best regards,\\nRS'), inline ('… Regards, RS'), a bare name-placeholder
+    line ('{{YourName}}'), or a non-standard closing the markers miss ('Looking
+    forward to chatting,') — so the system appends exactly one clean signature."""
     body = (message or "").rstrip()
     lines = body.splitlines()
-    # (a) sign-off on its own line within the last 6 lines
+
+    def _trim_tail():
+        # drop trailing blanks and lone placeholder lines like '{{YourName}}'
+        while lines and (not lines[-1].strip()
+                         or re.fullmatch(r"\s*\{\{[^{}]+\}\}\s*", lines[-1])):
+            lines.pop()
+
+    _trim_tail()
+    # (a) valediction on its own line within the last 6 lines
     for i in range(len(lines) - 1, max(len(lines) - 6, -1), -1):
         if any(lines[i].strip().lower().startswith(m) for m in _SIG_MARKERS):
-            return "\n".join(lines[:i]).rstrip()
+            del lines[i:]
+            break
+    else:
+        # (a2) a short, comma-ended closing the markers don't cover
+        #      ("Looking forward to chatting,", "Appreciate your help,")
+        if lines and lines[-1].strip().endswith(",") and len(lines[-1].split()) <= 6:
+            lines.pop()
+    _trim_tail()
+    body = "\n".join(lines).rstrip()
+
     # (b) inline sign-off tacked onto the final line ("… invitation. Regards, RS")
+    lines = body.splitlines()
     if lines:
         last = lines[-1]
         m = re.search(r"[.!?]\s+((?:best|kind|warm)?\s*regards|cheers|thanks|thank you|sincerely|"
@@ -138,6 +157,8 @@ def _name_from_signoff(message: str) -> str:
                 if not cand:
                     continue
                 low = cand.lower()
+                if "{{" in cand or "}}" in cand:
+                    return ""            # unresolved placeholder like {{YourName}} — not a name
                 if "http" in low or "@" in cand or "." in cand.split()[0] or "/" in cand:
                     return ""            # it's a website/handle, not a name
                 if len(cand) <= 3 and cand.isupper():
