@@ -139,12 +139,52 @@ export default function ReplySetup() {
   const rf = w.reply_format || { response_types: [], followups: [] };
   const setRf = (patch) => set("reply_format", { ...rf, ...patch });
 
+  // REPLACE the sections with the pasted JSON (asks first — this overwrites).
   const fillFromJson = () => {
     try {
       const p = JSON.parse(pasteJson);
+      if (!confirm("Replace the current response types and follow-ups with the pasted JSON? "
+                   + "Use 'Add to existing' instead if you want to keep what's here.")) return;
       setRf({ response_types: p.response_types || rf.response_types || [], followups: p.followups || rf.followups || [] });
       setPasteJson("");
     } catch (e) { alert("Invalid JSON: " + e.message); }
+  };
+
+  // ADD the pasted intents without deleting anything: merge response types by
+  // id (an incoming id updates the matching one, new ids are appended); append
+  // any follow-ups. Existing data is preserved.
+  const addFromJson = () => {
+    try {
+      const p = JSON.parse(pasteJson);
+      const existing = rf.response_types || [];
+      const incoming = Array.isArray(p.response_types) ? p.response_types : [];
+      const merged = [...existing];
+      for (const t of incoming) {
+        const i = t && t.id ? merged.findIndex((e) => e.id === t.id) : -1;
+        if (i >= 0) merged[i] = { ...merged[i], ...t };
+        else merged.push(t);
+      }
+      const fups = Array.isArray(p.followups) ? [...(rf.followups || []), ...p.followups] : (rf.followups || []);
+      setRf({ response_types: merged, followups: fups });
+      setPasteJson("");
+      alert(`Added. Response types now: ${merged.length}. Review, then Save all.`);
+    } catch (e) { alert("Invalid JSON: " + e.message); }
+  };
+
+  // Back up the full reply config (no secrets) so nothing is ever lost.
+  const downloadJson = () => {
+    const data = {
+      name: w.name, platform: w.platform, mode: w.mode, website: w.website,
+      sender_name: w.sender_name, reply_delay_seconds: w.reply_delay_seconds,
+      ai_provider: w.ai_provider, ai_rules: w.ai_rules || "",
+      client_profile: w.client_profile || {},
+      reply_format: { response_types: rf.response_types || [], followups: rf.followups || [] },
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${(w.name || "reply-space").replace(/[^a-z0-9]+/gi, "_")}-reply-config.json`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
   };
 
   const save = async () => {
@@ -239,11 +279,22 @@ export default function ReplySetup() {
       </div>
 
       <div className="section">
-        <div className="toolbar"><h2 style={{ margin: 0 }}>Response types</h2><div className="spacer" /></div>
+        <div className="toolbar">
+          <h2 style={{ margin: 0 }}>Response types</h2>
+          <div className="spacer" />
+          <button className="btn ghost sm" onClick={downloadJson}>⭳ Download JSON (backup)</button>
+        </div>
         <div className="card" style={{ padding: 12, marginBottom: 12 }}>
-          <label style={{ fontSize: 12.5, fontWeight: 600 }}>Paste full Reply Format JSON (auto-fills the sections below)</label>
-          <textarea rows={2} style={{ width: "100%", fontFamily: "monospace", fontSize: 12, marginTop: 4 }} value={pasteJson} onChange={(e) => setPasteJson(e.target.value)} placeholder='{"response_types":[...],"followups":[...]}' />
-          <button className="btn ghost sm" style={{ marginTop: 6 }} onClick={fillFromJson}>Fill sections from JSON</button>
+          <label style={{ fontSize: 12.5, fontWeight: 600 }}>Paste Reply Format JSON</label>
+          <p style={{ fontSize: 12, color: "var(--muted)", margin: "3px 0 4px" }}>
+            <b>Add to existing</b> merges the pasted intents in (by id) and keeps everything you already have —
+            use this to add new intent spaces. <b>Replace</b> overwrites the sections (asks first). Download a
+            backup above before big changes.</p>
+          <textarea rows={3} style={{ width: "100%", fontFamily: "monospace", fontSize: 12, marginTop: 4 }} value={pasteJson} onChange={(e) => setPasteJson(e.target.value)} placeholder='{"response_types":[{"id":"positive_simple","intent":"…","examples":["…"],"auto_send":true,"template":"…"}],"followups":[]}' />
+          <div className="toolbar" style={{ marginTop: 6 }}>
+            <button className="btn sm" onClick={addFromJson}>+ Add to existing</button>
+            <button className="btn ghost sm" onClick={fillFromJson}>Replace sections</button>
+          </div>
         </div>
         <ResponseTypes items={rf.response_types || []} onChange={(v) => setRf({ response_types: v })} />
       </div>
