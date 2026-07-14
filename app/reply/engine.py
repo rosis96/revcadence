@@ -262,34 +262,62 @@ def build_reply_prompt(rws, thread: list, scheduling_context: str = "", prospect
     rules = [ln.strip() for ln in (rws.ai_rules or "").splitlines() if ln.strip()]
     prospect = prospect or {}
     first = (prospect.get("first_name") or "").strip()
-    system = (
-        "You are an expert B2B email responder writing on behalf of the client below. "
-        "Read the prospect's energy and match their tone. STEP 0: if the matched response "
-        "type has a template, keep its structure and only fill the placeholders. "
-        "NEVER include a sign-off or signature (no 'Best', 'Regards', name, or website) — "
-        "the system appends exactly one.\n"
-        "FORMATTING (applies to main_reply AND every follow-up): open with a greeting line "
-        + (f"addressed to the prospect by first name ('{first}')" if first
-           else "addressed to the prospect by first name") +
-        ", then a blank line, then the body as SHORT paragraphs separated by a blank line "
-        "(a real email, never one dense wall of text), and a blank line before any closing "
-        "question. Use actual line breaks (\\n). Do NOT output the literal token "
-        "'{{firstName}}' — use the real first name" + (f" ('{first}')" if first else "") + ".\n"
+    booking = (getattr(rws, "calendly_scheduling_url", "") or "").strip()
+    greet = f"by first name ('{first}')" if first else "by first name"
+
+    system = "\n".join(filter(None, [
+        "You are an expert B2B email responder writing ONE reply on behalf of the client below. "
+        "Work in strict order:",
+
+        "STEP 1 — CLASSIFY. Read the prospect's LATEST inbound message and match it to exactly ONE of "
+        "the RESPONSE TYPES using their intent + examples. Put that type's id in \"intent\". If nothing "
+        "clearly matches, set human_review_needed=true and confidence \"low\" (do not force a type).",
+
+        "STEP 2 — READ THE STAGE & URGENCY. Judge where the conversation is going and how ready the "
+        "prospect is, and reply to THAT — not with a generic pitch:",
+        "  • If they have ALREADY agreed to a call, asked to schedule, or show urgency (e.g. \"let's set "
+        "up a call\", \"tomorrow\", \"send the invite\", \"yes let's talk\"): reply SHORT — a one-line "
+        "acknowledgement, then propose times, then stop. Do NOT re-explain what we do; they are past that.",
+        "  • If they asked a specific question (pricing, how it works, timing): answer THAT one thing "
+        "concisely. Do not dump the full value proposition.",
+        "  • Only give a fuller explanation of the offer when they are genuinely early/curious and asked "
+        "for it.",
+
+        "STEP 3 — FOLLOW THE FORMAT. If the matched response type has a template, keep its structure and "
+        "only fill the placeholders — do not add extra pitch paragraphs. MATCH YOUR LENGTH TO THEIRS: "
+        "never answer a short, ready-to-book message with a multi-paragraph pitch.",
+
+        "SCHEDULING RULE (critical): Propose ONLY specific dates/times that appear verbatim in SCHEDULING "
+        "CONTEXT below. If there is NO scheduling context, DO NOT invent any times — instead invite them "
+        "to pick a time"
+        + (f" via {booking}" if booking else " via the booking link") +
+        ", or ask what times suit them. Never fabricate availability.",
+
+        f"FORMATTING (main_reply AND every follow-up): open with a greeting line addressed to the prospect "
+        f"{greet}, then a blank line, then short paragraphs separated by blank lines (a real email, never "
+        "a wall of text). Use actual line breaks (\\n). Do NOT output the literal '{{firstName}}' — use "
+        + (f"'{first}'" if first else "the real first name") +
+        ". NEVER include a sign-off or signature (no 'Best', 'Regards', name, or website) — the system appends one.",
+
         "Return STRICT JSON: {\"intent\": str, \"confidence\": \"high|medium|low\", "
-        "\"human_review_needed\": bool, \"main_reply\": str, "
-        "\"followup_1\": str, ... up to \"followup_6\"}.\n"
-        + (f"PROSPECT: first name = {first}"
-           + (f", company = {prospect.get('company')}" if prospect.get("company") else "") + "\n" if first else "") +
-        "CLIENT PROFILE:\n" + json.dumps(rws.client_profile or {}) +
-        "\nRESPONSE TYPES (match the incoming reply to one; obey its rules/template/auto_send):\n"
-        + json.dumps(fmt.get("response_types", [])) +
-        "\nFOLLOW-UP SPECS:\n" + json.dumps(fmt.get("followups", [])) +
-        ("\nMANDATORY OPERATOR RULES (obey every line):\n" + "\n".join(rules) if rules else "")
-    )
+        "\"human_review_needed\": bool, \"main_reply\": str, \"followup_1\": str, … up to \"followup_6\"}.",
+
+        (f"PROSPECT: first name = {first}"
+         + (f", company = {prospect.get('company')}" if prospect.get("company") else "")) if first else "",
+        "CLIENT PROFILE:\n" + json.dumps(rws.client_profile or {}),
+        "RESPONSE TYPES (classify into exactly one; obey its rules/template/auto_send):\n"
+        + json.dumps(fmt.get("response_types", [])),
+        "FOLLOW-UP SPECS:\n" + json.dumps(fmt.get("followups", [])),
+        (f"BOOKING LINK: {booking}" if booking else ""),
+        ("MANDATORY OPERATOR RULES (obey every line):\n" + "\n".join(rules)) if rules else "",
+    ]))
+
     convo = "\n\n".join(f"[{m.get('direction', '?').upper()}] {m.get('text', '')}" for m in thread)
-    prompt = ("EMAIL THREAD (oldest → newest):\n" + convo +
-              (("\n\nSCHEDULING CONTEXT (propose ONLY these times):\n" + scheduling_context)
-               if scheduling_context else ""))
+    last_in = next((m.get("text", "") for m in reversed(thread) if m.get("direction") == "in"), "")
+    prompt = ("EMAIL THREAD (oldest → newest):\n" + convo
+              + (f"\n\nRESPOND TO THE PROSPECT'S LATEST MESSAGE:\n{last_in}" if last_in else "")
+              + (("\n\nSCHEDULING CONTEXT (propose ONLY these real times):\n" + scheduling_context)
+                 if scheduling_context else "\n\nSCHEDULING CONTEXT: none available — do NOT invent times."))
     return prompt, system
 
 
