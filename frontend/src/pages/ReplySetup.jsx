@@ -253,9 +253,18 @@ export default function ReplySetup() {
         <Followups items={rf.followups || []} onChange={(v) => setRf({ followups: v })} />
       </div>
 
-      <div className="card" style={{ padding: 18, marginTop: 14 }}>
-        <h2 style={{ fontSize: 14, marginBottom: 8 }}>AI Rules (one per line — injected into every prompt)</h2>
-        <textarea rows={5} style={{ width: "100%" }} value={w.ai_rules} onChange={(e) => set("ai_rules", e.target.value)} placeholder="Never propose meetings on Mondays." />
+      <div className="section">
+        <h2>Reply Rules</h2>
+        <p style={{ color: "var(--muted)", fontSize: 13, margin: "0 0 10px", lineHeight: 1.5 }}>
+          Plain-English rules, one per line. Every line is a <b>mandatory override</b> obeyed on every reply
+          and follow-up — just like the enrichment Rules. Use it to fix recurring mistakes without touching
+          anything else. Examples: "Avoid em dashes — use commas or periods.", "Never propose meetings on
+          Mondays.", "Keep replies under 90 words.", "Do not mention pricing in email; steer to a call.",
+          "No emojis."
+        </p>
+        <textarea rows={8} style={{ width: "100%" }} value={w.ai_rules}
+                  onChange={(e) => set("ai_rules", e.target.value)}
+                  placeholder={"Avoid em dashes — use commas or periods.\nKeep replies short and specific.\nNever propose meetings on Mondays.\nDo not mention pricing in email; steer to a call."} />
       </div>
 
       <div className="toolbar" style={{ marginTop: 16 }}>

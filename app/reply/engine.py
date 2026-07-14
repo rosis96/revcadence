@@ -62,6 +62,25 @@ def fill_name(text: str, first_name: str) -> str:
     return _NAME_TOKENS.sub((first_name or "").strip() or "there", text)
 
 
+def enforce_style_rules(text: str, rules_text: str) -> str:
+    """Deterministically enforce the handful of style rules an LLM tends to
+    ignore even when told (em dashes are the classic 'AI tell'). Everything else
+    is handled by injecting the rules into the prompt. Only acts when the
+    operator's rules actually ask for it — never changes behavior otherwise."""
+    if not text:
+        return text
+    r = (rules_text or "").lower()
+    wants_no_dash = ("—" in (rules_text or "")) or any(
+        k in r for k in ("em dash", "em-dash", "emdash", "no dash", "avoid dash", "without dash"))
+    if wants_no_dash:
+        for d in ("—", "–", "―"):
+            text = text.replace(" " + d + " ", ", ").replace(d, ", ")
+        text = re.sub(r"\s+,", ",", text)
+        text = re.sub(r",\s*,", ",", text)
+        text = re.sub(r",(?=\S)", ", ", text)
+    return text
+
+
 def normalize_reply(text: str) -> str:
     """Tidy spacing so replies read like a real email: normalize newlines, trim
     trailing spaces, and collapse 3+ blank lines to a single blank line (one gap
