@@ -67,6 +67,7 @@ def _list_event_types(token: str) -> tuple[list, dict]:
     me = requests.get(f"{API}/users/me", headers=_headers(token), timeout=20)
     if me.status_code != 200:
         meta["error"] = f"users/me returned {me.status_code}"
+        meta["status"] = me.status_code
         return [], meta
     res = me.json().get("resource", {})
     user_uri = res.get("uri")
@@ -209,8 +210,24 @@ def probe(rws) -> dict:
         return {"ok": False, "error": "No Calendly scheduling link set."}
     types, meta = _list_event_types(token)
     if meta.get("error"):
-        return {"ok": False, "error": f"Calendly rejected the token ({meta['error']}). "
-                                      "Recreate a Personal Access Token with event_types:read + availability:read."}
+        st = meta.get("status")
+        if st == 403:
+            msg = ("Calendly returned 403 on this token. A Personal Access Token has full access by "
+                   "default, so a 403 almost always means the Calendly account's PLAN doesn't include "
+                   "API access — Calendly's v2 API requires a paid plan (Standard or higher). Confirm "
+                   "the account is on a paid plan, then create a fresh Personal Access Token at "
+                   "calendly.com/integrations/api_webhooks and paste it here. (Calendly is optional — "
+                   "without it, replies simply invite the prospect to book via your scheduling link.)")
+        elif st == 401:
+            msg = ("Calendly returned 401 — the token is invalid or expired. Create a fresh Personal "
+                   "Access Token at calendly.com/integrations/api_webhooks and paste it here (no "
+                   "'Bearer ' prefix, no extra spaces). Calendly is optional — without it, replies "
+                   "invite the prospect to book via your scheduling link.")
+        else:
+            msg = (f"Calendly rejected the token ({meta['error']}). Create a fresh Personal Access Token "
+                   "at calendly.com/integrations/api_webhooks and paste it here. Calendly is optional — "
+                   "without it, replies invite the prospect to book via your scheduling link.")
+        return {"ok": False, "error": msg}
     if not types:
         who = meta.get("user_name") or "this token"
         link = meta.get("user_link")
