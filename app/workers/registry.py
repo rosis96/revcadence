@@ -372,16 +372,29 @@ def process_reply_job(db, job):
     except Exception:
         pass  # CRM sync must never block the reply pipeline
 
-    # write follow-up variables back (Bison merge fix)
-    if platform == "bison" and lead.followups and action in ("send", "would_send", "skip_enrich"):
-        try:
-            E.merge_bison_variables(rws, external_id, {
-                "main_reply": lead.main_reply,
-                **{f"followup_{i+1}": f for i, f in enumerate(lead.followups)},
-                "reply_intent": lead.intent, "reply_confidence": lead.confidence})
-            lead.fup_added = True
-        except Exception:
-            pass
+    # write follow-up variables back so the platform's follow-up steps can send them.
+    if lead.followups and action in ("send", "would_send", "skip_enrich"):
+        if platform == "bison":
+            try:
+                E.merge_bison_variables(rws, external_id, {
+                    "main_reply": lead.main_reply,
+                    **{f"followup_{i+1}": f for i, f in enumerate(lead.followups)},
+                    "reply_intent": lead.intent, "reply_confidence": lead.confidence})
+                lead.fup_added = True
+            except Exception:
+                pass
+        elif platform == "instantly":
+            # push followup_1..N onto the Instantly lead as custom variables
+            # (also auto-declares them on the campaign) so a follow-up
+            # campaign/subsequence using {{followup_1}} can send them.
+            try:
+                res = E.push_instantly_followups(rws, lead.email, (send_meta or {}).get("campaign_id"),
+                                                 lead.followups, lead.main_reply)
+                lead.fup_added = bool(res.get("ok"))
+                if not res.get("ok"):
+                    lead.lead_data = {**(lead.lead_data or {}), "_fup_push_error": str(res.get("error", ""))[:300]}
+            except Exception:
+                pass
     lead.updated_at = datetime.utcnow()
     db.commit()
     return {"recorded": lead.id, "intent": lead.intent, "action": lead.action, "sent": sent}

@@ -504,6 +504,51 @@ def merge_bison_variables(rws, lead_id: str, new_vars: dict) -> dict:
     return {"ok": False, "error": "retries exhausted"}
 
 
+def push_instantly_followups(rws, lead_email: str, campaign_id: str, followups: list, main_reply: str = "") -> dict:
+    """Write the generated follow-ups onto the Instantly lead as custom variables
+    (followup_1, followup_2, …) so an Instantly follow-up campaign/subsequence
+    can send them. Per the API, PATCH-ing a lead's custom_variables also declares
+    them on the campaign automatically. Returns {ok, written|error}."""
+    api_key = decrypt(rws.api_key_enc)
+    if not api_key:
+        return {"ok": False, "error": "no Instantly API key on this reply space"}
+    if not lead_email:
+        return {"ok": False, "error": "no lead email to match in Instantly"}
+    H = {"Authorization": f"Bearer {api_key}"}
+
+    def _find_lead(scoped):
+        body = {"contacts": [lead_email], "limit": 1}
+        if scoped and campaign_id:
+            body["campaign"] = campaign_id
+        try:
+            r = requests.post("https://api.instantly.ai/api/v2/leads/list", headers=H, json=body, timeout=20)
+            if r.status_code >= 300:
+                return None, f"leads/list HTTP {r.status_code}: {(r.text or '')[:160]}"
+            items = r.json().get("items", [])
+            return (items[0] if items else None), ""
+        except Exception as e:
+            return None, f"leads/list error: {str(e)[:160]}"
+
+    lead, err = _find_lead(True)
+    if lead is None and campaign_id:      # retry unscoped by campaign
+        lead, err = _find_lead(False)
+    if lead is None:
+        return {"ok": False, "error": err or f"lead {lead_email} not found in Instantly"}
+    lead_id = lead.get("id")
+
+    cv = {f"followup_{i + 1}": (f or "") for i, f in enumerate(followups)}
+    if main_reply:
+        cv["ai_main_reply"] = main_reply
+    try:
+        r2 = requests.patch(f"https://api.instantly.ai/api/v2/leads/{lead_id}", headers=H,
+                            json={"custom_variables": cv}, timeout=20)
+        if r2.status_code >= 300:
+            return {"ok": False, "error": f"patch lead HTTP {r2.status_code}: {(r2.text or '')[:160]}"}
+    except Exception as e:
+        return {"ok": False, "error": f"patch lead error: {str(e)[:160]}"}
+    return {"ok": True, "written": len(cv), "lead_id": lead_id}
+
+
 def send_instantly_reply(rws, send_meta: dict, message: str, subject: str = "") -> dict:
     """Replies to the PROSPECT'S inbound email (legacy fix: replying to our own
     last sent message sent replies to ourselves) using its eaccount as sender."""

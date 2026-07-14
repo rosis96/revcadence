@@ -117,6 +117,7 @@ export default function ReplySetup() {
   const [busy, setBusy] = useState(false);
   const [secrets, setSecrets] = useState({});
   const [pasteJson, setPasteJson] = useState("");
+  const [fupJson, setFupJson] = useState("");
   const [calResult, setCalResult] = useState(null);
 
   useEffect(() => {
@@ -169,6 +170,31 @@ export default function ReplySetup() {
       setPasteJson("");
       alert(`Added. Response types now: ${merged.length}. Review, then Save all.`);
     } catch (e) { alert("Invalid JSON: " + e.message); }
+  };
+
+  // ---- Follow-ups: their own paster (add / replace / download) ----
+  const fupArray = (p) => (Array.isArray(p) ? p : p.followups || (p.template || p.label ? [p] : []));
+  const addFupFromJson = () => {
+    try {
+      const incoming = fupArray(JSON.parse(fupJson)).filter((x) => x && (x.template || x.label));
+      setRf({ followups: [...(rf.followups || []), ...incoming] });
+      setFupJson("");
+      alert(`Added ${incoming.length} follow-up(s). Review, then Save all.`);
+    } catch (e) { alert("Invalid JSON: " + e.message); }
+  };
+  const replaceFupFromJson = () => {
+    try {
+      const arr = fupArray(JSON.parse(fupJson));
+      if (!confirm("Replace ALL follow-ups with the pasted JSON? Use 'Add' to keep the existing ones.")) return;
+      setRf({ followups: arr });
+      setFupJson("");
+    } catch (e) { alert("Invalid JSON: " + e.message); }
+  };
+  const downloadFup = () => {
+    const blob = new Blob([JSON.stringify({ followups: rf.followups || [] }, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = "followups.json";
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
   };
 
   // Back up the full reply config (no secrets) so nothing is ever lost.
@@ -300,7 +326,26 @@ export default function ReplySetup() {
       </div>
 
       <div className="section">
-        <h2>Follow-up formats (FUP1–FUP6)</h2>
+        <div className="toolbar">
+          <h2 style={{ margin: 0 }}>Follow-up formats (FUP1–FUP6)</h2>
+          <div className="spacer" />
+          <button className="btn ghost sm" onClick={downloadFup}>⭳ Download JSON</button>
+        </div>
+        <div className="card" style={{ padding: 12, marginBottom: 12 }}>
+          <label style={{ fontSize: 12.5, fontWeight: 600 }}>Paste Follow-up JSON</label>
+          <p style={{ fontSize: 12, color: "var(--muted)", margin: "3px 0 4px" }}>
+            A bare array of follow-ups, or <code>{"{ followups: [...] }"}</code>. Each:
+            {" "}<code>{"{ label, intent, max_words, template }"}</code>. <b>Add</b> appends in send order;
+            <b> Replace</b> overwrites. These are generated per reply and (for Instantly) pushed onto the lead
+            as {"{{followup_1}}…"} so your follow-up campaign can send them.</p>
+          <textarea rows={3} style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }} value={fupJson}
+                    onChange={(e) => setFupJson(e.target.value)}
+                    placeholder='[{"label":"FUP 1","intent":"nudge on the proposed times","max_words":80,"template":"Hi {{firstName}}, following up on the times I shared…"}]' />
+          <div className="toolbar" style={{ marginTop: 6 }}>
+            <button className="btn sm" onClick={addFupFromJson}>+ Add to existing</button>
+            <button className="btn ghost sm" onClick={replaceFupFromJson}>Replace</button>
+          </div>
+        </div>
         <Followups items={rf.followups || []} onChange={(v) => setRf({ followups: v })} />
       </div>
 
