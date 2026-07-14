@@ -504,6 +504,55 @@ def merge_bison_variables(rws, lead_id: str, new_vars: dict) -> dict:
     return {"ok": False, "error": "retries exhausted"}
 
 
+def _html_to_text(html: str) -> str:
+    import html as _h
+    if not html:
+        return ""
+    t = re.sub(r"(?i)<br\s*/?>", "\n", html)
+    t = re.sub(r"(?i)</(p|div)>", "\n", t)
+    t = re.sub(r"<[^>]+>", "", t)
+    return _h.unescape(t)
+
+
+def fetch_instantly_thread(api_key: str, lead_email: str, campaign_id: str = "") -> list:
+    """Reconstruct the FULL conversation for an Instantly lead so the AI reads
+    the whole back-and-forth, not just the latest reply. Lists the lead's emails
+    (oldest→newest), tags each as 'in' (ue_type 2 = received) or 'out', and
+    strips each message's quoted history so every turn is clean. Returns []
+    (caller falls back to the single webhook reply) on any failure."""
+    if not (api_key and lead_email):
+        return []
+    params = {"lead": lead_email, "sort_order": "asc", "limit": 50}
+    if campaign_id:
+        params["campaign_id"] = campaign_id
+    import time
+    items = []
+    for attempt in range(2):
+        try:
+            r = requests.get("https://api.instantly.ai/api/v2/emails",
+                             headers={"Authorization": f"Bearer {api_key}"}, params=params, timeout=20)
+            if r.status_code == 429 and attempt == 0:
+                time.sleep(2); continue
+            if r.status_code >= 300:
+                return []
+            items = r.json().get("items", []) or []
+            break
+        except Exception:
+            return []
+    thread = []
+    for e in items:
+        if not isinstance(e, dict):
+            continue
+        body = e.get("body") or {}
+        raw = body.get("text") or _html_to_text(body.get("html", "")) or e.get("content_preview", "")
+        text = strip_quoted_history(raw)          # just this turn, not the quoted chain
+        if not text.strip():
+            continue
+        thread.append({"direction": "in" if e.get("ue_type") == 2 else "out",
+                       "text": text, "at": e.get("timestamp_email") or e.get("timestamp_created")})
+    return thread
+
+
 def push_instantly_followups(rws, lead_email: str, campaign_id: str, followups: list, main_reply: str = "") -> dict:
     """Write the generated follow-ups onto the Instantly lead as custom variables
     (followup_1, followup_2, …) so an Instantly follow-up campaign/subsequence

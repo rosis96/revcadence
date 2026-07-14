@@ -291,8 +291,16 @@ def process_reply_job(db, job):
                          "reply_text_new": lead.reply_text, "reply_date": reply_date}
     else:
         body_text = str(data.get("reply_text") or data.get("text") or data.get("body") or "")
-        lead.reply_text = body_text
-        thread = [{"direction": "in", "text": body_text}]
+        campaign_id = str(data.get("campaign_id") or _deep_get(payload, {"campaign_id"}) or "")
+        # Pull the FULL conversation from Instantly so the AI reads the whole
+        # back-and-forth, not just the latest reply. Fall back to the single
+        # webhook reply if the API can't return the thread.
+        thread = E.fetch_instantly_thread(decrypt(rws.api_key_enc), email, campaign_id)
+        if not thread:
+            thread = [{"direction": "in", "text": body_text}]
+        inbound = [m for m in thread if m.get("direction") == "in"]
+        # latest inbound turn drives STOP-keyword detection + the quoted reply
+        lead.reply_text = (inbound[-1]["text"] if inbound else body_text)
         # Instantly nests the reply target under different keys/levels depending on
         # the event — deep-search the whole payload so the reply-to UUID and the
         # sending mailbox (eaccount) are found wherever they live.
@@ -305,8 +313,8 @@ def process_reply_job(db, job):
         # plus the fields needed to build the Gmail-style quoted thread.
         send_meta = {"reply_to_uuid": reply_uuid, "eaccount": eaccount, "subject": lead.subject,
                      "lead_email": email, "to_name": lead.name, "to_email": email,
-                     "reply_text_new": body_text, "reply_date": reply_date,
-                     "campaign_id": str(data.get("campaign_id") or _deep_get(payload, {"campaign_id"}) or "")}
+                     "reply_text_new": lead.reply_text, "reply_date": reply_date,
+                     "campaign_id": campaign_id}
     lead.thread = thread
     lead.send_meta = send_meta
 
