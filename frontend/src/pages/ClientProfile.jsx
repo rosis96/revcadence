@@ -1,0 +1,187 @@
+// CRM → Company → Client Profile: the operational source of truth. Structured,
+// editable sections (never one giant JSON box); provenance + visibility per field;
+// scope-specific onboarding with immutable submissions and conflict review; a Raw
+// JSON view lives under Advanced.
+import { useEffect, useState } from "react";
+import { useParams, Link } from "react-router-dom";
+import { api } from "../api";
+import { Badge, ErrorBox, Spinner } from "../components";
+
+const TABS = [
+  ["overview", "Offer"], ["icp", "ICP"], ["sales_process", "Sales Process"],
+  ["delivery_scope", "Delivery Scope"], ["messaging", "Messaging"],
+  ["onboarding_info", "Onboarding"], ["_onboarding", "Onboarding Form"],
+  ["_docs", "Documents"], ["_raw", "Advanced (Raw)"],
+];
+
+export default function ClientProfile() {
+  const { id } = useParams();               // company id
+  const [p, setP] = useState(null);
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState("overview");
+
+  const load = () => {
+    setLoading(true);
+    api(`/api/client-profiles/${id}`).then((d) => { setP(d); setErr(""); })
+      .catch((e) => setErr(e.message)).finally(() => setLoading(false));
+  };
+  useEffect(load, [id]);
+
+  const activate = async () => {
+    try { setP(await api(`/api/client-profiles/${id}/activate`, { method: "POST", body: {} })); setErr(""); }
+    catch (e) { alert(e.message); }
+  };
+
+  if (loading) return <Spinner />;
+  if (err && err.includes("No client profile")) {
+    return (
+      <div className="card" style={{ padding: 24, maxWidth: 560 }}>
+        <h2 style={{ marginTop: 0 }}>No client profile yet</h2>
+        <p style={{ color: "var(--muted)" }}>Created automatically when a deal for this company moves to a
+          <b> Won</b> stage. You can also create it now.</p>
+        <button className="btn" onClick={activate}>Activate client & build profile</button>
+      </div>
+    );
+  }
+  if (err) return <ErrorBox msg={err} retry={load} />;
+  if (!p) return <Spinner />;
+
+  const secDef = (p.sections || []).find((s) => s.key === tab);
+
+  const setField = async (section, field, value, visibility) => {
+    try { setP(await api(`/api/client-profiles/${id}/field`, { method: "PUT", body: { section, field, value, visibility } })); }
+    catch (e) { alert(e.message); }
+  };
+  const setScope = async (scope_type) => {
+    try { setP(await api(`/api/client-profiles/${id}/scope`, { method: "PUT", body: { scope_type } })); }
+    catch (e) { alert(e.message); }
+  };
+
+  return (
+    <div style={{ maxWidth: 1000 }}>
+      <div className="toolbar">
+        <h1 style={{ fontSize: 18 }}>Client Profile</h1>
+        <Badge tone={p.is_active_client ? "green" : "amber"}>{p.is_active_client ? "active client" : "prospect"}</Badge>
+        <div className="spacer" />
+        <label style={{ fontSize: 12.5, color: "var(--muted)" }}>Scope</label>
+        <select value={p.scope_type} onChange={(e) => setScope(e.target.value)}>
+          <option value="outbound">Outbound</option><option value="inbound">Inbound</option><option value="full">Full engine</option>
+        </select>
+        <Link className="btn ghost sm" to={`/companies/${id}`}>← Company</Link>
+      </div>
+
+      {/* completeness + onboarding status */}
+      <div className="card" style={{ padding: 14, marginBottom: 14, display: "flex", gap: 20, alignItems: "center" }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 4 }}>Onboarding completeness · {p.completeness}%</div>
+          <div style={{ height: 8, background: "#eceef3", borderRadius: 6, overflow: "hidden" }}>
+            <div style={{ width: `${p.completeness}%`, height: "100%", background: "var(--accent, #635BFF)" }} />
+          </div>
+        </div>
+        <Badge tone={p.onboarding_status === "approved" ? "green" : "blue"}>{p.onboarding_status}</Badge>
+        {(p.review_flags || []).length > 0 && <Badge tone="amber">{p.review_flags.length} to review</Badge>}
+        {p.onboarding_status !== "approved" &&
+          <button className="btn sm" onClick={() => api(`/api/client-profiles/${id}/approve`, { method: "POST" }).then(setP)}>Approve</button>}
+      </div>
+
+      <div className="tabs" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+        {TABS.map(([k, label]) => (
+          <button key={k} className={`btn ${tab === k ? "" : "ghost"} sm`} onClick={() => setTab(k)}>{label}</button>
+        ))}
+      </div>
+
+      {/* structured section editors */}
+      {secDef && (
+        <div className="card" style={{ padding: 18 }}>
+          <h2 style={{ fontSize: 15, marginBottom: 12 }}>{secDef.label}</h2>
+          {secDef.fields.map((f) => {
+            const cell = ((p.data || {})[tab] || {})[f.key] || {};
+            return (
+              <div className="field" key={f.key} style={{ marginBottom: 12 }}>
+                <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  {f.label}
+                  <span className="badge" style={{ background: f.visibility === "client" ? "#e8f7ee" : "#eef0ff",
+                        color: f.visibility === "client" ? "#1a7f45" : "#635BFF", fontSize: 10.5 }}>
+                    {f.visibility === "client" ? "client-visible" : "internal"}</span>
+                  {cell.source && <span style={{ fontSize: 11, color: "var(--muted)" }}>· from {cell.source}{cell.at ? ` · ${new Date(cell.at + "Z").toLocaleDateString()}` : ""}</span>}
+                </label>
+                <textarea rows={2} style={{ width: "100%" }} defaultValue={cell.value || ""}
+                          onBlur={(e) => { if ((e.target.value || "") !== (cell.value || "")) setField(tab, f.key, e.target.value, f.visibility); }} />
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {tab === "_onboarding" && <OnboardingTab p={p} id={id} setP={setP} />}
+      {tab === "_docs" && <DocsTab p={p} companyId={id} />}
+      {tab === "_raw" && (
+        <div className="card" style={{ padding: 16 }}>
+          <p style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 0 }}>Read-only raw profile data (provenance included).</p>
+          <pre style={{ fontSize: 11.5, overflow: "auto", maxHeight: "60vh" }}>{JSON.stringify(p.data, null, 2)}</pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OnboardingTab({ p, id, setP }) {
+  const [ans, setAns] = useState({});
+  const submit = async () => {
+    try { const r = await api(`/api/client-profiles/${id}/onboarding-submit`, { method: "POST", body: { answers: ans, submitted_by: "internal" } });
+      setP(r); setAns({}); alert(`Saved: ${r.applied} applied, ${r.flagged} flagged for review.`); }
+    catch (e) { alert(e.message); }
+  };
+  const resolve = async (index, accept) => {
+    try { setP(await api(`/api/client-profiles/${id}/resolve-flag`, { method: "POST", body: { index, accept } })); }
+    catch (e) { alert(e.message); }
+  };
+  const fields = (p.onboarding_form || {}).fields || [];
+  return (
+    <>
+      {(p.review_flags || []).length > 0 && (
+        <div className="card" style={{ padding: 16, marginBottom: 12, borderColor: "var(--amber, #f0b429)" }}>
+          <h2 style={{ fontSize: 14, marginTop: 0 }}>Conflicts to review ({p.review_flags.length})</h2>
+          {p.review_flags.map((f, i) => (
+            <div key={i} style={{ borderTop: i ? "1px solid var(--line, #eee)" : "none", padding: "8px 0", fontSize: 12.5 }}>
+              <b>{f.field}</b><br />
+              <span style={{ color: "var(--muted)" }}>current:</span> {f.existing}<br />
+              <span style={{ color: "var(--muted)" }}>submitted:</span> {f.submitted}
+              <div style={{ marginTop: 6 }}>
+                <button className="btn sm" onClick={() => resolve(i, true)}>Use submitted</button>{" "}
+                <button className="btn ghost sm" onClick={() => resolve(i, false)}>Keep current</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="card" style={{ padding: 18 }}>
+        <h2 style={{ fontSize: 15, marginTop: 0 }}>Onboarding form <span style={{ color: "var(--muted)", fontWeight: 400, fontSize: 12.5 }}>({p.onboarding_form?.scope_type} scope · {p.submissions_count} submissions on file)</span></h2>
+        <p style={{ color: "var(--muted)", fontSize: 12.5 }}>Only questions relevant to what they bought are shown. Answers fill empty fields; anything that conflicts with existing data is flagged, never overwritten.</p>
+        {fields.map((f) => (
+          <div className="field" key={f.target}><label>{f.label}</label>
+            <textarea rows={2} style={{ width: "100%" }} value={ans[f.target] || ""}
+                      onChange={(e) => setAns({ ...ans, [f.target]: e.target.value })} /></div>
+        ))}
+        <button className="btn" style={{ marginTop: 8 }} onClick={submit}>Submit onboarding answers</button>
+      </div>
+    </>
+  );
+}
+
+function DocsTab({ p, companyId }) {
+  return (
+    <div className="card" style={{ padding: 18 }}>
+      <h2 style={{ fontSize: 15, marginTop: 0 }}>Documents</h2>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {p.blueprint_doc_id
+          ? <Link className="btn ghost sm" to={`/blueprints/${p.blueprint_doc_id}`}>▤ Open Blueprint →</Link>
+          : <span style={{ color: "var(--muted)", fontSize: 13 }}>No blueprint linked. <Link to={`/companies/${companyId}`}>Build one from the company →</Link></span>}
+        {p.agreement_doc_id
+          ? <Badge>Agreement linked (#{p.agreement_doc_id})</Badge>
+          : <span style={{ color: "var(--muted)", fontSize: 13 }}>No agreement yet (agreement flow not built).</span>}
+      </div>
+    </div>
+  );
+}

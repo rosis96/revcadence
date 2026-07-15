@@ -61,8 +61,12 @@ def init_db():
 
 
 def migrate():
-    """Additive column migration: for every mapped column missing from the live
-    table, ALTER TABLE ... ADD COLUMN. Never drops or rewrites anything."""
+    """Additive migration: create any brand-new tables (create_all is
+    checkfirst — only makes missing tables, never alters existing ones), then for
+    every mapped column missing from a live table, ALTER TABLE ... ADD COLUMN.
+    Never drops or rewrites anything, so it's safe on every deploy."""
+    from . import models  # noqa: F401  (ensure all models are registered on Base)
+    Base.metadata.create_all(engine)   # create missing tables (e.g. client_profiles)
     insp = inspect(engine)
     with engine.begin() as conn:
         for table in Base.metadata.sorted_tables:

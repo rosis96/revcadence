@@ -43,6 +43,7 @@ export default function CompanyDetail() {
         <div className="spacer" />
         <button className="btn ghost" onClick={reload}>Refresh</button>
         <button className="btn ghost" disabled={!!busy} onClick={enrich}>{busy === "enrich" ? "Queueing…" : "✦ Enrich"}</button>
+        <button className="btn ghost" onClick={() => nav(`/companies/${id}/profile`)}>◎ Client Profile</button>
         <button className="btn" onClick={() => setFathom(true)}>▤ Blueprint from transcript</button>
       </div>
 

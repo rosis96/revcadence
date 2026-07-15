@@ -8,7 +8,8 @@ from fastapi import FastAPI
 
 from . import config
 from .db import engine, init_db
-from .routers import admin, auth, crm, enrich, enrich_lists, inbound, jobs, onboarding, public, reply
+from .routers import (admin, auth, client, crm, enrich, enrich_lists, inbound, jobs,
+                      onboarding, public, reply)
 
 app = FastAPI(title=config.APP_NAME, version=config.VERSION)
 
@@ -72,6 +73,7 @@ app.include_router(enrich_lists.router)
 app.include_router(inbound.router)
 app.include_router(reply.router)
 app.include_router(onboarding.router)
+app.include_router(client.router)
 app.include_router(public.router)
 
 # ---------------------------------------------------------------- blueprint host

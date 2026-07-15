@@ -20,6 +20,7 @@ import EnrichListDetail from "./pages/EnrichListDetail";
 import EnrichConfigPage from "./pages/EnrichConfig";
 import Blueprints from "./pages/Blueprints";
 import BlueprintDetail from "./pages/BlueprintDetail";
+import ClientProfile from "./pages/ClientProfile";
 import ActivityPage from "./pages/Activity";
 import ReplyDashboard from "./pages/ReplyDashboard";
 import ReplyInbox from "./pages/ReplyInbox";
@@ -208,6 +209,7 @@ function Protected() {
         <Route path="/pipeline" element={<Pipeline />} />
         <Route path="/companies" element={<Companies />} />
         <Route path="/companies/:id" element={<CompanyDetail />} />
+        <Route path="/companies/:id/profile" element={<ClientProfile />} />
         <Route path="/contacts" element={<Contacts />} />
         <Route path="/enrichment" element={<EnrichLists />} />
         <Route path="/enrichment/lists/:id" element={<EnrichListDetail />} />

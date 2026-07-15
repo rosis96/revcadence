@@ -1,5 +1,44 @@
 # NEXT_STEPS — living document
 
+## ✅ Session 19 (2026-07-15) — Blueprints (public per-client) + Client Profile
+
+**Blueprint**: generate from a Fathom transcript (Company → *Blueprint from
+transcript*, or Blueprints → *New*); editable title/slug; publish → public page at
+`/p/{slug}` and `blueprint.<domain>/{slug}`; internal notes never rendered; view
+counts. (Agreement flow still NOT built — data-model shell only.)
+
+**Client Profile** (operational source of truth, one per company):
+- **Auto-created on Closed Won** (deal → an `is_won` stage), **idempotent** — never
+  duplicates. Seeds from company/contact/deal/blueprint/notes without overwriting.
+- Structured sections (Offer/ICP/Sales Process/Delivery Scope/Messaging/Onboarding),
+  per-field provenance (source/when/who) + visibility (internal vs client). Raw JSON
+  under Advanced. UI: **CRM → Company → ◎ Client Profile**.
+- **Scope-specific onboarding form** (outbound/inbound/full) — irrelevant Qs hidden.
+- Onboarding submissions **immutable** (append-only); conflicts **flagged for review**,
+  never silently overwritten. Onboarding tasks for missing access/assets. Completeness %.
+- Workspace-isolated.
+
+**Migration**: new table `client_profiles` is created automatically on deploy —
+`migrate()` now runs `create_all` (checkfirst, only makes missing tables) before the
+additive column sync, and premigrate calls it on the Alembic path. No manual step.
+
+**Railway after `git push`**:
+- Confirm `/healthz` `db=postgresql`. New `client_profiles` table auto-created.
+- `OPENAI_API_KEY` (+ optional `OPENAI_MODEL=gpt-4o`) on web — required for real blueprints.
+- Optional public-blueprint domain: add `blueprint.revcadence.com` to the web service
+  (Networking → Custom Domain), create the CNAME; auto-detected by the `blueprint.` prefix
+  (else set `BLUEPRINT_HOSTS`).
+
+**First action after deploy**: open a company with a Won deal → ◎ Client Profile →
+confirm it activated + scope + scope-specific onboarding questions; submit the form and
+confirm conflicts are flagged, not overwritten.
+
+**Tests**: `python3 -m tests.test_client_profile` (19/19) + 40/40 smoke.
+
+**Deferred (explicit)**: Agreement generation, `agreement.<domain>/{slug}`, client
+e-signature (name-based handwritten-style per provided designs), internal countersign,
+executed-PDF gen + delivery, Make.com webhook, signing audit trail.
+
 ## ✅ Session 18 (2026-07-12) — Calendly scheduling ported into the reply engine
 
 Closed REPLY_PORT_SPEC GAP A.6:

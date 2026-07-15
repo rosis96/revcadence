@@ -228,7 +228,15 @@ def move_deal(deal_id: int, body: MoveIn, ctx: AuthContext = Depends(get_ctx)):
                         kind="stage_change", title=f"Stage → {stage.name}",
                         data={"from": old, "to": stage.id}, actor_user_id=ctx.user.id))
     ctx.db.commit()
-    return {"ok": True}
+    # Closed Won → activate the client + build the Client Profile (idempotent).
+    profile_id = None
+    if stage.is_won and d.company_id:
+        try:
+            from ..client.profiles import ensure_profile
+            profile_id = ensure_profile(ctx.db, d.company_id, d.id, ctx.user.id).id
+        except Exception:
+            pass  # never block the stage move
+    return {"ok": True, "client_profile_id": profile_id}
 
 
 # ---------------------------------------------------------------- activities
