@@ -2,6 +2,16 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, money } from "../api";
 import { Badge, ErrorBox, Modal, Spinner, Timeline, fitTone, scoreTone, useApi } from "../components";
+import { StatusPill } from "./Companies";
+
+// Public blueprint/agreement URL — prefer a blueprint.<domain> host on engine.<domain>.
+function publicUrl(slug) {
+  if (!slug) return "";
+  const host = window.location.host;
+  const bpHost = host.startsWith("engine.") ? host.replace(/^engine\./, "blueprint.") : "";
+  return bpHost ? `https://${bpHost}/${slug}` : `${window.location.origin}/p/${slug}`;
+}
+const docIcon = { blueprint: "▤", agreement: "✍", proposal: "▧" };
 
 export default function CompanyDetail() {
   const { id } = useParams();
@@ -14,6 +24,7 @@ export default function CompanyDetail() {
   const [upTitle, setUpTitle] = useState("");
   const [upHtml, setUpHtml] = useState("");
   const [upFileName, setUpFileName] = useState("");
+  const [copied, setCopied] = useState("");
 
   const enrich = async () => {
     setBusy("enrich");
@@ -72,6 +83,7 @@ export default function CompanyDetail() {
     <>
       <div className="toolbar">
         <h1 style={{ fontSize: 20 }}>{c.name}</h1>
+        {c.status && <StatusPill status={c.status} />}
         {c.icp_fit && <Badge tone={fitTone(c.icp_fit)}>ICP: {c.icp_fit}</Badge>}
         <div className="spacer" />
         <button className="btn ghost" onClick={reload}>Refresh</button>
@@ -152,6 +164,40 @@ export default function CompanyDetail() {
           </div>
 
           <div className="section">
+            <h2>Blueprints &amp; documents</h2>
+            {(!c.documents || c.documents.length === 0) ? (
+              <div className="card empty">No blueprints or agreements yet — use “Blueprint from transcript” or “Upload blueprint” above.</div>
+            ) : (
+              <div className="card" style={{ padding: 0 }}>
+                {c.documents.map((d, i) => {
+                  const url = publicUrl(d.slug);
+                  return (
+                    <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px",
+                                             borderTop: i ? "1px solid var(--line,#eee)" : "none" }}>
+                      <span style={{ fontSize: 16 }}>{docIcon[d.kind] || "▤"}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13.5 }}>{d.title || d.slug}</div>
+                        <div style={{ fontSize: 11.5, color: "var(--muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {d.kind}{d.generator === "uploaded" ? " · uploaded" : ""} · {d.view_count} views · {url}
+                        </div>
+                      </div>
+                      <Badge tone={d.published ? "green" : "amber"}>{d.published ? "published" : d.status}</Badge>
+                      {d.published && d.slug && (
+                        <>
+                          <button className="btn ghost sm" onClick={() => { navigator.clipboard?.writeText(url); setCopied(d.slug); setTimeout(() => setCopied(""), 1500); }}>
+                            {copied === d.slug ? "Copied ✓" : "Copy link"}</button>
+                          <a className="btn ghost sm" href={url} target="_blank" rel="noreferrer">Open ↗</a>
+                        </>
+                      )}
+                      <button className="btn ghost sm" onClick={() => nav(`/blueprints/${d.id}`)}>Edit</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="section">
             <h2>Enrichment data</h2>
             {enrichmentRows.length === 0 ? (
               <div className="card empty">Not enriched yet — click Enrich above.</div>
@@ -192,9 +238,35 @@ export default function CompanyDetail() {
             <table className="tbl"><tbody>
               {c.deals.length === 0 && <tr><td className="empty">No deals yet</td></tr>}
               {c.deals.map((d) => (
-                <tr key={d.id}><td>{d.name || "Untitled"}</td><td style={{ textAlign: "right", fontWeight: 700 }}>{money(d.value)}</td></tr>
+                <tr key={d.id} className="click" onClick={() => nav(`/pipeline?open=${d.id}`)}>
+                  <td><b>{d.name || "Untitled"}</b>
+                    <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                      {d.stage_name || "—"}{d.lead_intent ? ` · ${d.lead_intent}` : ""}</div></td>
+                  <td style={{ textAlign: "right", fontWeight: 700 }}>{money(d.value)}</td></tr>
               ))}
             </tbody></table>
+          </div>
+
+          <div className="section"><h2>Client profile</h2>
+            <div className="card" style={{ padding: 14 }}>
+              {c.client_profile ? (
+                <>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                    <Badge tone={c.client_profile.is_active_client ? "green" : "amber"}>
+                      {c.client_profile.is_active_client ? "active client" : "prospect"}</Badge>
+                    <Badge tone={c.client_profile.onboarding_status === "approved" ? "green" : "blue"}>
+                      {c.client_profile.onboarding_status}</Badge>
+                    <span style={{ fontSize: 12, color: "var(--muted)" }}>{c.client_profile.completeness}% complete</span>
+                  </div>
+                  <button className="btn ghost sm" onClick={() => nav(`/companies/${id}/profile`)}>Open profile →</button>
+                </>
+              ) : (
+                <div style={{ fontSize: 13, color: "var(--muted)" }}>
+                  No profile yet — created automatically on Closed Won, or&nbsp;
+                  <a href="#" onClick={(e) => { e.preventDefault(); nav(`/companies/${id}/profile`); }}>open to activate</a>.
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

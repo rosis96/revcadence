@@ -3,61 +3,103 @@ import { api, money, timeAgo } from "../api";
 import { useAuth } from "../auth";
 import { Badge, Drawer, ErrorBox, Modal, Spinner, Timeline, useApi } from "../components";
 
-function NewDealModal({ onClose, onCreated, workspaceId, stages }) {
+function NewLeadModal({ onClose, onCreated, workspaceId, stages }) {
   const { data: companies } = useApi("/api/companies", { workspace_id: workspaceId });
   const { data: contacts } = useApi("/api/contacts", { workspace_id: workspaceId });
-  const [form, setForm] = useState({ name: "", company_id: "", contact_id: "", stage_id: "", value: "" });
+  const [coMode, setCoMode] = useState("existing");   // existing | new
+  const [ctMode, setCtMode] = useState("new");         // new | existing
+  const [form, setForm] = useState({
+    company_id: "", company_name: "",
+    contact_id: "", first_name: "", last_name: "", email: "", title: "",
+    stage_id: "", deal_name: "", value: "",
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => { if (stages?.length && !form.stage_id) setForm((f) => ({ ...f, stage_id: String(stages[0].id) })); }, [stages]);
-  // contacts filtered to the chosen company (if any)
-  const contactOpts = (contacts || []).filter((c) => !form.company_id || String(c.company_id) === String(form.company_id));
+  const contactOpts = (contacts || []).filter((c) => coMode === "new" || !form.company_id || String(c.company_id) === String(form.company_id));
 
   const submit = async (e) => {
     e.preventDefault();
     if (!workspaceId) { setError("Pick a specific workspace first (top-left)."); return; }
     setBusy(true); setError("");
     try {
-      const r = await api("/api/deals", { method: "POST",
-        body: { workspace_id: Number(workspaceId), name: form.name,
-                company_id: form.company_id ? Number(form.company_id) : null,
-                contact_id: form.contact_id ? Number(form.contact_id) : null,
-                stage_id: form.stage_id ? Number(form.stage_id) : null,
-                value: form.value ? Number(form.value) : 0 } });
-      onCreated(r.id);
+      const body = { workspace_id: Number(workspaceId),
+        stage_id: form.stage_id ? Number(form.stage_id) : null,
+        deal_name: form.deal_name, value: form.value ? Number(form.value) : 0 };
+      if (coMode === "existing") body.company_id = form.company_id ? Number(form.company_id) : null;
+      else body.company_name = form.company_name;
+      if (ctMode === "existing") body.contact_id = form.contact_id ? Number(form.contact_id) : null;
+      else Object.assign(body, { first_name: form.first_name, last_name: form.last_name, email: form.email, title: form.title });
+      const r = await api("/api/leads", { method: "POST", body });
+      onCreated(r.deal_id);
     } catch (err) { setError(err.message); }
     setBusy(false);
   };
+  const Seg = ({ v, cur, set, children }) => (
+    <button type="button" onClick={() => set(v)} className={`btn ${cur === v ? "" : "ghost"} sm`}>{children}</button>
+  );
   return (
-    <Modal title="New deal" onClose={onClose}>
+    <Modal title="New lead" onClose={onClose}>
       <form onSubmit={submit}>
         {error && <div className="error-box" style={{ marginBottom: 10 }}>{error}</div>}
-        <div className="field"><label>Deal name</label>
-          <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
-                 placeholder="e.g. Acme — managed revenue engine" autoFocus /></div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <div className="field"><label>Company</label>
-            <select value={form.company_id} onChange={(e) => setForm({ ...form, company_id: e.target.value, contact_id: "" })}>
-              <option value="">— none —</option>
-              {(companies || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select></div>
-          <div className="field"><label>Contact</label>
-            <select value={form.contact_id} onChange={(e) => setForm({ ...form, contact_id: e.target.value })}>
-              <option value="">— none —</option>
-              {contactOpts.map((c) => <option key={c.id} value={c.id}>{c.name || c.email}</option>)}
-            </select></div>
+        <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 0 }}>
+          Adds the lead to Companies, Contacts and the Pipeline together — for website or referral leads that didn’t come through reply management.</p>
+
+        <label style={{ fontSize: 12.5, fontWeight: 600 }}>Company</label>
+        <div style={{ display: "flex", gap: 6, margin: "4px 0 6px" }}>
+          <Seg v="existing" cur={coMode} set={setCoMode}>Existing</Seg>
+          <Seg v="new" cur={coMode} set={setCoMode}>New</Seg>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        {coMode === "existing" ? (
+          <div className="field"><select value={form.company_id} onChange={(e) => setForm({ ...form, company_id: e.target.value, contact_id: "" })}>
+            <option value="">— none —</option>
+            {(companies || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select></div>
+        ) : (
+          <div className="field"><input value={form.company_name} placeholder="New company name"
+                onChange={(e) => setForm({ ...form, company_name: e.target.value })} /></div>
+        )}
+
+        <label style={{ fontSize: 12.5, fontWeight: 600 }}>Contact</label>
+        <div style={{ display: "flex", gap: 6, margin: "4px 0 6px" }}>
+          <Seg v="new" cur={ctMode} set={setCtMode}>New</Seg>
+          <Seg v="existing" cur={ctMode} set={setCtMode}>Existing</Seg>
+        </div>
+        {ctMode === "existing" ? (
+          <div className="field"><select value={form.contact_id} onChange={(e) => setForm({ ...form, contact_id: e.target.value })}>
+            <option value="">— none —</option>
+            {contactOpts.map((c) => <option key={c.id} value={c.id}>{c.name || c.email}</option>)}
+          </select></div>
+        ) : (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div className="field"><input value={form.first_name} placeholder="First name"
+                    onChange={(e) => setForm({ ...form, first_name: e.target.value })} /></div>
+              <div className="field"><input value={form.last_name} placeholder="Last name"
+                    onChange={(e) => setForm({ ...form, last_name: e.target.value })} /></div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div className="field"><input type="email" value={form.email} placeholder="Email"
+                    onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+              <div className="field"><input value={form.title} placeholder="Title"
+                    onChange={(e) => setForm({ ...form, title: e.target.value })} /></div>
+            </div>
+          </>
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
           <div className="field"><label>Stage</label>
             <select value={form.stage_id} onChange={(e) => setForm({ ...form, stage_id: e.target.value })}>
               {(stages || []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select></div>
+          <div className="field"><label>Deal name</label>
+            <input value={form.deal_name} placeholder="optional" onChange={(e) => setForm({ ...form, deal_name: e.target.value })} /></div>
           <div className="field"><label>Value ($)</label>
-            <input type="number" min="0" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} placeholder="0" /></div>
+            <input type="number" min="0" value={form.value} placeholder="0" onChange={(e) => setForm({ ...form, value: e.target.value })} /></div>
         </div>
         <div className="actions">
           <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
-          <button className="btn" disabled={busy}>{busy ? "Creating…" : "Create deal"}</button>
+          <button className="btn" disabled={busy}>{busy ? "Adding…" : "Add lead"}</button>
         </div>
       </form>
     </Modal>
@@ -106,7 +148,8 @@ function DealDrawer({ dealId, onClose, onChanged }) {
 export default function Pipeline() {
   const { wsParam, me } = useAuth();
   const { data: board, error, loading, reload } = useApi("/api/deals/board", { workspace_id: wsParam });
-  const [openDeal, setOpenDeal] = useState(null);
+  const params = new URLSearchParams(window.location.hash.split("?")[1] || "");
+  const [openDeal, setOpenDeal] = useState(params.get("open") ? Number(params.get("open")) : null);
   const [dragOver, setDragOver] = useState(null);
   const [modal, setModal] = useState(false);
   const wsId = wsParam || (!me?.is_master ? me?.workspaces?.[0]?.id : null);
@@ -127,8 +170,8 @@ export default function Pipeline() {
       <div className="toolbar" style={{ marginBottom: 12 }}>
         <h1 style={{ fontSize: 18 }}>Pipeline</h1>
         <div className="spacer" />
-        {!wsId && <span style={{ fontSize: 12, color: "var(--muted)", marginRight: 8 }}>Pick a workspace to add a deal</span>}
-        <button className="btn" disabled={!wsId} onClick={() => setModal(true)}>+ New deal</button>
+        {!wsId && <span style={{ fontSize: 12, color: "var(--muted)", marginRight: 8 }}>Pick a workspace to add a lead</span>}
+        <button className="btn" disabled={!wsId} onClick={() => setModal(true)}>+ New lead</button>
       </div>
       <div className="board">
         {board.map((col) => (
@@ -159,7 +202,7 @@ export default function Pipeline() {
       </div>
       {openDeal && <DealDrawer dealId={openDeal} onClose={() => setOpenDeal(null)} onChanged={reload} />}
       {modal && (
-        <NewDealModal workspaceId={wsId} stages={stages} onClose={() => setModal(false)}
+        <NewLeadModal workspaceId={wsId} stages={stages} onClose={() => setModal(false)}
                       onCreated={(id) => { setModal(false); reload(); setOpenDeal(id); }} />
       )}
     </>

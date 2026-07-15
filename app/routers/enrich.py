@@ -212,7 +212,8 @@ def export_leads(workspace_id: int | None = None, ctx: AuthContext = Depends(get
 # ---------------------------------------------------------------- record detail
 @router.get("/companies/{company_id}")
 def company_detail(company_id: int, ctx: AuthContext = Depends(get_ctx)):
-    from ..models.crm import Activity, Deal
+    from ..models.crm import Activity, Deal, Stage
+    from ..models.client_profile import ClientProfile
     c = scoped(ctx.db.query(Company), Company, ctx).filter(Company.id == company_id).first()
     if not c:
         raise HTTPException(404, "Company not found")
@@ -220,14 +221,36 @@ def company_detail(company_id: int, ctx: AuthContext = Depends(get_ctx)):
     deals = ctx.db.query(Deal).filter(Deal.company_id == c.id).all()
     acts = (scoped(ctx.db.query(Activity), Activity, ctx)
             .filter(Activity.company_id == c.id).order_by(Activity.occurred_at.desc()).limit(50).all())
+    docs = (ctx.db.query(Document).filter(Document.company_id == c.id)
+            .order_by(Document.updated_at.desc()).all())
+    prof = ctx.db.query(ClientProfile).filter(ClientProfile.company_id == c.id).first()
+
+    # pipeline status = most-advanced stage across this company's deals (+ Client)
+    ws_ids = ctx.workspace_ids_for_query(None)
+    from .crm import _pipeline_status
+    _, _, client_co, status_for = _pipeline_status(ctx, ws_ids)
+    stage_ids = [d.stage_id for d in deals if d.stage_id is not None]
+    status = status_for(stage_ids, c.id in client_co)
+    smap = {s.id: s for s in ctx.db.query(Stage).filter(Stage.workspace_id == c.workspace_id).all()}
+
     return {"id": c.id, "workspace_id": c.workspace_id, "name": c.name, "domain": c.domain,
             "website": c.website, "industry": c.industry, "location": c.location,
-            "icp_fit": c.icp_fit, "enrichment": c.enrichment or {},
+            "icp_fit": c.icp_fit, "enrichment": c.enrichment or {}, "status": status,
             "contacts": [{"id": p.id, "name": f"{p.first_name} {p.last_name}".strip(),
                           "email": p.email, "title": p.title, "revenue_score": p.revenue_score}
                          for p in contacts],
-            "deals": [{"id": d.id, "name": d.name, "value": d.value, "stage_id": d.stage_id}
+            "deals": [{"id": d.id, "name": d.name, "value": d.value, "stage_id": d.stage_id,
+                       "stage_name": smap[d.stage_id].name if d.stage_id in smap else "",
+                       "lead_intent": d.lead_intent}
                       for d in deals],
+            "documents": [{"id": d.id, "kind": d.kind, "title": d.title, "slug": d.slug,
+                           "status": d.status, "published": bool(d.published),
+                           "generator": (d.fields or {}).get("generator", ""),
+                           "public_path": f"/p/{d.slug}" if d.slug else "",
+                           "view_count": d.view_count or 0} for d in docs],
+            "client_profile": ({"id": prof.id, "is_active_client": bool(prof.is_active_client),
+                                "onboarding_status": prof.onboarding_status,
+                                "completeness": prof.completeness} if prof else None),
             "timeline": [{"id": a.id, "kind": a.kind, "title": a.title,
                           "at": a.occurred_at.isoformat() if a.occurred_at else None} for a in acts]}
 
@@ -244,14 +267,20 @@ def contact_detail(contact_id: int, ctx: AuthContext = Depends(get_ctx)):
 
 
 @router.get("/documents")
-def list_documents(workspace_id: int | None = None, kind: str = "", ctx: AuthContext = Depends(get_ctx)):
+def list_documents(workspace_id: int | None = None, kind: str = "", company_id: int | None = None,
+                   ctx: AuthContext = Depends(get_ctx)):
     q = scoped(ctx.db.query(Document), Document, ctx, workspace_id)
     if kind:
         q = q.filter(Document.kind == kind)
+    if company_id:
+        q = q.filter(Document.company_id == company_id)
     rows = q.order_by(Document.updated_at.desc()).limit(200).all()
     return [{"id": d.id, "workspace_id": d.workspace_id, "kind": d.kind, "status": d.status,
              "title": d.title, "slug": d.slug, "company_id": d.company_id,
-             "view_count": d.view_count} for d in rows]
+             "published": bool(d.published), "generator": (d.fields or {}).get("generator", ""),
+             "public_path": f"/p/{d.slug}" if d.slug else "",
+             "updated_at": d.updated_at.isoformat() if d.updated_at else None,
+             "view_count": d.view_count or 0} for d in rows]
 
 
 @router.get("/documents/{doc_id}")

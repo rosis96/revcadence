@@ -5,7 +5,7 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api } from "../api";
-import { Badge, ErrorBox, Spinner } from "../components";
+import { Badge, ErrorBox, Spinner, useApi } from "../components";
 
 const TABS = [
   ["overview", "Offer"], ["icp", "ICP"], ["sales_process", "Sales Process"],
@@ -115,7 +115,7 @@ export default function ClientProfile() {
       )}
 
       {tab === "_onboarding" && <OnboardingTab p={p} id={id} setP={setP} />}
-      {tab === "_docs" && <DocsTab p={p} companyId={id} />}
+      {tab === "_docs" && <DocsTab companyId={id} />}
       {tab === "_raw" && (
         <div className="card" style={{ padding: 16 }}>
           <p style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 0 }}>Read-only raw profile data (provenance included).</p>
@@ -170,18 +170,52 @@ function OnboardingTab({ p, id, setP }) {
   );
 }
 
-function DocsTab({ p, companyId }) {
+function publicUrl(slug) {
+  if (!slug) return "";
+  const host = window.location.host;
+  const bpHost = host.startsWith("engine.") ? host.replace(/^engine\./, "blueprint.") : "";
+  return bpHost ? `https://${bpHost}/${slug}` : `${window.location.origin}/p/${slug}`;
+}
+const docIcon = { blueprint: "▤", agreement: "✍", proposal: "▧" };
+
+function DocsTab({ companyId }) {
+  const { data: docs, loading } = useApi("/api/documents", { company_id: companyId });
+  const [copied, setCopied] = useState("");
   return (
     <div className="card" style={{ padding: 18 }}>
       <h2 style={{ fontSize: 15, marginTop: 0 }}>Documents</h2>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {p.blueprint_doc_id
-          ? <Link className="btn ghost sm" to={`/blueprints/${p.blueprint_doc_id}`}>▤ Open Blueprint →</Link>
-          : <span style={{ color: "var(--muted)", fontSize: 13 }}>No blueprint linked. <Link to={`/companies/${companyId}`}>Build one from the company →</Link></span>}
-        {p.agreement_doc_id
-          ? <Badge>Agreement linked (#{p.agreement_doc_id})</Badge>
-          : <span style={{ color: "var(--muted)", fontSize: 13 }}>No agreement yet (agreement flow not built).</span>}
-      </div>
+      {loading && <Spinner />}
+      {docs && docs.length === 0 && (
+        <span style={{ color: "var(--muted)", fontSize: 13 }}>
+          No blueprints or agreements yet. <Link to={`/companies/${companyId}`}>Build or upload one from the company →</Link>
+        </span>
+      )}
+      {docs && docs.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          {docs.map((d, i) => {
+            const url = publicUrl(d.slug);
+            return (
+              <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0",
+                                       borderTop: i ? "1px solid var(--line,#eee)" : "none" }}>
+                <span style={{ fontSize: 16 }}>{docIcon[d.kind] || "▤"}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13.5 }}>{d.title || d.slug}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--muted)" }}>{d.kind}{d.generator === "uploaded" ? " · uploaded" : ""} · {d.view_count} views</div>
+                </div>
+                <Badge tone={d.published ? "green" : "amber"}>{d.published ? "published" : d.status}</Badge>
+                {d.published && d.slug && (
+                  <>
+                    <button className="btn ghost sm" onClick={() => { navigator.clipboard?.writeText(url); setCopied(d.slug); setTimeout(() => setCopied(""), 1500); }}>
+                      {copied === d.slug ? "Copied ✓" : "Copy link"}</button>
+                    <a className="btn ghost sm" href={url} target="_blank" rel="noreferrer">Open ↗</a>
+                  </>
+                )}
+                <Link className="btn ghost sm" to={`/blueprints/${d.id}`}>Edit</Link>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

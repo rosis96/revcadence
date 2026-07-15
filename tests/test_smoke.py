@@ -294,6 +294,23 @@ def main():
                                                        "html": "<h1>Co Blueprint</h1>"}, headers=auth(tok)).json()
     check("blueprint upload tied to company", upco["company_id"] == co["id"] and upco["fields"].get("generator") == "uploaded", str(upco)[:160])
 
+    # documents filtered by company + surfaced on the company hub
+    codocs = client.get("/api/documents", params={"company_id": co["id"]}, headers=auth(tok)).json()
+    check("documents filter by company", len(codocs) == 1 and codocs[0]["id"] == upco["id"] and codocs[0]["public_path"], str(codocs)[:160])
+    codetail = client.get(f"/api/companies/{co['id']}", headers=auth(tok)).json()
+    check("company hub carries documents + status", codetail.get("documents") and codetail["documents"][0]["id"] == upco["id"]
+          and codetail.get("status", {}).get("key") == "meeting_booked", str(codetail.get("status"))[:120])
+
+    # one-shot lead: new company + new contact + deal all created together
+    lead = client.post("/api/leads", json={"workspace_id": w1["id"], "company_name": "Referral Inc",
+                                            "first_name": "Ref", "last_name": "Lead", "email": "ref@referral.com",
+                                            "title": "COO", "stage_id": stage_meeting, "value": 3000}, headers=auth(tok)).json()
+    check("lead created company+contact+deal", lead.get("deal_id") and lead.get("company_id") and lead.get("contact_id"), str(lead)[:160])
+    lead_contacts = client.get("/api/contacts", params={"workspace_id": w1["id"]}, headers=auth(tok)).json()
+    lc = next((c for c in lead_contacts if c["id"] == lead["contact_id"]), None)
+    check("lead contact shows in Contacts as Meeting Booked",
+          lc and lc["status"]["key"] == "meeting_booked" and lc["company_name"] == "Referral Inc", str(lc)[:160])
+
     print(f"\n{sum(1 for _, ok in PASS if ok)}/{len(PASS)} checks passed")
 
 

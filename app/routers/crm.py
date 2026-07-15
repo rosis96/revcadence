@@ -314,6 +314,76 @@ def create_deal(body: DealIn, ctx: AuthContext = Depends(get_ctx)):
     return {"id": d.id}
 
 
+class LeadIn(BaseModel):
+    workspace_id: int
+    # company: link an existing one, or create by name
+    company_id: int | None = None
+    company_name: str = ""
+    # contact: link an existing one, or create from these fields
+    contact_id: int | None = None
+    first_name: str = ""
+    last_name: str = ""
+    email: str = ""
+    title: str = ""
+    # deal
+    stage_id: int | None = None
+    deal_name: str = ""
+    value: float = 0.0
+
+
+@router.post("/leads")
+def create_lead(body: LeadIn, ctx: AuthContext = Depends(get_ctx)):
+    """One-shot lead entry: resolve/create the company, create (or link) the contact,
+    and open a deal at the chosen stage — so a manual lead lands in Companies,
+    Contacts AND the Pipeline at once (for website/referral leads)."""
+    ctx.require_workspace(body.workspace_id)
+
+    # --- company
+    company = None
+    if body.company_id:
+        company = _one_or_404(ctx, Company, body.company_id, body.workspace_id)
+    elif body.company_name.strip():
+        company = Company(workspace_id=body.workspace_id, name=body.company_name.strip())
+        ctx.db.add(company)
+        ctx.db.flush()
+
+    # --- contact
+    contact = None
+    if body.contact_id:
+        contact = _one_or_404(ctx, Contact, body.contact_id, body.workspace_id)
+        if company and not contact.company_id:
+            contact.company_id = company.id
+    elif (body.first_name or body.last_name or body.email).strip():
+        contact = Contact(workspace_id=body.workspace_id, email=(body.email or "").lower().strip(),
+                          first_name=body.first_name, last_name=body.last_name, title=body.title,
+                          company_id=company.id if company else None, source="manual")
+        ctx.db.add(contact)
+        ctx.db.flush()
+
+    # --- deal (stage defaults to first stage)
+    stage_id = body.stage_id
+    if stage_id is None:
+        first = (ctx.db.query(Stage).filter(Stage.workspace_id == body.workspace_id)
+                 .order_by(Stage.sort_order).first())
+        stage_id = first.id if first else None
+    nm = body.deal_name.strip() or (company.name if company else "") or \
+        (f"{body.first_name} {body.last_name}".strip() or "New lead")
+    deal = Deal(workspace_id=body.workspace_id, name=nm,
+                contact_id=contact.id if contact else None,
+                company_id=company.id if company else None,
+                stage_id=stage_id, value=body.value)
+    ctx.db.add(deal)
+    ctx.db.flush()
+    ctx.db.add(Activity(workspace_id=body.workspace_id, deal_id=deal.id,
+                        company_id=company.id if company else None,
+                        contact_id=contact.id if contact else None,
+                        kind="deal_created", title=f"Lead added: {nm}", actor_user_id=ctx.user.id))
+    ctx.db.commit()
+    return {"deal_id": deal.id,
+            "company_id": company.id if company else None,
+            "contact_id": contact.id if contact else None}
+
+
 class MoveIn(BaseModel):
     stage_id: int
 
