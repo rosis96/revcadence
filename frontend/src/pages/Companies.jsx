@@ -41,8 +41,11 @@ export function NewCompanyModal({ onClose, onCreated, workspaceId, workspaces })
 }
 
 // pipeline-status chip order (matches stage progression)
-const STATUS_ORDER = ["interested", "meeting_booked", "meeting_completed", "no_show",
-                      "follow_up", "won", "client", "none"];
+export const STATUS_ORDER = ["interested", "meeting_booked", "meeting_completed", "no_show",
+                             "follow_up", "won", "client", "none"];
+// The Companies/Contacts lists are for real conversations — a meeting was booked
+// or beyond. Interested + no-deal are hidden by default (reachable via their chip).
+export const BOOKED_PLUS = new Set(["meeting_booked", "meeting_completed", "no_show", "follow_up", "won", "client"]);
 
 export function StatusPill({ status }) {
   if (!status) return null;
@@ -59,7 +62,7 @@ export default function Companies() {
   const { wsParam, me } = useAuth();
   const [q, setQ] = useState("");
   const [modal, setModal] = useState(false);
-  const [filter, setFilter] = useState("");   // status key, "" = all
+  const [filter, setFilter] = useState("__booked");   // default: meetings booked & beyond
   const nav = useNavigate();
   const { data, error, loading, reload } = useApi("/api/companies", { workspace_id: wsParam, q });
 
@@ -70,13 +73,26 @@ export default function Companies() {
     catch (err) { alert(err.message); }
   };
 
-  // count per status for chips
   const counts = {};
   (data || []).forEach((c) => { const k = c.status?.key || "none"; counts[k] = (counts[k] || 0) + 1; });
+  const bookedCount = (data || []).filter((c) => BOOKED_PLUS.has(c.status?.key)).length;
   const chips = STATUS_ORDER.filter((k) => counts[k]);
   const colorFor = (k) => (data || []).find((c) => c.status?.key === k)?.status?.color || "#64748b";
   const labelFor = (k) => (data || []).find((c) => c.status?.key === k)?.status?.label || k;
-  const shown = (data || []).filter((c) => !filter || (c.status?.key || "none") === filter);
+  const shown = (data || []).filter((c) => {
+    const k = c.status?.key || "none";
+    if (filter === "__booked") return BOOKED_PLUS.has(k);
+    if (filter === "") return true;
+    return k === filter;
+  });
+
+  const Chip = ({ on, color, onClick, children }) => (
+    <button onClick={onClick}
+            style={{ cursor: "pointer", fontSize: 12, fontWeight: 600, padding: "4px 12px", borderRadius: 999,
+                     border: `1px solid ${color}55`, background: on ? color : color + "1f", color: on ? "#fff" : color }}>
+      {children}
+    </button>
+  );
 
   return (
     <>
@@ -87,23 +103,15 @@ export default function Companies() {
       </div>
 
       {data && data.length > 0 && (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "4px 0 12px" }}>
-          <button onClick={() => setFilter("")}
-                  style={{ cursor: "pointer", fontSize: 12, fontWeight: 600, padding: "4px 12px", borderRadius: 999,
-                           border: "1px solid var(--line,#e5e7eb)", background: filter === "" ? "#111827" : "#fff",
-                           color: filter === "" ? "#fff" : "#374151" }}>
-            All · {data.length}
-          </button>
-          {chips.map((k) => {
-            const col = colorFor(k), on = filter === k;
-            return (
-              <button key={k} onClick={() => setFilter(on ? "" : k)}
-                      style={{ cursor: "pointer", fontSize: 12, fontWeight: 600, padding: "4px 12px", borderRadius: 999,
-                               border: `1px solid ${col}55`, background: on ? col : col + "1f", color: on ? "#fff" : col }}>
-                {labelFor(k)} · {counts[k]}
-              </button>
-            );
-          })}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "4px 0 12px", alignItems: "center" }}>
+          <Chip on={filter === "__booked"} color="#3b82f6" onClick={() => setFilter("__booked")}>Meetings · {bookedCount}</Chip>
+          <Chip on={filter === ""} color="#111827" onClick={() => setFilter("")}>All · {data.length}</Chip>
+          <span style={{ width: 1, height: 18, background: "var(--line,#e5e7eb)", margin: "0 2px" }} />
+          {chips.map((k) => (
+            <Chip key={k} on={filter === k} color={colorFor(k)} onClick={() => setFilter(filter === k ? "__booked" : k)}>
+              {labelFor(k)} · {counts[k]}
+            </Chip>
+          ))}
         </div>
       )}
 

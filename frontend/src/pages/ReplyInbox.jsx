@@ -84,32 +84,82 @@ function LeadDrawer({ id, onClose, onChanged }) {
   );
 }
 
+function csvCell(v) {
+  const s = String(v ?? "");
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function exportLeadsCsv(rows) {
+  const head = ["first_name", "last_name", "email", "company", "intent", "decision", "workspace"];
+  const lines = [head.join(",")].concat(rows.map((l) => {
+    const [fn, ...rest] = (l.name || "").split(" ");
+    return [fn || "", rest.join(" ") || "", l.email || "", l.company || "", l.intent || "", l.action || "", l.workspace || ""]
+      .map(csvCell).join(",");
+  }));
+  const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = `reply-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+}
+
 export default function ReplyInbox() {
   const params = new URLSearchParams(window.location.hash.split("?")[1] || "");
   const { wsParam } = useAuth();
   const [status, setStatus] = useState(params.get("status") ?? "needs_review");
   const [open, setOpen] = useState(params.get("open") ? Number(params.get("open")) : null);
+  const [sel, setSel] = useState({});
+  const [intent, setIntent] = useState("");
   const { data, error, loading, reload } = useApi("/api/reply/leads", { status, workspace_id: wsParam });
+
+  const leads = data?.leads || [];
+  const intents = [...new Set(leads.map((l) => l.intent).filter(Boolean))].sort();
+  const shown = leads.filter((l) => !intent || l.intent === intent);
+  const selIds = Object.keys(sel).filter((k) => sel[k]);
+  const allSel = shown.length > 0 && shown.every((l) => sel[l.id]);
+  const toggleAll = () => {
+    const next = { ...sel };
+    if (allSel) shown.forEach((l) => delete next[l.id]);
+    else shown.forEach((l) => { next[l.id] = true; });
+    setSel(next);
+  };
+  const exportSel = () => {
+    const rows = leads.filter((l) => sel[l.id]);
+    if (!rows.length) { alert("Select some leads first (or use the header checkbox)."); return; }
+    exportLeadsCsv(rows);
+  };
+
   return (
     <>
       <div className="chips">
         {CHIPS.map(([v, label]) => (
-          <button key={v} className={status === v ? "on" : ""} onClick={() => setStatus(v)}>
+          <button key={v} className={status === v ? "on" : ""} onClick={() => { setStatus(v); setSel({}); }}>
             {label} {data?.counts?.[v || "all"] ?? ""}
           </button>
         ))}
         <div style={{ flex: 1 }} />
+        {intents.length > 0 && (
+          <select value={intent} onChange={(e) => setIntent(e.target.value)} style={{ maxWidth: 220, marginRight: 8 }}>
+            <option value="">All intents</option>
+            {intents.map((i) => <option key={i} value={i}>{i}</option>)}
+          </select>
+        )}
+        <span style={{ fontSize: 12.5, color: "var(--muted)", marginRight: 8 }}>{selIds.length} selected</span>
+        <button className="btn sm" disabled={!selIds.length} onClick={exportSel}>⭳ Export selected (CSV)</button>
         <button className="btn ghost sm" onClick={reload}>Refresh</button>
       </div>
       {loading && <Spinner />}
       {error && <ErrorBox msg={error} retry={reload} />}
-      {data && data.leads.length === 0 && <Empty icon="✉" title="Nothing here" hint="Replies arrive from Bison/Instantly webhooks pointed at this workspace." />}
-      {data && data.leads.length > 0 && (
+      {data && shown.length === 0 && <Empty icon="✉" title="Nothing here" hint="Replies arrive from Bison/Instantly webhooks pointed at this workspace." />}
+      {data && shown.length > 0 && (
         <table className="tbl">
-          <thead><tr><th>Lead</th><th>Workspace</th><th>Intent</th><th>Decision</th><th>When</th></tr></thead>
+          <thead><tr>
+            <th style={{ width: 30 }}><input type="checkbox" checked={allSel} onChange={toggleAll} /></th>
+            <th>Lead</th><th>Workspace</th><th>Intent</th><th>Decision</th><th>When</th>
+          </tr></thead>
           <tbody>
-            {data.leads.map((l) => (
+            {shown.map((l) => (
               <tr key={l.id} className="click" onClick={() => setOpen(l.id)}>
+                <td onClick={(e) => e.stopPropagation()}>
+                  <input type="checkbox" checked={!!sel[l.id]} onChange={(e) => setSel({ ...sel, [l.id]: e.target.checked })} /></td>
                 <td><b>{l.name || l.email}</b><div style={{ color: "var(--muted)", fontSize: 12 }}>{l.company} · {l.email}</div></td>
                 <td style={{ fontSize: 12.5 }}>{l.workspace}</td>
                 <td>{l.intent ? <Badge tone="indigo">{l.intent}</Badge> : "—"}</td>
