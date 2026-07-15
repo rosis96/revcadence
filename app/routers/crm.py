@@ -170,16 +170,29 @@ def list_contacts(workspace_id: int | None = None, q: str = "", status: str = ""
     coids = {c.company_id for c in rows if c.company_id}
     cmap = ({c.id: c.name for c in ctx.db.query(Company).filter(Company.id.in_(coids)).all()}
             if coids else {})
+    # attach the reply INTENT (latest reply lead matching the email) so exports
+    # can be intent-driven, e.g. "all positive_simple leads → new campaign".
+    from ..models.reply import ReplyLead
+    emails = [c.email.lower() for c in rows if c.email]
+    intent_map = {}
+    if emails:
+        for rl in (ctx.db.query(ReplyLead.email, ReplyLead.intent)
+                   .filter(ReplyLead.workspace_id.in_(ws_ids), ReplyLead.email.in_(emails))
+                   .order_by(ReplyLead.id).all()):
+            if rl.email:
+                intent_map[rl.email.lower()] = rl.intent or ""   # last wins = latest
     out = []
     for c in rows:
         st = status_for(by_ct.get(c.id, []), c.company_id in client_co)
         if status and st["key"] != status:
             continue
         out.append({"id": c.id, "workspace_id": c.workspace_id, "email": c.email,
-                    "name": f"{c.first_name} {c.last_name}".strip(), "title": c.title,
+                    "name": f"{c.first_name} {c.last_name}".strip(),
+                    "first_name": c.first_name, "last_name": c.last_name, "title": c.title,
                     "company_id": c.company_id, "company_name": cmap.get(c.company_id, ""),
                     "email_status": c.email_status, "enriched": bool(c.revenue_score is not None),
-                    "revenue_score": c.revenue_score, "source": c.source, "status": st})
+                    "revenue_score": c.revenue_score, "source": c.source, "status": st,
+                    "intent": intent_map.get((c.email or "").lower(), "")})
     return out
 
 
