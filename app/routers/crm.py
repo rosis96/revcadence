@@ -20,41 +20,54 @@ def _one_or_404(ctx, model, obj_id, workspace_id=None):
 
 
 # ---------------------------------------------------------------- companies
-def _interested_only_ids(ctx, ws_ids):
-    """company_ids & contact_ids whose deals are ALL in the entry 'Opportunity'
-    stage — interested replies that never booked. These still show as pipeline
-    cards but are hidden from the Companies/Contacts lists (which are for
-    booked/active conversations). No-deal (manual) records are never hidden."""
+def _pipeline_status(ctx, ws_ids):
+    """Per-record pipeline status derived from its deals' most-advanced stage
+    (+ 'Client' when an active Client Profile exists). Returns (by_company,
+    by_contact, is_client_company_ids, status_for) where status_for(stage_ids,
+    is_client) -> {key,label,color}. The entry 'Opportunity' stage shows as
+    'Interested'."""
     from collections import defaultdict
-    opp_ids = {s.id for s in ctx.db.query(Stage)
-               .filter(Stage.workspace_id.in_(ws_ids), Stage.name == "Opportunity",
-                       Stage.is_won == False, Stage.is_lost == False).all()}  # noqa: E712
-    if not opp_ids:
-        return set(), set()
-    comp, cont = defaultdict(set), defaultdict(set)
+    from ..models.client_profile import ClientProfile
+    stages = {s.id: s for s in ctx.db.query(Stage).filter(Stage.workspace_id.in_(ws_ids)).all()}
+    by_co, by_ct = defaultdict(list), defaultdict(list)
     for d in ctx.db.query(Deal.company_id, Deal.contact_id, Deal.stage_id).filter(Deal.workspace_id.in_(ws_ids)).all():
         if d.company_id is not None:
-            comp[d.company_id].add(d.stage_id)
+            by_co[d.company_id].append(d.stage_id)
         if d.contact_id is not None:
-            cont[d.contact_id].add(d.stage_id)
-    hide_comp = {cid for cid, st in comp.items() if st and st.issubset(opp_ids)}
-    hide_cont = {cid for cid, st in cont.items() if st and st.issubset(opp_ids)}
-    return hide_comp, hide_cont
+            by_ct[d.contact_id].append(d.stage_id)
+    client_co = {p.company_id for p in ctx.db.query(ClientProfile.company_id)
+                 .filter(ClientProfile.workspace_id.in_(ws_ids), ClientProfile.is_active_client == True).all()}  # noqa: E712
+
+    def status_for(stage_ids, is_client):
+        if is_client:
+            return {"key": "client", "label": "Client", "color": "#16a34a"}
+        sids = [s for s in stage_ids if s in stages]
+        if not sids:
+            return {"key": "none", "label": "No deal", "color": "#94a3b8"}
+        best = max((stages[s] for s in sids), key=lambda st: st.sort_order)
+        label = "Interested" if best.name == "Opportunity" else best.name
+        return {"key": label.lower().replace(" ", "_"), "label": label, "color": best.color}
+
+    return by_co, by_ct, client_co, status_for
 
 
 @router.get("/companies")
-def list_companies(workspace_id: int | None = None, q: str = "", include_all: bool = False,
+def list_companies(workspace_id: int | None = None, q: str = "", status: str = "",
                    ctx: AuthContext = Depends(get_ctx)):
+    ws_ids = ctx.workspace_ids_for_query(workspace_id)
+    by_co, _, client_co, status_for = _pipeline_status(ctx, ws_ids)
     qry = scoped(ctx.db.query(Company), Company, ctx, workspace_id)
     if q:
         qry = qry.filter(Company.name.ilike(f"%{q}%"))
-    if not include_all:
-        hide_comp, _ = _interested_only_ids(ctx, ctx.workspace_ids_for_query(workspace_id))
-        if hide_comp:
-            qry = qry.filter(~Company.id.in_(hide_comp))
-    rows = qry.order_by(Company.updated_at.desc()).limit(200).all()
-    return [{"id": c.id, "workspace_id": c.workspace_id, "name": c.name, "domain": c.domain,
-             "industry": c.industry, "icp_fit": c.icp_fit} for c in rows]
+    rows = qry.order_by(Company.updated_at.desc()).limit(500).all()
+    out = []
+    for c in rows:
+        st = status_for(by_co.get(c.id, []), c.id in client_co)
+        if status and st["key"] != status:
+            continue
+        out.append({"id": c.id, "workspace_id": c.workspace_id, "name": c.name, "domain": c.domain,
+                    "industry": c.industry, "icp_fit": c.icp_fit, "status": st})
+    return out
 
 
 class CompanyIn(BaseModel):
@@ -71,6 +84,47 @@ def create_company(body: CompanyIn, ctx: AuthContext = Depends(get_ctx)):
     ctx.db.add(c)
     ctx.db.commit()
     return {"id": c.id}
+
+
+class CompanyPatch(BaseModel):
+    name: str | None = None
+    website: str | None = None
+    domain: str | None = None
+    industry: str | None = None
+    location: str | None = None
+
+
+@router.put("/companies/{company_id}")
+def update_company(company_id: int, body: CompanyPatch, ctx: AuthContext = Depends(get_ctx)):
+    c = _one_or_404(ctx, Company, company_id)
+    for k, v in body.model_dump(exclude_none=True).items():
+        setattr(c, k, v)
+    ctx.db.commit()
+    return {"id": c.id}
+
+
+@router.delete("/companies/{company_id}")
+def delete_company(company_id: int, ctx: AuthContext = Depends(get_ctx)):
+    """Delete a company and everything hanging off it (its contacts, deals,
+    documents, client profile, and activities) — for cleaning the workspace.
+    Workspace-scoped; children removed first so FKs never block the delete."""
+    from ..models.client_profile import ClientProfile
+    from ..models.documents import Document
+    c = _one_or_404(ctx, Company, company_id)
+    deal_ids = [d.id for d in ctx.db.query(Deal.id).filter(Deal.company_id == c.id).all()]
+    contact_ids = [x.id for x in ctx.db.query(Contact.id).filter(Contact.company_id == c.id).all()]
+    aq = ctx.db.query(Activity).filter(
+        (Activity.company_id == c.id)
+        | (Activity.deal_id.in_(deal_ids) if deal_ids else False)
+        | (Activity.contact_id.in_(contact_ids) if contact_ids else False))
+    aq.delete(synchronize_session=False)
+    ctx.db.query(Document).filter(Document.company_id == c.id).delete(synchronize_session=False)
+    ctx.db.query(ClientProfile).filter(ClientProfile.company_id == c.id).delete(synchronize_session=False)
+    ctx.db.query(Deal).filter(Deal.company_id == c.id).delete(synchronize_session=False)
+    ctx.db.query(Contact).filter(Contact.company_id == c.id).delete(synchronize_session=False)
+    ctx.db.delete(c)
+    ctx.db.commit()
+    return {"ok": True, "deleted": {"deals": len(deal_ids), "contacts": len(contact_ids)}}
 
 
 class ContactIn(BaseModel):
@@ -104,25 +158,29 @@ def create_contact(body: ContactIn, ctx: AuthContext = Depends(get_ctx)):
 
 # ---------------------------------------------------------------- contacts
 @router.get("/contacts")
-def list_contacts(workspace_id: int | None = None, q: str = "", include_all: bool = False,
+def list_contacts(workspace_id: int | None = None, q: str = "", status: str = "",
                   ctx: AuthContext = Depends(get_ctx)):
+    ws_ids = ctx.workspace_ids_for_query(workspace_id)
+    _, by_ct, client_co, status_for = _pipeline_status(ctx, ws_ids)
     qry = scoped(ctx.db.query(Contact), Contact, ctx, workspace_id)
     if q:
         like = f"%{q}%"
         qry = qry.filter((Contact.email.ilike(like)) | (Contact.first_name.ilike(like)) | (Contact.last_name.ilike(like)))
-    if not include_all:
-        _, hide_cont = _interested_only_ids(ctx, ctx.workspace_ids_for_query(workspace_id))
-        if hide_cont:
-            qry = qry.filter(~Contact.id.in_(hide_cont))
-    rows = qry.order_by(Contact.updated_at.desc()).limit(200).all()
+    rows = qry.order_by(Contact.updated_at.desc()).limit(500).all()
     coids = {c.company_id for c in rows if c.company_id}
     cmap = ({c.id: c.name for c in ctx.db.query(Company).filter(Company.id.in_(coids)).all()}
             if coids else {})
-    return [{"id": c.id, "workspace_id": c.workspace_id, "email": c.email,
-             "name": f"{c.first_name} {c.last_name}".strip(), "title": c.title,
-             "company_id": c.company_id, "company_name": cmap.get(c.company_id, ""),
-             "email_status": c.email_status, "enriched": bool(c.revenue_score is not None),
-             "revenue_score": c.revenue_score, "source": c.source} for c in rows]
+    out = []
+    for c in rows:
+        st = status_for(by_ct.get(c.id, []), c.company_id in client_co)
+        if status and st["key"] != status:
+            continue
+        out.append({"id": c.id, "workspace_id": c.workspace_id, "email": c.email,
+                    "name": f"{c.first_name} {c.last_name}".strip(), "title": c.title,
+                    "company_id": c.company_id, "company_name": cmap.get(c.company_id, ""),
+                    "email_status": c.email_status, "enriched": bool(c.revenue_score is not None),
+                    "revenue_score": c.revenue_score, "source": c.source, "status": st})
+    return out
 
 
 @router.get("/contacts/{contact_id}/timeline")

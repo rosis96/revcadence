@@ -40,12 +40,44 @@ export function NewCompanyModal({ onClose, onCreated, workspaceId, workspaces })
   );
 }
 
+// pipeline-status chip order (matches stage progression)
+const STATUS_ORDER = ["interested", "meeting_booked", "meeting_completed", "no_show",
+                      "follow_up", "won", "client", "none"];
+
+export function StatusPill({ status }) {
+  if (!status) return null;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600,
+                   padding: "2px 10px", borderRadius: 999, color: status.color,
+                   background: status.color + "1f", border: `1px solid ${status.color}44` }}>
+      <span style={{ width: 7, height: 7, borderRadius: "50%", background: status.color }} />{status.label}
+    </span>
+  );
+}
+
 export default function Companies() {
   const { wsParam, me } = useAuth();
   const [q, setQ] = useState("");
   const [modal, setModal] = useState(false);
+  const [filter, setFilter] = useState("");   // status key, "" = all
   const nav = useNavigate();
   const { data, error, loading, reload } = useApi("/api/companies", { workspace_id: wsParam, q });
+
+  const del = async (e, c) => {
+    e.stopPropagation();
+    if (!confirm(`Delete "${c.name}" and all its contacts, deals, documents & profile? This can't be undone.`)) return;
+    try { await api(`/api/companies/${c.id}`, { method: "DELETE" }); reload(); }
+    catch (err) { alert(err.message); }
+  };
+
+  // count per status for chips
+  const counts = {};
+  (data || []).forEach((c) => { const k = c.status?.key || "none"; counts[k] = (counts[k] || 0) + 1; });
+  const chips = STATUS_ORDER.filter((k) => counts[k]);
+  const colorFor = (k) => (data || []).find((c) => c.status?.key === k)?.status?.color || "#64748b";
+  const labelFor = (k) => (data || []).find((c) => c.status?.key === k)?.status?.label || k;
+  const shown = (data || []).filter((c) => !filter || (c.status?.key || "none") === filter);
+
   return (
     <>
       <div className="toolbar">
@@ -53,19 +85,45 @@ export default function Companies() {
         <div className="spacer" />
         <button className="btn" onClick={() => setModal(true)}>+ New company</button>
       </div>
+
+      {data && data.length > 0 && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "4px 0 12px" }}>
+          <button onClick={() => setFilter("")}
+                  style={{ cursor: "pointer", fontSize: 12, fontWeight: 600, padding: "4px 12px", borderRadius: 999,
+                           border: "1px solid var(--line,#e5e7eb)", background: filter === "" ? "#111827" : "#fff",
+                           color: filter === "" ? "#fff" : "#374151" }}>
+            All · {data.length}
+          </button>
+          {chips.map((k) => {
+            const col = colorFor(k), on = filter === k;
+            return (
+              <button key={k} onClick={() => setFilter(on ? "" : k)}
+                      style={{ cursor: "pointer", fontSize: 12, fontWeight: 600, padding: "4px 12px", borderRadius: 999,
+                               border: `1px solid ${col}55`, background: on ? col : col + "1f", color: on ? "#fff" : col }}>
+                {labelFor(k)} · {counts[k]}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {loading && <Spinner />}
       {error && <ErrorBox msg={error} retry={reload} />}
       {data && data.length === 0 && <Empty icon="◫" title="No companies" hint="Create one or import via enrichment." />}
       {data && data.length > 0 && (
         <table className="tbl">
-          <thead><tr><th>Name</th><th>Domain</th><th>Industry</th><th>ICP fit</th></tr></thead>
+          <thead><tr><th>Name</th><th>Status</th><th>Domain</th><th>Industry</th><th>ICP fit</th><th></th></tr></thead>
           <tbody>
-            {data.map((c) => (
+            {shown.map((c) => (
               <tr key={c.id} className="click" onClick={() => nav(`/companies/${c.id}`)}>
                 <td><b>{c.name}</b></td>
+                <td><StatusPill status={c.status} /></td>
                 <td style={{ color: "var(--muted)" }}>{c.domain || "—"}</td>
                 <td>{c.industry || "—"}</td>
                 <td>{c.icp_fit ? <Badge tone={fitTone(c.icp_fit)}>{c.icp_fit}</Badge> : <Badge>not enriched</Badge>}</td>
+                <td style={{ textAlign: "right" }} onClick={(e) => e.stopPropagation()}>
+                  <button className="btn danger sm" onClick={(e) => del(e, c)}>Delete</button>
+                </td>
               </tr>
             ))}
           </tbody>

@@ -19,6 +19,16 @@ export default function CompanyDetail() {
     } catch (e) { alert(e.message); }
     setBusy("");
   };
+  const [edit, setEdit] = useState(null);   // edit form when open
+  const saveEdit = async () => {
+    try { await api(`/api/companies/${id}`, { method: "PUT", body: edit }); setEdit(null); reload(); }
+    catch (e) { alert(e.message); }
+  };
+  const removeCompany = async () => {
+    if (!confirm(`Delete "${c.name}" and all its contacts, deals, documents & profile? This can't be undone.`)) return;
+    try { await api(`/api/companies/${id}`, { method: "DELETE" }); nav("/companies"); }
+    catch (e) { alert(e.message); }
+  };
   // Build a blueprint straight from a Fathom call transcript for THIS company.
   const buildFromTranscript = async () => {
     if (!transcript.trim()) { alert("Paste the call transcript first."); return; }
@@ -42,10 +52,29 @@ export default function CompanyDetail() {
         {c.icp_fit && <Badge tone={fitTone(c.icp_fit)}>ICP: {c.icp_fit}</Badge>}
         <div className="spacer" />
         <button className="btn ghost" onClick={reload}>Refresh</button>
+        <button className="btn ghost" onClick={() => setEdit({ name: c.name, website: c.website || "", industry: c.industry || "", location: c.location || "" })}>Edit</button>
         <button className="btn ghost" disabled={!!busy} onClick={enrich}>{busy === "enrich" ? "Queueing…" : "✦ Enrich"}</button>
         <button className="btn ghost" onClick={() => nav(`/companies/${id}/profile`)}>◎ Client Profile</button>
         <button className="btn" onClick={() => setFathom(true)}>▤ Blueprint from transcript</button>
+        <button className="btn danger" onClick={removeCompany}>Delete</button>
       </div>
+
+      {edit && (
+        <Modal title={`Edit ${c.name}`} onClose={() => setEdit(null)}>
+          <div className="field"><label>Name</label>
+            <input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></div>
+          <div className="field"><label>Website</label>
+            <input value={edit.website} onChange={(e) => setEdit({ ...edit, website: e.target.value })} /></div>
+          <div className="field"><label>Industry</label>
+            <input value={edit.industry} onChange={(e) => setEdit({ ...edit, industry: e.target.value })} /></div>
+          <div className="field"><label>Location</label>
+            <input value={edit.location} onChange={(e) => setEdit({ ...edit, location: e.target.value })} /></div>
+          <div className="actions">
+            <button type="button" className="btn ghost" onClick={() => setEdit(null)}>Cancel</button>
+            <button className="btn" onClick={saveEdit}>Save</button>
+          </div>
+        </Modal>
+      )}
 
       {fathom && (
         <Modal title={`Build a blueprint for ${c.name}`} onClose={() => setFathom(false)}>
