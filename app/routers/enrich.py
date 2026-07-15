@@ -306,6 +306,60 @@ def blueprint_from_transcript(body: TranscriptIn, ctx: AuthContext = Depends(get
     return _doc_out(out)
 
 
+# ---------------------------------------------------------------- upload a custom blueprint
+class UploadIn(BaseModel):
+    workspace_id: int | None = None
+    company_id: int | None = None
+    contact_id: int | None = None
+    deal_id: int | None = None
+    title: str | None = None
+    html: str
+    slug: str | None = None
+    doc_id: int | None = None      # replace the HTML of an existing blueprint in place
+
+
+@router.post("/blueprints/upload")
+def upload_blueprint(body: UploadIn, ctx: AuthContext = Depends(get_ctx)):
+    """Bring your own blueprint: upload a custom HTML / landing page built outside
+    the system. It becomes a blueprint Document with its own slug + public link —
+    exactly like a system-generated one, just with your HTML."""
+    from ..enrichment.blueprint import slugify, unique_slug
+    if not (body.html or "").strip():
+        raise HTTPException(422, "html is required")
+
+    doc = None
+    if body.doc_id:
+        doc = scoped(ctx.db.query(Document), Document, ctx).filter(Document.id == body.doc_id).first()
+        if not doc:
+            raise HTTPException(404, "Document not found")
+    wsid = body.workspace_id or (doc.workspace_id if doc else None)
+    if not wsid:
+        raise HTTPException(422, "workspace_id required")
+    ctx.require_workspace(wsid)
+
+    company = ctx.db.get(Company, body.company_id) if body.company_id else \
+        (ctx.db.get(Company, doc.company_id) if doc and doc.company_id else None)
+    name = (body.title or (company.name if company else "") or "Blueprint").strip()
+
+    if doc is None:
+        doc = Document(workspace_id=wsid, company_id=company.id if company else None,
+                       contact_id=body.contact_id, deal_id=body.deal_id, kind="blueprint")
+        doc.slug = unique_slug(ctx.db, slugify(body.slug) if body.slug else name)
+        doc.status = "draft"
+        doc.published = False
+        ctx.db.add(doc)
+    doc.title = f"Revenue Blueprint — {name}" if not (body.title) else body.title
+    doc.html = body.html
+    doc.fields = {**(doc.fields or {}), "generator": "uploaded"}
+    ctx.db.flush()
+    from ..models.crm import Activity
+    ctx.db.add(Activity(workspace_id=wsid, company_id=doc.company_id, contact_id=doc.contact_id,
+                        deal_id=doc.deal_id, kind="doc_created",
+                        title="Custom blueprint uploaded", data={"document_id": doc.id}))
+    ctx.db.commit()
+    return _doc_out(doc)
+
+
 class DocPatch(BaseModel):
     title: str | None = None
     html: str | None = None

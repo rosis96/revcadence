@@ -264,6 +264,18 @@ def main():
     docs_client = client.get("/api/documents", headers=auth(ctok)).json()
     check("client sees only own-workspace documents", all(d["workspace_id"] == w1["id"] for d in docs_client))
 
+    # --- custom blueprint upload: BYO HTML → its own slug + public link, like a generated one
+    up = client.post("/api/blueprints/upload", json={
+        "workspace_id": w1["id"], "title": "Acme Custom Page",
+        "html": "<!doctype html><html><body><h1>Custom Landing</h1></body></html>"}, headers=auth(tok)).json()
+    check("custom blueprint uploaded", up["kind"] == "blueprint" and up["slug"] and up["fields"].get("generator") == "uploaded", str(up)[:200])
+    pub = client.put(f"/api/documents/{up['id']}", json={"published": True}, headers=auth(tok)).json()
+    page = client.get(f"/p/{pub['slug']}")
+    check("uploaded blueprint served on public link", page.status_code == 200 and "Custom Landing" in page.text, f"{page.status_code}")
+    rep = client.post("/api/blueprints/upload", json={
+        "doc_id": up["id"], "html": "<!doctype html><html><body><h1>Replaced</h1></body></html>"}, headers=auth(tok)).json()
+    check("uploaded blueprint HTML replaced in place", rep["slug"] == up["slug"] and "Replaced" in rep["html"], str(rep)[:160])
+
     print(f"\n{sum(1 for _, ok in PASS if ok)}/{len(PASS)} checks passed")
 
 

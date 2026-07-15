@@ -14,10 +14,26 @@ export default function BlueprintDetail() {
   const [transcript, setTranscript] = useState("");
   const [busy, setBusy] = useState("");
   const [copied, setCopied] = useState(false);
+  const [upName, setUpName] = useState("");
 
   useEffect(() => { if (data) setD(data); }, [data]);
   if (loading || !d) return <Spinner />;
   if (error) return <ErrorBox msg={error} retry={reload} />;
+
+  const uploaded = d.fields?.generator === "uploaded";
+  const replaceHtml = async (html, fileName) => {
+    setBusy("gen");
+    try { setD(await api("/api/blueprints/upload", { method: "POST", body: { doc_id: Number(id), html } })); setUpName(fileName || ""); }
+    catch (e) { alert(e.message); }
+    setBusy("");
+  };
+  const onFile = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = () => replaceHtml(String(r.result || ""), f.name);
+    r.readAsText(f);
+  };
 
   // Public URL — prefer a blueprint.<domain> host if we're on engine.<domain>.
   const host = window.location.host;
@@ -60,19 +76,36 @@ export default function BlueprintDetail() {
 
       <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: 16 }}>
         <div>
-          <div className="card" style={{ padding: 14, marginBottom: 12 }}>
-            <label style={{ fontSize: 12.5, fontWeight: 600 }}>Build from Fathom transcript</label>
-            <p style={{ fontSize: 12, color: "var(--muted)", margin: "3px 0 6px" }}>
-              Paste the call transcript (or Fathom chat/summary). Every section is generated from what was said;
-              pricing is used only if it came up on the call.</p>
-            <textarea rows={8} style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
-                      value={transcript} onChange={(e) => setTranscript(e.target.value)}
-                      placeholder="Paste the Fathom transcript here…" />
-            <button className="btn" style={{ marginTop: 8, width: "100%" }} disabled={busy === "gen"} onClick={regenerate}>
-              {busy === "gen" ? "Generating…" : "⚡ Generate blueprint"}</button>
-            <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>
-              Generator: {d.fields?.generator || "—"}</div>
-          </div>
+          {uploaded ? (
+            <div className="card" style={{ padding: 14, marginBottom: 12 }}>
+              <label style={{ fontSize: 12.5, fontWeight: 600 }}>Custom HTML</label>
+              <p style={{ fontSize: 12, color: "var(--muted)", margin: "3px 0 6px" }}>
+                This blueprint uses HTML you uploaded. Replace it any time — upload a new file or paste markup;
+                the slug and public link stay the same.</p>
+              <input type="file" accept=".html,.htm,text/html" onChange={onFile} disabled={busy === "gen"} />
+              {upName && <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 4 }}>Replaced with {upName}</div>}
+              <textarea rows={7} style={{ width: "100%", fontFamily: "monospace", fontSize: 12, marginTop: 8 }}
+                        value={d.html || ""} onChange={(e) => setD({ ...d, html: e.target.value })}
+                        placeholder="<!doctype html> …" />
+              <button className="btn" style={{ marginTop: 8, width: "100%" }} disabled={busy === "gen"}
+                      onClick={() => replaceHtml(d.html, "")}>
+                {busy === "gen" ? "Saving…" : "Save HTML"}</button>
+            </div>
+          ) : (
+            <div className="card" style={{ padding: 14, marginBottom: 12 }}>
+              <label style={{ fontSize: 12.5, fontWeight: 600 }}>Build from Fathom transcript</label>
+              <p style={{ fontSize: 12, color: "var(--muted)", margin: "3px 0 6px" }}>
+                Paste the call transcript (or Fathom chat/summary). Every section is generated from what was said;
+                pricing is used only if it came up on the call.</p>
+              <textarea rows={8} style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
+                        value={transcript} onChange={(e) => setTranscript(e.target.value)}
+                        placeholder="Paste the Fathom transcript here…" />
+              <button className="btn" style={{ marginTop: 8, width: "100%" }} disabled={busy === "gen"} onClick={regenerate}>
+                {busy === "gen" ? "Generating…" : "⚡ Generate blueprint"}</button>
+              <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>
+                Generator: {d.fields?.generator || "—"}</div>
+            </div>
+          )}
 
           <div className="card" style={{ padding: 14, marginBottom: 12 }}>
             <label style={{ fontSize: 12.5, fontWeight: 600 }}>Public link</label>
