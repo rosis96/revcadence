@@ -51,6 +51,21 @@ BLUEPRINT_SECTIONS = {
     "recommendations": "list of 3 concrete recommended focus areas, each one sentence",
 }
 
+# Richer schema extracted from a real discovery-call (Fathom) transcript.
+BLUEPRINT_TRANSCRIPT_SCHEMA = {
+    "hero_subtitle": "one punchy sentence for the top of the page, specific to them",
+    "industry": "their industry in a few words",
+    "exec_summary": "3-4 sentences: where they are and the opportunity, grounded in the call",
+    "what_we_see": "one honest, specific admiration paragraph about their business (from the call)",
+    "bottlenecks": "list of 2-4 concrete revenue bottlenecks they described, each one sentence",
+    "what_we_build": "list of 4-6 concrete things we will build/run for them (their words where possible)",
+    "roadmap": "list of 3-5 phases, each 'Phase name: what happens' from onboarding to steady state",
+    "their_words": "list of up to 4 short verbatim pull-quotes from the prospect in the transcript",
+    "commercial": "pricing/scope EXACTLY as discussed on the call (retainer, performance, setup) — empty string if no price was mentioned; NEVER invent a number",
+    "target_outcome": "the concrete result they want, one sentence",
+    "notes_for_ascendly": "internal note: anything to double-check or any mismatch between what they want and what we offer (never shown to the client)",
+}
+
 
 def has_ai() -> bool:
     return bool(os.getenv("OPENAI_API_KEY"))
@@ -170,4 +185,57 @@ def generate_blueprint_content(company: dict, contact: dict, enrichment: dict) -
             "Add meeting scheduling with timezone-correct proposed slots to cut booking friction.",
         ],
         "_source": "template",
+    }
+
+
+def blueprint_from_transcript(company: dict, contact: dict, transcript: str) -> dict:
+    """Turn a discovery-call (Fathom) transcript into a full, personalized
+    blueprint. Grounds every section in what was actually said; pricing comes
+    ONLY from the call. AI-required — returns a clearly-marked template draft when
+    no key is set so the flow still works."""
+    transcript = (transcript or "").strip()
+    if has_ai() and transcript:
+        system = (
+            "You are Ascendly/RevCadence's blueprint writer. From a real discovery-call transcript, "
+            "produce a personalized Growth Blueprint for THIS prospect. Ground every section in what "
+            "was actually said — do not invent facts, numbers, or pricing. If a price/scope was quoted "
+            "on the call, capture it verbatim in 'commercial'; if none was, leave 'commercial' empty. "
+            "No buzzwords (never: leverage, robust, seamless, unlock, elevate, world-class). "
+            "Write like a sharp human. Return JSON with keys: " + json.dumps(BLUEPRINT_TRANSCRIPT_SCHEMA))
+        user = json.dumps({"company": company, "contact": contact,
+                           "transcript": transcript[:24000]})
+        try:
+            data = _call_openai(system, user)
+            data["_source"] = "openai"
+            return data
+        except Exception as e:
+            out = _blueprint_transcript_fallback(company, contact)
+            out["_source"] = f"template (openai failed: {str(e)[:120]})"
+            return out
+    out = _blueprint_transcript_fallback(company, contact)
+    out["_source"] = "template (no transcript or no OPENAI_API_KEY)"
+    return out
+
+
+def _blueprint_transcript_fallback(company: dict, contact: dict) -> dict:
+    name = company.get("name", "your company")
+    return {
+        "hero_subtitle": f"A managed revenue engine built for {name}.",
+        "industry": company.get("industry", ""),
+        "exec_summary": f"This is a draft blueprint for {name}. Add a call transcript and regenerate to "
+                        "personalize every section from what was actually discussed.",
+        "what_we_see": f"{name} has a real business and a clear reason prospects reach out — the opportunity "
+                       "is to make that pipeline consistent and instrumented.",
+        "bottlenecks": ["Lead follow-up is manual, so speed and consistency drop as volume grows.",
+                        "There's no single instrumented pipeline, so deals stall without a clear next step."],
+        "what_we_build": ["Managed outbound + inbound reply handling", "CRM automation and pipeline instrumentation",
+                          "Meeting scheduling with real open times", "Proposal and follow-up recovery"],
+        "roadmap": ["Onboarding: connect systems, set ICP and messaging.",
+                    "Build: infrastructure, copy, and CRM workflows.",
+                    "Launch & manage: go live, handle replies, book meetings.",
+                    "Optimize: report, refine, and scale what works."],
+        "their_words": [],
+        "commercial": "",
+        "target_outcome": "A predictable flow of qualified meetings without added headcount.",
+        "notes_for_ascendly": "Draft generated without a transcript — regenerate with the call for a real blueprint.",
     }

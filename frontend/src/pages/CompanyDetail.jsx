@@ -1,12 +1,15 @@
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { api, money } from "../api";
-import { Badge, ErrorBox, Spinner, Timeline, fitTone, scoreTone, useApi } from "../components";
+import { Badge, ErrorBox, Modal, Spinner, Timeline, fitTone, scoreTone, useApi } from "../components";
 
 export default function CompanyDetail() {
   const { id } = useParams();
+  const nav = useNavigate();
   const { data: c, error, loading, reload } = useApi(`/api/companies/${id}`);
   const [busy, setBusy] = useState("");
+  const [fathom, setFathom] = useState(false);
+  const [transcript, setTranscript] = useState("");
 
   const enrich = async () => {
     setBusy("enrich");
@@ -16,11 +19,14 @@ export default function CompanyDetail() {
     } catch (e) { alert(e.message); }
     setBusy("");
   };
-  const blueprint = async () => {
+  // Build a blueprint straight from a Fathom call transcript for THIS company.
+  const buildFromTranscript = async () => {
+    if (!transcript.trim()) { alert("Paste the call transcript first."); return; }
     setBusy("bp");
     try {
-      await api("/api/blueprints/generate", { method: "POST", body: { workspace_id: c.workspace_id, company_id: c.id } });
-      alert("Blueprint generation queued — it will appear under Blueprints.");
+      const doc = await api("/api/blueprints/from-transcript", { method: "POST",
+        body: { workspace_id: c.workspace_id, company_id: c.id, transcript } });
+      nav(`/blueprints/${doc.id}`);
     } catch (e) { alert(e.message); }
     setBusy("");
   };
@@ -37,8 +43,25 @@ export default function CompanyDetail() {
         <div className="spacer" />
         <button className="btn ghost" onClick={reload}>Refresh</button>
         <button className="btn ghost" disabled={!!busy} onClick={enrich}>{busy === "enrich" ? "Queueing…" : "✦ Enrich"}</button>
-        <button className="btn" disabled={!!busy} onClick={blueprint}>{busy === "bp" ? "Queueing…" : "▤ Generate blueprint"}</button>
+        <button className="btn" onClick={() => setFathom(true)}>▤ Blueprint from transcript</button>
       </div>
+
+      {fathom && (
+        <Modal title={`Build a blueprint for ${c.name}`} onClose={() => setFathom(false)}>
+          <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 0 }}>
+            Paste the Fathom call transcript (or summary). Every section is generated from what was discussed;
+            pricing is only used if it came up on the call. You can edit and publish on the next screen.</p>
+          <div className="field"><label>Fathom transcript</label>
+            <textarea rows={12} style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
+                      value={transcript} onChange={(e) => setTranscript(e.target.value)}
+                      placeholder="Paste transcript here…" autoFocus /></div>
+          <div className="actions">
+            <button type="button" className="btn ghost" onClick={() => setFathom(false)}>Cancel</button>
+            <button className="btn" disabled={busy === "bp"} onClick={buildFromTranscript}>
+              {busy === "bp" ? "Generating…" : "Generate blueprint"}</button>
+          </div>
+        </Modal>
+      )}
 
       <div className="grid" style={{ gridTemplateColumns: "1.2fr .8fr", alignItems: "start" }}>
         <div>

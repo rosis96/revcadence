@@ -259,5 +259,98 @@ def document_detail(doc_id: int, ctx: AuthContext = Depends(get_ctx)):
     d = scoped(ctx.db.query(Document), Document, ctx).filter(Document.id == doc_id).first()
     if not d:
         raise HTTPException(404, "Document not found")
+    return _doc_out(d)
+
+
+def _doc_out(d: Document) -> dict:
     return {"id": d.id, "kind": d.kind, "status": d.status, "title": d.title, "slug": d.slug,
-            "fields": d.fields or {}, "html": d.html}
+            "published": bool(d.published), "company_id": d.company_id, "contact_id": d.contact_id,
+            "deal_id": d.deal_id, "view_count": d.view_count or 0,
+            "first_viewed_at": d.first_viewed_at.isoformat() if d.first_viewed_at else None,
+            "last_viewed_at": d.last_viewed_at.isoformat() if d.last_viewed_at else None,
+            "fields": d.fields or {}, "html": d.html,
+            "public_path": f"/p/{d.slug}" if d.slug else ""}
+
+
+# ---------------------------------------------------------------- blueprint from Fathom transcript
+class TranscriptIn(BaseModel):
+    workspace_id: int | None = None
+    company_id: int | None = None
+    contact_id: int | None = None
+    deal_id: int | None = None
+    transcript: str
+    doc_id: int | None = None      # regenerate an existing blueprint in place
+
+
+@router.post("/blueprints/from-transcript")
+def blueprint_from_transcript(body: TranscriptIn, ctx: AuthContext = Depends(get_ctx)):
+    """Paste a Fathom (or any) call transcript → generate a personalized blueprint
+    Document. Runs synchronously so the editor gets the result immediately."""
+    from ..enrichment.blueprint import generate_from_transcript
+    if not (body.transcript or "").strip():
+        raise HTTPException(422, "transcript is required")
+    doc = None
+    if body.doc_id:
+        doc = scoped(ctx.db.query(Document), Document, ctx).filter(Document.id == body.doc_id).first()
+        if not doc:
+            raise HTTPException(404, "Document not found")
+    wsid = body.workspace_id or (doc.workspace_id if doc else None)
+    if not wsid:
+        raise HTTPException(422, "workspace_id required")
+    ctx.require_workspace(wsid)
+    company = ctx.db.get(Company, body.company_id or (doc.company_id if doc else 0))
+    contact = ctx.db.get(Contact, body.contact_id or (doc.contact_id if doc else 0))
+    out = generate_from_transcript(ctx.db, wsid, company, contact, body.transcript,
+                                   deal_id=body.deal_id or (doc.deal_id if doc else None),
+                                   doc_id=doc.id if doc else None)
+    return _doc_out(out)
+
+
+class DocPatch(BaseModel):
+    title: str | None = None
+    html: str | None = None
+    slug: str | None = None
+    published: bool | None = None
+    status: str | None = None
+    fields: dict | None = None
+
+
+@router.put("/documents/{doc_id}")
+def update_document(doc_id: int, body: DocPatch, ctx: AuthContext = Depends(get_ctx)):
+    from ..enrichment.blueprint import slugify, unique_slug
+    d = scoped(ctx.db.query(Document), Document, ctx).filter(Document.id == doc_id).first()
+    if not d:
+        raise HTTPException(404, "Document not found")
+    if body.title is not None:
+        d.title = body.title
+    if body.html is not None:
+        d.html = body.html
+    if body.fields is not None:
+        d.fields = {**(d.fields or {}), **body.fields}
+    if body.status is not None:
+        d.status = body.status
+    if body.slug is not None:
+        want = slugify(body.slug)
+        d.slug = want if not ctx.db.query(Document).filter(Document.slug == want, Document.id != d.id).first() \
+            else unique_slug(ctx.db, want, exclude_id=d.id)
+    if body.published is not None:
+        d.published = body.published
+        if body.published:
+            if not d.slug:
+                from ..models.crm import Company as _C
+                c = ctx.db.get(_C, d.company_id) if d.company_id else None
+                d.slug = unique_slug(ctx.db, (c.name if c else "") or d.title or "blueprint")
+            if d.status == "draft":
+                d.status = "published"
+    ctx.db.commit()
+    return _doc_out(d)
+
+
+@router.delete("/documents/{doc_id}")
+def delete_document(doc_id: int, ctx: AuthContext = Depends(get_ctx)):
+    d = scoped(ctx.db.query(Document), Document, ctx).filter(Document.id == doc_id).first()
+    if not d:
+        raise HTTPException(404, "Document not found")
+    ctx.db.delete(d)
+    ctx.db.commit()
+    return {"ok": True}
