@@ -1,7 +1,57 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { api } from "../api";
 import { useAuth } from "../auth";
-import { Badge, Drawer, Empty, ErrorBox, Spinner, Timeline, scoreTone, useApi } from "../components";
+import { Badge, Drawer, Empty, ErrorBox, Modal, Spinner, Timeline, scoreTone, useApi } from "../components";
 import { StatusPill, STATUS_ORDER, BOOKED_PLUS } from "./Companies";
+
+function NewContactModal({ onClose, onCreated, workspaceId }) {
+  const { data: companies } = useApi("/api/companies", { workspace_id: workspaceId });
+  const [form, setForm] = useState({ first_name: "", last_name: "", email: "", title: "", company_id: "" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!workspaceId) { setError("Pick a specific workspace first (top-left)."); return; }
+    setBusy(true); setError("");
+    try {
+      const r = await api("/api/contacts", { method: "POST",
+        body: { workspace_id: Number(workspaceId), first_name: form.first_name, last_name: form.last_name,
+                email: form.email, title: form.title,
+                company_id: form.company_id ? Number(form.company_id) : null } });
+      onCreated(r.id);
+    } catch (err) { setError(err.message); }
+    setBusy(false);
+  };
+  return (
+    <Modal title="New contact" onClose={onClose}>
+      <form onSubmit={submit}>
+        {error && <div className="error-box" style={{ marginBottom: 10 }}>{error}</div>}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div className="field"><label>First name</label>
+            <input value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} autoFocus /></div>
+          <div className="field"><label>Last name</label>
+            <input value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} /></div>
+        </div>
+        <div className="field"><label>Email</label>
+          <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="name@company.com" /></div>
+        <div className="field"><label>Title</label>
+          <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Founder, Head of Growth…" /></div>
+        <div className="field"><label>Company</label>
+          <select value={form.company_id} onChange={(e) => setForm({ ...form, company_id: e.target.value })}>
+            <option value="">— none —</option>
+            {(companies || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 4 }}>
+            New contacts have no deal yet — they appear under the “No deal” chip. Create a deal on Pipeline to book a meeting.</div>
+        </div>
+        <div className="actions">
+          <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
+          <button className="btn" disabled={busy}>{busy ? "Creating…" : "Create contact"}</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
 
 function ContactDrawer({ id, onClose }) {
   const { data: c, loading, error } = useApi(`/api/contacts/${id}`);
@@ -29,11 +79,13 @@ function ContactDrawer({ id, onClose }) {
 }
 
 export default function Contacts() {
-  const { wsParam } = useAuth();
+  const { wsParam, me } = useAuth();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(null);
+  const [modal, setModal] = useState(false);
   const [filter, setFilter] = useState("__booked");   // default: meetings booked & beyond
   const { data, error, loading, reload } = useApi("/api/contacts", { workspace_id: wsParam, q });
+  const wsId = wsParam || (!me?.is_master ? me?.workspaces?.[0]?.id : null);
 
   const counts = {};
   (data || []).forEach((c) => { const k = c.status?.key || "none"; counts[k] = (counts[k] || 0) + 1; });
@@ -56,6 +108,8 @@ export default function Contacts() {
     <>
       <div className="toolbar">
         <input type="text" placeholder="Search contacts…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="spacer" />
+        <button className="btn" onClick={() => setModal(true)}>+ New contact</button>
       </div>
       {data && data.length > 0 && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "4px 0 12px", alignItems: "center" }}>
@@ -91,6 +145,10 @@ export default function Contacts() {
         </table>
       )}
       {open && <ContactDrawer id={open} onClose={() => setOpen(null)} />}
+      {modal && (
+        <NewContactModal workspaceId={wsId} onClose={() => setModal(false)}
+                         onCreated={() => { setModal(false); setFilter("none"); reload(); }} />
+      )}
     </>
   );
 }

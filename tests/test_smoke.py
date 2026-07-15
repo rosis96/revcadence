@@ -276,6 +276,24 @@ def main():
         "doc_id": up["id"], "html": "<!doctype html><html><body><h1>Replaced</h1></body></html>"}, headers=auth(tok)).json()
     check("uploaded blueprint HTML replaced in place", rep["slug"] == up["slug"] and "Replaced" in rep["html"], str(rep)[:160])
 
+    # --- manual CRM entry: add a company, a contact, then a deal (website/referral lead path)
+    co = client.post("/api/companies", json={"workspace_id": w1["id"], "name": "Website Lead Co", "website": "weblead.com"}, headers=auth(tok)).json()
+    ct = client.post("/api/contacts", json={"workspace_id": w1["id"], "first_name": "Web", "last_name": "Lead",
+                                            "email": "web@weblead.com", "title": "Founder", "company_id": co["id"]}, headers=auth(tok)).json()
+    check("manual contact created", bool(ct.get("id")), str(ct)[:160])
+    contacts_now = client.get("/api/contacts", params={"workspace_id": w1["id"]}, headers=auth(tok)).json()
+    mine = next((c for c in contacts_now if c["id"] == ct["id"]), None)
+    check("new contact starts as 'No deal'", mine and mine["status"]["key"] == "none", str(mine)[:160])
+    nd = client.post("/api/deals", json={"workspace_id": w1["id"], "name": "Web Lead deal", "company_id": co["id"],
+                                         "contact_id": ct["id"], "stage_id": stage_meeting, "value": 4200}, headers=auth(tok)).json()
+    check("manual deal created", bool(nd.get("id")), str(nd)[:160])
+    contacts_after = client.get("/api/contacts", params={"workspace_id": w1["id"]}, headers=auth(tok)).json()
+    mine2 = next((c for c in contacts_after if c["id"] == ct["id"]), None)
+    check("contact now shows Meeting Booked after deal", mine2 and mine2["status"]["key"] == "meeting_booked", str(mine2)[:160])
+    upco = client.post("/api/blueprints/upload", json={"workspace_id": w1["id"], "company_id": co["id"],
+                                                       "html": "<h1>Co Blueprint</h1>"}, headers=auth(tok)).json()
+    check("blueprint upload tied to company", upco["company_id"] == co["id"] and upco["fields"].get("generator") == "uploaded", str(upco)[:160])
+
     print(f"\n{sum(1 for _, ok in PASS if ok)}/{len(PASS)} checks passed")
 
 

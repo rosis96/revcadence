@@ -10,6 +10,10 @@ export default function CompanyDetail() {
   const [busy, setBusy] = useState("");
   const [fathom, setFathom] = useState(false);
   const [transcript, setTranscript] = useState("");
+  const [upload, setUpload] = useState(false);
+  const [upTitle, setUpTitle] = useState("");
+  const [upHtml, setUpHtml] = useState("");
+  const [upFileName, setUpFileName] = useState("");
 
   const enrich = async () => {
     setBusy("enrich");
@@ -40,6 +44,25 @@ export default function CompanyDetail() {
     } catch (e) { alert(e.message); }
     setBusy("");
   };
+  // Upload a custom HTML blueprint for THIS company.
+  const onUpFile = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setUpFileName(f.name);
+    const r = new FileReader();
+    r.onload = () => { setUpHtml(String(r.result || "")); if (!upTitle) setUpTitle(f.name.replace(/\.(html?|htm)$/i, "")); };
+    r.readAsText(f);
+  };
+  const uploadBlueprint = async () => {
+    if (!upHtml.trim()) { alert("Choose an HTML file or paste the markup first."); return; }
+    setBusy("up");
+    try {
+      const doc = await api("/api/blueprints/upload", { method: "POST",
+        body: { workspace_id: c.workspace_id, company_id: c.id, title: upTitle || null, html: upHtml } });
+      nav(`/blueprints/${doc.id}`);
+    } catch (e) { alert(e.message); }
+    setBusy("");
+  };
 
   if (loading) return <Spinner />;
   if (error) return <ErrorBox msg={error} retry={reload} />;
@@ -56,6 +79,7 @@ export default function CompanyDetail() {
         <button className="btn ghost" disabled={!!busy} onClick={enrich}>{busy === "enrich" ? "Queueing…" : "✦ Enrich"}</button>
         <button className="btn ghost" onClick={() => nav(`/companies/${id}/profile`)}>◎ Client Profile</button>
         <button className="btn" onClick={() => setFathom(true)}>▤ Blueprint from transcript</button>
+        <button className="btn ghost" onClick={() => setUpload(true)}>⬆ Upload blueprint</button>
         <button className="btn danger" onClick={removeCompany}>Delete</button>
       </div>
 
@@ -89,6 +113,30 @@ export default function CompanyDetail() {
             <button type="button" className="btn ghost" onClick={() => setFathom(false)}>Cancel</button>
             <button className="btn" disabled={busy === "bp"} onClick={buildFromTranscript}>
               {busy === "bp" ? "Generating…" : "Generate blueprint"}</button>
+          </div>
+        </Modal>
+      )}
+
+      {upload && (
+        <Modal title={`Upload a custom blueprint for ${c.name}`} onClose={() => setUpload(false)}>
+          <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 0 }}>
+            Bring your own page — upload an HTML file (or paste the markup) you built outside the system.
+            It gets its own slug and public link, and publishes exactly like a generated blueprint.</p>
+          <div className="field"><label>Title</label>
+            <input value={upTitle} onChange={(e) => setUpTitle(e.target.value)}
+                   placeholder={`${c.name} — Growth Blueprint`} /></div>
+          <div className="field"><label>HTML file</label>
+            <input type="file" accept=".html,.htm,text/html" onChange={onUpFile} />
+            {upFileName && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>Loaded: {upFileName} ({upHtml.length.toLocaleString()} chars)</div>}
+          </div>
+          <div className="field"><label>…or paste HTML</label>
+            <textarea rows={8} style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
+                      value={upHtml} onChange={(e) => { setUpHtml(e.target.value); setUpFileName(""); }}
+                      placeholder="<!doctype html> …" /></div>
+          <div className="actions">
+            <button type="button" className="btn ghost" onClick={() => setUpload(false)}>Cancel</button>
+            <button className="btn" disabled={busy === "up"} onClick={uploadBlueprint}>
+              {busy === "up" ? "Uploading…" : "Create blueprint"}</button>
           </div>
         </Modal>
       )}
