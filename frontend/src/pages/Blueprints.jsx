@@ -38,7 +38,9 @@ export default function Blueprints() {
 
   return (
     <>
-      <div className="toolbar">
+      <div className="toolbar" style={{ marginBottom: 6 }}>
+        <h1 style={{ fontSize: 18 }}>Blueprints & Agreements</h1>
+        <span style={{ color: "var(--muted)", fontSize: 12.5 }}>Deals in progress — proposals you're discussing</span>
         <div className="spacer" />
         <button className="btn" onClick={() => setModal(true)}>+ New blueprint (from transcript)</button>
       </div>

@@ -61,6 +61,7 @@ SECTIONS = {
         ("start_date", "Start date", "client"),
         ("term", "Term", "client"),
         ("pricing", "Pricing", "client"),
+        ("payment_status", "Payment status", "internal"),
         ("revenue_share", "Commission / revenue-share terms", "internal"),
         ("special_conditions", "Special conditions", "internal"),
     ]),

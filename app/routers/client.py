@@ -37,6 +37,35 @@ def _out(p: ClientProfile) -> dict:
     }
 
 
+def _fval(p, section, field):
+    return (((p.data or {}).get(section, {}) or {}).get(field, {}) or {}).get("value", "")
+
+
+@router.get("")
+def list_clients(workspace_id: int | None = None, ctx: AuthContext = Depends(get_ctx)):
+    """The Clients section: every closed-won / active client in the workspace with
+    a delivery-focused summary (scope, onboarding %, start date, pricing, payment)."""
+    ws_ids = ctx.workspace_ids_for_query(workspace_id)
+    q = (ctx.db.query(ClientProfile, Company.name)
+         .join(Company, Company.id == ClientProfile.company_id)
+         .filter(ClientProfile.workspace_id.in_(ws_ids))
+         .order_by(ClientProfile.updated_at.desc()))
+    out = []
+    for p, cname in q.all():
+        out.append({
+            "company_id": p.company_id, "company_name": cname, "workspace_id": p.workspace_id,
+            "is_active_client": bool(p.is_active_client), "scope_type": p.scope_type,
+            "onboarding_status": p.onboarding_status, "completeness": p.completeness or 0,
+            "review_flags": len(p.review_flags or []),
+            "start_date": _fval(p, "delivery_scope", "start_date"),
+            "pricing": _fval(p, "delivery_scope", "pricing"),
+            "payment_status": _fval(p, "delivery_scope", "payment_status"),
+            "blueprint_doc_id": p.blueprint_doc_id, "agreement_doc_id": p.agreement_doc_id,
+            "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+        })
+    return out
+
+
 @router.get("/{company_id}")
 def get_profile(company_id: int, ctx: AuthContext = Depends(get_ctx)):
     p = _get(ctx, company_id)

@@ -4,7 +4,7 @@ import {
   LayoutGrid, ListChecks, Database, CircleUser, Target, AlignLeft, CheckCheck, FileText,
   Mail, Inbox, FlaskConical, Settings2, SlidersHorizontal, Flag, Globe, Rows3, Building2,
   Contact, Activity as ActivityIcon, Cog, Wrench, ShieldCheck, ChevronDown, MoreHorizontal,
-  LogOut, Search, ClipboardList, Radar,
+  LogOut, Search, ClipboardList, Radar, Briefcase,
 } from "lucide-react";
 import { AuthProvider, useAuth } from "./auth";
 import { useApi } from "./components";
@@ -21,6 +21,7 @@ import EnrichConfigPage from "./pages/EnrichConfig";
 import Blueprints from "./pages/Blueprints";
 import BlueprintDetail from "./pages/BlueprintDetail";
 import ClientProfile from "./pages/ClientProfile";
+import Clients from "./pages/Clients";
 import ActivityPage from "./pages/Activity";
 import ReplyDashboard from "./pages/ReplyDashboard";
 import ReplyInbox from "./pages/ReplyInbox";
@@ -50,7 +51,6 @@ const MODES = {
       ["/enrichment/icp", "ICP / Non-ICP", Target],
       ["/enrichment/formats", "Formats", AlignLeft],
       ["/enrichment/rules", "Rules", CheckCheck],
-      ["/blueprints", "Blueprints", FileText],
     ],
   },
   reply: {
@@ -73,6 +73,8 @@ const MODES = {
     label: "CRM",
     nav: [
       ["/pipeline", "Pipeline", Rows3],
+      ["/blueprints", "Blueprints & Agreements", FileText],
+      ["/clients", "Clients", Briefcase],
       ["/companies", "Companies", Building2],
       ["/contacts", "Contacts", Contact],
       ["/onboarding", "Onboarding", ClipboardList],
@@ -210,6 +212,7 @@ function Protected() {
         <Route path="/companies" element={<Companies />} />
         <Route path="/companies/:id" element={<CompanyDetail />} />
         <Route path="/companies/:id/profile" element={<ClientProfile />} />
+        <Route path="/clients" element={<Clients />} />
         <Route path="/contacts" element={<Contacts />} />
         <Route path="/enrichment" element={<EnrichLists />} />
         <Route path="/enrichment/lists/:id" element={<EnrichListDetail />} />
