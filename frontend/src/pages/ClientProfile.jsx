@@ -180,10 +180,39 @@ const docIcon = { blueprint: "▤", agreement: "✍", proposal: "▧" };
 
 function DocsTab({ companyId }) {
   const { data: docs, loading } = useApi("/api/documents", { company_id: companyId });
+  const { data: ags } = useApi("/api/agreements", { company_id: companyId });
+  const { data: invs } = useApi("/api/invoices", { company_id: companyId });
   const [copied, setCopied] = useState("");
   return (
+    <>
+    {(ags && ags.length > 0) && (
+      <div className="card" style={{ padding: 18, marginBottom: 12 }}>
+        <h2 style={{ fontSize: 15, marginTop: 0 }}>Agreements</h2>
+        {ags.map((ag, i) => (
+          <div key={ag.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: i ? "1px solid var(--line,#eee)" : "none" }}>
+            <span>✍</span>
+            <div style={{ flex: 1 }}><b>{ag.number}</b> <span style={{ color: "var(--muted)", fontSize: 12 }}>v{ag.version}</span></div>
+            <Badge tone={ag.status === "executed" ? "green" : "blue"}>{ag.status}</Badge>
+            <Link className="btn ghost sm" to={`/agreements/${ag.id}`}>Open</Link>
+          </div>
+        ))}
+      </div>
+    )}
+    {(invs && invs.length > 0) && (
+      <div className="card" style={{ padding: 18, marginBottom: 12 }}>
+        <h2 style={{ fontSize: 15, marginTop: 0 }}>Invoices</h2>
+        {invs.map((iv, i) => (
+          <div key={iv.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: i ? "1px solid var(--line,#eee)" : "none" }}>
+            <span>▧</span>
+            <div style={{ flex: 1 }}><b>{iv.number}</b> <span style={{ color: "var(--muted)", fontSize: 12 }}>{iv.currency} {(iv.total || 0).toLocaleString()}</span></div>
+            <Badge tone={iv.status === "paid" ? "green" : "blue"}>{iv.status}</Badge>
+            <Link className="btn ghost sm" to={`/invoices/${iv.id}`}>Open</Link>
+          </div>
+        ))}
+      </div>
+    )}
     <div className="card" style={{ padding: 18 }}>
-      <h2 style={{ fontSize: 15, marginTop: 0 }}>Documents</h2>
+      <h2 style={{ fontSize: 15, marginTop: 0 }}>Blueprints &amp; documents</h2>
       {loading && <Spinner />}
       {docs && docs.length === 0 && (
         <span style={{ color: "var(--muted)", fontSize: 13 }}>
@@ -217,5 +246,6 @@ function DocsTab({ companyId }) {
         </div>
       )}
     </div>
+    </>
   );
 }

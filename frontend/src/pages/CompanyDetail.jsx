@@ -17,6 +17,8 @@ export default function CompanyDetail() {
   const { id } = useParams();
   const nav = useNavigate();
   const { data: c, error, loading, reload } = useApi(`/api/companies/${id}`);
+  const { data: ags, reload: reloadAgs } = useApi(`/api/agreements`, { company_id: id });
+  const { data: invs } = useApi(`/api/invoices`, { company_id: id });
   const [busy, setBusy] = useState("");
   const [fathom, setFathom] = useState(false);
   const [transcript, setTranscript] = useState("");
@@ -74,6 +76,27 @@ export default function CompanyDetail() {
     } catch (e) { alert(e.message); }
     setBusy("");
   };
+  const newAgreement = async () => {
+    setBusy("agr");
+    try {
+      const deal = (c.deals || [])[0];
+      const ag = await api("/api/agreements/generate", { method: "POST",
+        body: { workspace_id: c.workspace_id, company_id: c.id, deal_id: deal ? deal.id : null } });
+      nav(`/agreements/${ag.id}`);
+    } catch (e) { alert(e.message); }
+    setBusy("");
+  };
+  const newInvoice = async () => {
+    setBusy("inv");
+    try {
+      const inv = await api("/api/invoices", { method: "POST",
+        body: { workspace_id: c.workspace_id, company_id: c.id } });
+      nav(`/invoices/${inv.id}`);
+    } catch (e) { alert(e.message); }
+    setBusy("");
+  };
+  const AGR_TONE = { draft: "", ready: "blue", sent: "blue", viewed: "indigo", client_signed: "amber", countersigned: "amber", executed: "green", voided: "red", archived: "" };
+  const INV_TONE = { draft: "", issued: "blue", viewed: "indigo", partially_paid: "amber", paid: "green", overdue: "red", void: "" };
 
   if (loading) return <Spinner />;
   if (error) return <ErrorBox msg={error} retry={reload} />;
@@ -193,6 +216,54 @@ export default function CompanyDetail() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+
+          <div className="section">
+            <div style={{ display: "flex", alignItems: "center" }}>
+              <h2 style={{ flex: 1 }}>Agreements</h2>
+              <button className="btn ghost sm" disabled={busy === "agr"} onClick={newAgreement}>{busy === "agr" ? "Generating…" : "+ New agreement"}</button>
+            </div>
+            {(!ags || ags.length === 0) ? (
+              <div className="card empty">No agreements yet — generate one from the blueprint/deal.</div>
+            ) : (
+              <div className="card" style={{ padding: 0 }}>
+                {ags.map((ag, i) => (
+                  <div key={ag.id} className="click" onClick={() => nav(`/agreements/${ag.id}`)}
+                       style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderTop: i ? "1px solid var(--line,#eee)" : "none" }}>
+                    <span style={{ fontSize: 15 }}>✍</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13.5 }}>{ag.number} · {ag.title}</div>
+                      <div style={{ fontSize: 11.5, color: "var(--muted)" }}>v{ag.version}{ag.is_current ? "" : " (superseded)"} · {ag.view_count} views{ag.executed_at ? " · executed" : ""}</div>
+                    </div>
+                    <Badge tone={AGR_TONE[ag.status] || ""}>{ag.status}</Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="section">
+            <div style={{ display: "flex", alignItems: "center" }}>
+              <h2 style={{ flex: 1 }}>Invoices</h2>
+              <button className="btn ghost sm" disabled={busy === "inv"} onClick={newInvoice}>{busy === "inv" ? "Creating…" : "+ New invoice"}</button>
+            </div>
+            {(!invs || invs.length === 0) ? (
+              <div className="card empty">No invoices yet.</div>
+            ) : (
+              <div className="card" style={{ padding: 0 }}>
+                {invs.map((iv, i) => (
+                  <div key={iv.id} className="click" onClick={() => nav(`/invoices/${iv.id}`)}
+                       style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderTop: i ? "1px solid var(--line,#eee)" : "none" }}>
+                    <span style={{ fontSize: 15 }}>▧</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13.5 }}>{iv.number}</div>
+                      <div style={{ fontSize: 11.5, color: "var(--muted)" }}>{iv.currency} {(iv.total || 0).toLocaleString()} · balance {iv.currency} {(iv.balance_due || 0).toLocaleString()}</div>
+                    </div>
+                    <Badge tone={INV_TONE[iv.status] || ""}>{iv.status}</Badge>
+                  </div>
+                ))}
               </div>
             )}
           </div>

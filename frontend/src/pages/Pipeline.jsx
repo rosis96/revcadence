@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, money, timeAgo } from "../api";
 import { useAuth } from "../auth";
 import { Badge, Drawer, ErrorBox, Modal, Spinner, Timeline, useApi } from "../components";
@@ -107,11 +108,19 @@ function NewLeadModal({ onClose, onCreated, workspaceId, stages }) {
 }
 
 function DealDrawer({ dealId, onClose, onChanged }) {
+  const nav = useNavigate();
   const { data: d, error, loading, reload } = useApi(`/api/deals/${dealId}`);
+  const { data: ags } = useApi(`/api/agreements`, { deal_id: dealId });
   const [busy, setBusy] = useState(false);
   const move = async (stageId) => {
     setBusy(true);
     try { await api(`/api/deals/${dealId}/move`, { method: "POST", body: { stage_id: Number(stageId) } }); reload(); onChanged(); }
+    catch (e) { alert(e.message); }
+    setBusy(false);
+  };
+  const newAgreement = async () => {
+    setBusy(true);
+    try { const a = await api("/api/agreements/generate", { method: "POST", body: { deal_id: Number(dealId) } }); nav(`/agreements/${a.id}`); }
     catch (e) { alert(e.message); }
     setBusy(false);
   };
@@ -137,6 +146,18 @@ function DealDrawer({ dealId, onClose, onChanged }) {
             <div className="k">Close date</div><div>{d.close_date || "—"}</div>
           </div>
           {d.description && <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>{d.description}</p>}
+          <div style={{ display: "flex", alignItems: "center", margin: "10px 0 6px" }}>
+            <h3 style={{ fontSize: 13, flex: 1, margin: 0 }}>Agreement</h3>
+            <button className="btn ghost sm" disabled={busy} onClick={newAgreement}>+ New</button>
+          </div>
+          {(ags || []).length === 0 && <div style={{ fontSize: 12, color: "var(--muted)" }}>No agreement yet for this deal.</div>}
+          {(ags || []).map((ag) => (
+            <div key={ag.id} className="click" onClick={() => nav(`/agreements/${ag.id}`)}
+                 style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 0", fontSize: 12.5 }}>
+              <span>✍</span><span style={{ flex: 1 }}>{ag.number} · v{ag.version}</span>
+              <Badge tone={ag.status === "executed" ? "green" : "blue"}>{ag.status}</Badge>
+            </div>
+          ))}
           <h3 style={{ fontSize: 13, margin: "14px 0 8px" }}>Timeline</h3>
           <Timeline items={d.timeline} />
         </>

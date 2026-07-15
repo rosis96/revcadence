@@ -1,5 +1,72 @@
 # NEXT_STEPS — living document
 
+## ✅ Session 20 (2026-07-15) — Agreement + Invoice system (end-to-end)
+
+Full contract + billing layer, built inside the existing repo (no new app/service).
+Reuses CRM/Company/Contact/Deal/Blueprint/Client Profile/Activity/auth/public-host
+routing. Flow: **Blueprint → Agreement → Client signature → Countersign → Executed
+PDF → Invoice → Closed Won → Client Profile/Onboarding.**
+
+**Agreements** (`app/models/agreements.py`, `app/agreements/*`, `app/routers/agreements.py`):
+- Generated from blueprint/deal/client-profile — **never invents pricing, deliverables,
+  dates, or entities**; missing required facts are `missing_flags` shown in the editor.
+- Structured sections (parties → governing terms), commercial fields, versioning
+  (amendments create a new version; sent/signed versions are immutable).
+- Statuses `draft→ready→sent→viewed→client_signed→countersigned→executed / voided /
+  archived` with server-enforced transitions.
+- Public page `agreement.<domain>/{slug}` (+ `/agreement/{slug}` fallback); unknown/
+  unpublished/voided → 404; view tracking; **rate-limited, token-guarded client signing**
+  (name/email/title/consent + IP/UA/version/checksum captured; duplicate signing blocked).
+- **Countersign** = owner/admin only → **executes**: freezes an HTML snapshot, stores a
+  SHA-256 checksum, **locks** the version, then runs **idempotent Closed-Won automation**
+  (deal → Won, activate client, build/refresh Client Profile + onboarding + tasks).
+- **PDFs via ReportLab** (pure-Python, no headless browser): draft / client-signed /
+  executed (executed renders from the locked snapshot + execution certificate).
+
+**Invoices** (`app/routers/invoices.py`): number/slug/token, line items, tax/discount,
+subtotal/total/paid/balance, statuses `draft→issued→viewed→partially_paid→paid→
+overdue/void`. Auto-draft from an executed agreement's **approved** fee fields only
+(review before issuing). Public `invoice.<domain>/{slug}` (+ `/invoice/{slug}`), PDF
+from internal and public views, payment-status recording (no processor — foundation only).
+
+**Webhooks** (`app/agreements/webhooks.py`): Make.com-friendly, env-driven
+(`AGREEMENT_WEBHOOK_URL`, `INVOICE_WEBHOOK_URL`) for sent/viewed/signed/countersigned/
+executed + invoice issued/viewed/paid. Payloads carry ids/status/public URLs/timestamps,
+**never secrets**. (Email delivery not included — see "Still missing".)
+
+**UI**: Company → **Agreements** + **Invoices** sections (generate/open/status), Deal
+drawer → Agreement, full **Agreement editor** (`/agreements/:id`) and **Invoice editor**
+(`/invoices/:id`), Client Profile → Documents now lists agreements + invoices.
+
+**Migration**: new tables `agreements`, `invoices` auto-created on deploy via
+`migrate()` (create_all checkfirst + additive column sync; premigrate runs it on the
+Alembic path). No hand-written migration required. New deps: `reportlab`,
+`python-multipart`.
+
+**Tests**: `python3 -m tests.test_agreements` (44/44) covering generation, no-invented-
+pricing, public routing + 404, view tracking, signing + duplicate prevention, countersign
+auth, execution locking, PDF download, versioning, invoice from approved terms + totals,
+invoice routing + PDF, Closed-Won automation, profile creation, idempotency, workspace
+isolation, webhook payloads. Full suite: 160/160 (smoke 52, client_profile 19, agreements
+44, import_reply_config 25, import_reply_leads 20).
+
+**Railway variables (only what's used)**: `AGREEMENT_HOSTS`, `INVOICE_HOSTS`,
+`AGREEMENT_WEBHOOK_URL`, `INVOICE_WEBHOOK_URL`, `PUBLIC_BASE_URL` (optional:
+`AGREEMENT_PUBLIC_BASE`, `INVOICE_PUBLIC_BASE`, `PROVIDER_ENTITY`, `PROVIDER_GOVERNING_LAW`).
+
+**Domains to add after deploy**: `agreement.revcadence.com`, `invoice.revcadence.com`
+(CNAME to the web service; auto-detected by the `agreement.`/`invoice.` host prefix, or
+list them in `AGREEMENT_HOSTS`/`INVOICE_HOSTS`).
+
+**First production test**: Company → **+ New agreement** → fill effective date + fees →
+Send → open the public agreement link → sign → back in-app **Countersign & execute** →
+download the **Executed PDF** → **Create invoice** → Issue → open the public invoice link.
+
+**Still missing / follow-ups**: email delivery of links (only webhooks are wired — plug in
+an email provider or a Make.com scenario off the webhook); payment processor (Stripe) on
+top of the payment-status foundation; optional AI polish of agreement prose (kept
+deterministic today to guarantee the no-fabrication rule).
+
 ## ✅ Session 19 (2026-07-15) — Blueprints (public per-client) + Client Profile
 
 **Blueprint**: generate from a Fathom transcript (Company → *Blueprint from

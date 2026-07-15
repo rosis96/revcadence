@@ -8,8 +8,8 @@ from fastapi import FastAPI
 
 from . import config
 from .db import engine, init_db
-from .routers import (admin, auth, client, crm, enrich, enrich_lists, inbound, jobs,
-                      onboarding, public, reply)
+from .routers import (admin, agreements, auth, client, crm, enrich, enrich_lists, inbound,
+                      invoices, jobs, onboarding, public, reply)
 
 app = FastAPI(title=config.APP_NAME, version=config.VERSION)
 
@@ -74,6 +74,8 @@ app.include_router(inbound.router)
 app.include_router(reply.router)
 app.include_router(onboarding.router)
 app.include_router(client.router)
+app.include_router(agreements.router)
+app.include_router(invoices.router)
 app.include_router(public.router)
 
 # ---------------------------------------------------------------- blueprint host
@@ -84,21 +86,49 @@ app.include_router(public.router)
 import os as _os  # noqa: E402
 
 _BLUEPRINT_HOSTS = tuple(h.strip().lower() for h in _os.getenv("BLUEPRINT_HOSTS", "").split(",") if h.strip())
+_AGREEMENT_HOSTS = tuple(h.strip().lower() for h in _os.getenv("AGREEMENT_HOSTS", "").split(",") if h.strip())
+_INVOICE_HOSTS = tuple(h.strip().lower() for h in _os.getenv("INVOICE_HOSTS", "").split(",") if h.strip())
 _RESERVED_SEG = {"", "api", "assets", "healthz", "docs", "redoc", "openapi.json",
-                 "p", "favicon.ico", "robots.txt", "sitemap.xml"}
+                 "p", "agreement", "invoice", "favicon.ico", "robots.txt", "sitemap.xml"}
 
 
 @app.middleware("http")
-async def _blueprint_host_router(request, call_next):
+async def _public_host_router(request, call_next):
+    """On a bare public host (blueprint./agreement./invoice.<domain>), serve the
+    client's document at `/{slug}` (and `/{slug}/pdf` for agreements/invoices).
+    The internal app is never exposed at these hosts' root. Everything else
+    (api, assets, healthz) passes through."""
     host = (request.headers.get("host") or "").split(":")[0].lower()
-    if request.method == "GET" and (host.startswith("blueprint.") or host in _BLUEPRINT_HOSTS):
+    from .routers import public as _pub
+
+    def _is(kind_prefix, extra):
+        return host.startswith(kind_prefix) or host in extra
+
+    if request.method in ("GET", "HEAD"):
         path = request.url.path.strip("/")
-        if path and "/" not in path and path not in _RESERVED_SEG:
-            from .routers.public import _render_blueprint
-            return _render_blueprint(path)
-        if path == "":   # don't expose the internal app at the blueprint root
-            from .routers.public import _404
-            return _404
+        segs = path.split("/") if path else []
+        if _is("agreement.", _AGREEMENT_HOSTS):
+            if not path:
+                return _pub._404
+            if len(segs) == 1 and segs[0] not in _RESERVED_SEG:
+                return _pub._render_agreement(segs[0])
+            if len(segs) == 2 and segs[1] == "pdf":
+                return _pub.public_agreement_pdf(segs[0])
+        elif _is("invoice.", _INVOICE_HOSTS):
+            if not path:
+                return _pub._404
+            if len(segs) == 1 and segs[0] not in _RESERVED_SEG:
+                return _pub._render_invoice(segs[0])
+            if len(segs) == 2 and segs[1] == "pdf":
+                return _pub.public_invoice_pdf(segs[0])
+        elif _is("blueprint.", _BLUEPRINT_HOSTS):
+            if path and "/" not in path and path not in _RESERVED_SEG:
+                return _pub._render_blueprint(path)
+            if not path:
+                return _pub._404
+    # POST to a signing endpoint on the agreement host must still reach the router
+    if _is("agreement.", _AGREEMENT_HOSTS) and request.method == "POST":
+        return await call_next(request)
     return await call_next(request)
 
 # ---------------------------------------------------------------- frontend

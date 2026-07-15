@@ -20,6 +20,8 @@ import EnrichListDetail from "./pages/EnrichListDetail";
 import EnrichConfigPage from "./pages/EnrichConfig";
 import Blueprints from "./pages/Blueprints";
 import BlueprintDetail from "./pages/BlueprintDetail";
+import AgreementDetail from "./pages/AgreementDetail";
+import InvoiceDetail from "./pages/InvoiceDetail";
 import ClientProfile from "./pages/ClientProfile";
 import Clients from "./pages/Clients";
 import ActivityPage from "./pages/Activity";
@@ -232,6 +234,8 @@ function Protected() {
         <Route path="/inbound" element={<InboundVisitors />} />
         <Route path="/blueprints" element={<Blueprints />} />
         <Route path="/blueprints/:id" element={<BlueprintDetail />} />
+        <Route path="/agreements/:id" element={<AgreementDetail />} />
+        <Route path="/invoices/:id" element={<InvoiceDetail />} />
         <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/activity" element={<ActivityPage />} />
         <Route path="/jobs" element={<Jobs />} />

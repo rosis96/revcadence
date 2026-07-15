@@ -26,6 +26,28 @@ export async function api(path, { method = "GET", body, params } = {}) {
   return res.json();
 }
 
+// Authed file download (PDFs). Streams the response to a blob and triggers a
+// browser download with the server-provided filename.
+export async function download(path, fallbackName = "download.pdf") {
+  const url = new URL(BASE + path, window.location.origin);
+  const headers = {};
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    let detail = `${res.status}`;
+    try { detail = (await res.json()).detail || detail; } catch { /* noop */ }
+    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+  }
+  const blob = await res.blob();
+  const cd = res.headers.get("content-disposition") || "";
+  const m = cd.match(/filename="?([^"]+)"?/);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = m ? m[1] : fallbackName;
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+}
+
 export const money = (v) =>
   (v || 0).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 export const timeAgo = (iso) => {
