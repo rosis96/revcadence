@@ -239,6 +239,32 @@ def move_deal(deal_id: int, body: MoveIn, ctx: AuthContext = Depends(get_ctx)):
     return {"ok": True, "client_profile_id": profile_id}
 
 
+@router.post("/deals/cleanup-interested")
+def cleanup_interested_deals(workspace_id: int | None = None, dry_run: bool = False,
+                             ctx: AuthContext = Depends(get_ctx)):
+    """Remove interested-only pipeline deals (auto-created from replies before we
+    switched to meeting-gated). Deletes deals with source='reply' still sitting in
+    the entry 'Opportunity' stage — booked/progressed deals (Meeting Booked and
+    beyond) are kept. Scoped to the caller's workspaces."""
+    ws_ids = ctx.workspace_ids_for_query(workspace_id)
+    opp_stage_ids = [s.id for s in ctx.db.query(Stage)
+                     .filter(Stage.workspace_id.in_(ws_ids), Stage.name == "Opportunity",
+                             Stage.is_won == False, Stage.is_lost == False).all()]  # noqa: E712
+    if not opp_stage_ids:
+        return {"deleted": 0, "matched": 0}
+    q = ctx.db.query(Deal).filter(Deal.workspace_id.in_(ws_ids),
+                                  Deal.source == "reply", Deal.stage_id.in_(opp_stage_ids))
+    ids = [d.id for d in q.all()]
+    if dry_run or not ids:
+        return {"deleted": 0, "matched": len(ids)}
+    # detach activities (FK) then delete the deals
+    ctx.db.query(Activity).filter(Activity.deal_id.in_(ids)).update(
+        {Activity.deal_id: None}, synchronize_session=False)
+    ctx.db.query(Deal).filter(Deal.id.in_(ids)).delete(synchronize_session=False)
+    ctx.db.commit()
+    return {"deleted": len(ids), "matched": len(ids)}
+
+
 # ---------------------------------------------------------------- activities
 @router.get("/activities")
 def list_activities(workspace_id: int | None = None, kind: str = "", limit: int = 50,

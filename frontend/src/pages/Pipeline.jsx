@@ -56,10 +56,24 @@ export default function Pipeline() {
     catch (err) { alert(err.message); }
   };
 
+  const cleanup = async () => {
+    try {
+      const n = await api("/api/deals/cleanup-interested", { method: "POST", params: { workspace_id: wsParam, dry_run: true } });
+      if (!n.matched) { alert("No interested-only deals to remove — the pipeline is already meeting-gated."); return; }
+      if (!confirm(`Remove ${n.matched} interested-only deal(s) (positive replies that never booked)? Booked/progressed deals are kept. This can't be undone.`)) return;
+      const r = await api("/api/deals/cleanup-interested", { method: "POST", params: { workspace_id: wsParam } });
+      alert(`Removed ${r.deleted} interested-only deal(s).`); reload();
+    } catch (e) { alert(e.message); }
+  };
+
   if (loading) return <Spinner />;
   if (error) return <ErrorBox msg={error} retry={reload} />;
   return (
     <>
+      <div className="toolbar" style={{ marginBottom: 8 }}>
+        <div className="spacer" />
+        <button className="btn ghost sm" onClick={cleanup} title="Remove positive-reply deals that never booked a meeting">Clean up interested-only deals</button>
+      </div>
       <div className="board">
         {board.map((col) => (
           <div key={col.stage.name} className={`col ${dragOver === col.stage.name ? "dragover" : ""}`}
