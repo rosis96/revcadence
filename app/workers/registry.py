@@ -371,13 +371,15 @@ def process_reply_job(db, job):
             lead.send_error = str(e)[:500]
             lead.lead_data = {**(lead.lead_data or {}), "_send_error": str(e)[:300]}
 
-    # sync to CRM + enrichment: contact/company + enrich by email. NOTE: an
-    # interested reply no longer creates a pipeline deal — a deal is only created
-    # when a meeting is actually BOOKED (see reply_lead_action → sync_booked_to_deal).
-    # This keeps the pipeline meeting-grade, not cluttered with every positive reply.
+    # sync to CRM + enrichment: contact/company + enrich by email, and every
+    # interested reply → an Opportunity deal (the pipeline card). The company/
+    # contact are created but hidden from the Companies/Contacts LISTS until a
+    # meeting is booked — those lists are for booked/active conversations only
+    # (see the interested-only filter in routers/crm.py).
     try:
-        from ..reply.sync import sync_reply_lead_to_crm
+        from ..reply.sync import sync_reply_lead_to_crm, sync_interested_to_opportunity
         sync_reply_lead_to_crm(db, lead, queue_enrich=True)
+        sync_interested_to_opportunity(db, lead)
     except Exception:
         pass  # CRM sync must never block the reply pipeline
 

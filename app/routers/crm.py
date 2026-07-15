@@ -20,11 +20,38 @@ def _one_or_404(ctx, model, obj_id, workspace_id=None):
 
 
 # ---------------------------------------------------------------- companies
+def _interested_only_ids(ctx, ws_ids):
+    """company_ids & contact_ids whose deals are ALL in the entry 'Opportunity'
+    stage — interested replies that never booked. These still show as pipeline
+    cards but are hidden from the Companies/Contacts lists (which are for
+    booked/active conversations). No-deal (manual) records are never hidden."""
+    from collections import defaultdict
+    opp_ids = {s.id for s in ctx.db.query(Stage)
+               .filter(Stage.workspace_id.in_(ws_ids), Stage.name == "Opportunity",
+                       Stage.is_won == False, Stage.is_lost == False).all()}  # noqa: E712
+    if not opp_ids:
+        return set(), set()
+    comp, cont = defaultdict(set), defaultdict(set)
+    for d in ctx.db.query(Deal.company_id, Deal.contact_id, Deal.stage_id).filter(Deal.workspace_id.in_(ws_ids)).all():
+        if d.company_id is not None:
+            comp[d.company_id].add(d.stage_id)
+        if d.contact_id is not None:
+            cont[d.contact_id].add(d.stage_id)
+    hide_comp = {cid for cid, st in comp.items() if st and st.issubset(opp_ids)}
+    hide_cont = {cid for cid, st in cont.items() if st and st.issubset(opp_ids)}
+    return hide_comp, hide_cont
+
+
 @router.get("/companies")
-def list_companies(workspace_id: int | None = None, q: str = "", ctx: AuthContext = Depends(get_ctx)):
+def list_companies(workspace_id: int | None = None, q: str = "", include_all: bool = False,
+                   ctx: AuthContext = Depends(get_ctx)):
     qry = scoped(ctx.db.query(Company), Company, ctx, workspace_id)
     if q:
         qry = qry.filter(Company.name.ilike(f"%{q}%"))
+    if not include_all:
+        hide_comp, _ = _interested_only_ids(ctx, ctx.workspace_ids_for_query(workspace_id))
+        if hide_comp:
+            qry = qry.filter(~Company.id.in_(hide_comp))
     rows = qry.order_by(Company.updated_at.desc()).limit(200).all()
     return [{"id": c.id, "workspace_id": c.workspace_id, "name": c.name, "domain": c.domain,
              "industry": c.industry, "icp_fit": c.icp_fit} for c in rows]
@@ -77,11 +104,16 @@ def create_contact(body: ContactIn, ctx: AuthContext = Depends(get_ctx)):
 
 # ---------------------------------------------------------------- contacts
 @router.get("/contacts")
-def list_contacts(workspace_id: int | None = None, q: str = "", ctx: AuthContext = Depends(get_ctx)):
+def list_contacts(workspace_id: int | None = None, q: str = "", include_all: bool = False,
+                  ctx: AuthContext = Depends(get_ctx)):
     qry = scoped(ctx.db.query(Contact), Contact, ctx, workspace_id)
     if q:
         like = f"%{q}%"
         qry = qry.filter((Contact.email.ilike(like)) | (Contact.first_name.ilike(like)) | (Contact.last_name.ilike(like)))
+    if not include_all:
+        _, hide_cont = _interested_only_ids(ctx, ctx.workspace_ids_for_query(workspace_id))
+        if hide_cont:
+            qry = qry.filter(~Contact.id.in_(hide_cont))
     rows = qry.order_by(Contact.updated_at.desc()).limit(200).all()
     coids = {c.company_id for c in rows if c.company_id}
     cmap = ({c.id: c.name for c in ctx.db.query(Company).filter(Company.id.in_(coids)).all()}
@@ -237,32 +269,6 @@ def move_deal(deal_id: int, body: MoveIn, ctx: AuthContext = Depends(get_ctx)):
         except Exception:
             pass  # never block the stage move
     return {"ok": True, "client_profile_id": profile_id}
-
-
-@router.post("/deals/cleanup-interested")
-def cleanup_interested_deals(workspace_id: int | None = None, dry_run: bool = False,
-                             ctx: AuthContext = Depends(get_ctx)):
-    """Remove interested-only pipeline deals (auto-created from replies before we
-    switched to meeting-gated). Deletes deals with source='reply' still sitting in
-    the entry 'Opportunity' stage — booked/progressed deals (Meeting Booked and
-    beyond) are kept. Scoped to the caller's workspaces."""
-    ws_ids = ctx.workspace_ids_for_query(workspace_id)
-    opp_stage_ids = [s.id for s in ctx.db.query(Stage)
-                     .filter(Stage.workspace_id.in_(ws_ids), Stage.name == "Opportunity",
-                             Stage.is_won == False, Stage.is_lost == False).all()]  # noqa: E712
-    if not opp_stage_ids:
-        return {"deleted": 0, "matched": 0}
-    q = ctx.db.query(Deal).filter(Deal.workspace_id.in_(ws_ids),
-                                  Deal.source == "reply", Deal.stage_id.in_(opp_stage_ids))
-    ids = [d.id for d in q.all()]
-    if dry_run or not ids:
-        return {"deleted": 0, "matched": len(ids)}
-    # detach activities (FK) then delete the deals
-    ctx.db.query(Activity).filter(Activity.deal_id.in_(ids)).update(
-        {Activity.deal_id: None}, synchronize_session=False)
-    ctx.db.query(Deal).filter(Deal.id.in_(ids)).delete(synchronize_session=False)
-    ctx.db.commit()
-    return {"deleted": len(ids), "matched": len(ids)}
 
 
 # ---------------------------------------------------------------- activities
