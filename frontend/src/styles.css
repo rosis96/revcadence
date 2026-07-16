@@ -442,3 +442,24 @@ iframe.preview { width: 100%; height: 70vh; border: 1px solid var(--border); bor
 .cp-foot { display: flex; gap: 16px; padding: 9px 16px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted2); }
 
 @media (max-width: 900px) { .topbar { grid-template-columns: auto 1fr auto; } .topbar h1 { display: none; } }
+
+/* ============================================================ Step 1: command-center dashboard */
+.cc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 4px; }
+.cc-grid .span2 { grid-column: span 2; }
+@media (max-width: 1280px) { .cc-grid { grid-template-columns: repeat(2, 1fr); } .cc-grid .span2 { grid-column: span 2; } }
+@media (max-width: 860px) { .cc-grid { grid-template-columns: 1fr; } .cc-grid .span2 { grid-column: span 1; } }
+
+.rowcard { border-radius: var(--radius-lg); display: flex; flex-direction: column; }
+.rc-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 10px; }
+.rc-head b { font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.rc-count { background: rgba(16,24,40,.06); color: var(--muted); border-radius: 999px; padding: 0 8px; font-size: 11.5px; font-weight: 700; }
+.rc-head a, .rc-more { font-size: 12.5px; font-weight: 600; color: var(--primary); background: none; border: none; }
+.rc-body { padding: 0 6px 8px; flex: 1; }
+.rc-row { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; background: none; border: none; text-align: left; font-size: 13.5px; color: var(--text); }
+.rc-row.click:hover { background: var(--bg); cursor: pointer; }
+.rc-ic { width: 28px; height: 28px; border-radius: 8px; background: var(--bg); color: var(--muted); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.rc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.rc-title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-sub { font-size: 11.5px; color: var(--muted2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-right { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted2); }
+.rc-empty { padding: 18px 12px 22px; text-align: center; color: var(--muted2); font-size: 12.5px; }

@@ -223,6 +223,36 @@ export function ActivityFeed({ items, empty = "No activity yet" }) {
   );
 }
 
+/* ---------------------------------------------------------------- RowCard + Row (dashboard/list sections) */
+export function RowCard({ title, count, viewAll, action, empty, children, className = "" }) {
+  const kids = Array.isArray(children) ? children.flat().filter(Boolean) : children ? [children] : [];
+  const isEmpty = kids.length === 0 || (kids.length === 1 && Array.isArray(kids[0]) && kids[0].length === 0);
+  return (
+    <div className={`card rowcard ${className}`}>
+      <div className="rc-head">
+        <b>{title}{count != null && <span className="rc-count">{count}</span>}</b>
+        {action || (viewAll && <a href={`#${viewAll}`}>View all →</a>)}
+      </div>
+      <div className="rc-body">
+        {isEmpty && empty ? <div className="rc-empty">{empty}</div> : children}
+      </div>
+    </div>
+  );
+}
+export function Row({ icon: Icon, avatar, title, sub, right, onClick }) {
+  const Tag = onClick ? "button" : "div";
+  return (
+    <Tag className={`rc-row ${onClick ? "click" : ""}`} onClick={onClick}>
+      {avatar ? <Avatar name={avatar} size={28} /> : Icon && <span className="rc-ic"><Icon size={15} /></span>}
+      <span className="rc-main">
+        <span className="rc-title">{title}</span>
+        {sub && <span className="rc-sub">{sub}</span>}
+      </span>
+      {right && <span className="rc-right">{right}</span>}
+    </Tag>
+  );
+}
+
 /* ---------------------------------------------------------------- misc */
 export const Kbd = ({ children }) => <kbd className="ui-kbd">{children}</kbd>;
 export function useDebounced(value, ms = 150) {

@@ -508,3 +508,87 @@ def master_dashboard(workspace_id: int | None = None, ctx: AuthContext = Depends
         "inbound": {"visitors": visitors},
         "recent_activity": summary["recent_activity"],
     }
+
+
+@router.get("/dashboard/command")
+def command_center(workspace_id: int | None = None, ctx: AuthContext = Depends(get_ctx)):
+    """The command-center dashboard (DESIGN_SYSTEM.md Part 4, step 2): today's
+    meetings, open tasks, revenue + pipeline, recent replies/clients, and every
+    document waiting on an action. Flat lists, max 5-6 rows per section."""
+    from datetime import timedelta
+
+    from ..models.agreements import Agreement, Invoice
+    from ..models.client_profile import ClientProfile
+    from ..models.crm import Task
+    from ..models.documents import Document
+    from ..models.reply import ReplyLead
+
+    ws_ids = ctx.workspace_ids_for_query(workspace_id)
+    summary = dashboard_summary(workspace_id, ctx)
+
+    now = datetime.utcnow()
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=1)
+
+    meetings = (scoped(ctx.db.query(Activity), Activity, ctx, workspace_id)
+                .filter(Activity.kind.in_(["meeting_booked", "meeting_held"]),
+                        Activity.occurred_at >= day_start, Activity.occurred_at < day_end)
+                .order_by(Activity.occurred_at.asc()).limit(6).all())
+
+    tasks = (ctx.db.query(Task).filter(Task.workspace_id.in_(ws_ids), Task.done == False)  # noqa: E712
+             .order_by(Task.due_at.is_(None), Task.due_at.asc()).limit(6).all())
+
+    replies = (ctx.db.query(ReplyLead).filter(ReplyLead.workspace_id.in_(ws_ids))
+               .order_by(ReplyLead.id.desc()).limit(5).all())
+
+    clients = (ctx.db.query(ClientProfile, Company)
+               .join(Company, Company.id == ClientProfile.company_id)
+               .filter(ClientProfile.workspace_id.in_(ws_ids))
+               .order_by(ClientProfile.id.desc()).limit(5).all())
+
+    blueprints = (scoped(ctx.db.query(Document), Document, ctx, workspace_id)
+                  .filter(Document.kind == "blueprint",
+                          Document.status.in_(["draft", "published", "viewed"]))
+                  .order_by(Document.id.desc()).limit(5).all())
+
+    agreements = (ctx.db.query(Agreement)
+                  .filter(Agreement.workspace_id.in_(ws_ids),
+                          Agreement.status.in_(["draft", "ready", "sent", "viewed", "client_signed"]))
+                  .order_by(Agreement.id.desc()).limit(5).all())
+
+    invoices = (ctx.db.query(Invoice)
+                .filter(Invoice.workspace_id.in_(ws_ids),
+                        Invoice.status.in_(["draft", "issued", "viewed", "partially_paid", "overdue"]))
+                .order_by(Invoice.id.desc()).limit(5).all())
+
+    needs_review = (ctx.db.query(ReplyLead)
+                    .filter(ReplyLead.workspace_id.in_(ws_ids),
+                            ReplyLead.action.in_(["skip_enrich", "would_send"]),
+                            ReplyLead.reviewed == False).count())  # noqa: E712
+
+    def iso(dt):
+        return dt.isoformat() if dt else None
+
+    return {
+        "totals": summary["totals"],
+        "open_value": summary["open_value"],
+        "won_value": summary["won_value"],
+        "pipeline": summary["pipeline"],
+        "recent_activity": summary["recent_activity"][:8],
+        "needs_review": needs_review,
+        "meetings_today": [{"id": a.id, "title": a.title or "Meeting", "at": iso(a.occurred_at),
+                            "kind": a.kind} for a in meetings],
+        "tasks": [{"id": t.id, "title": t.title, "due_at": iso(t.due_at)} for t in tasks],
+        "recent_replies": [{"id": r.id,
+                            "name": (getattr(r, "name", "") or getattr(r, "email", "") or "Reply"),
+                            "intent": getattr(r, "intent", "") or "",
+                            "at": iso(getattr(r, "created_at", None))} for r in replies],
+        "recent_clients": [{"id": p.id, "company": co.name, "active": bool(p.is_active_client),
+                            "company_id": co.id} for p, co in clients],
+        "blueprints_waiting": [{"id": d.id, "title": d.title or d.slug or f"Blueprint #{d.id}",
+                                "status": d.status} for d in blueprints],
+        "agreements_waiting": [{"id": a.id, "title": a.title or a.number or f"Agreement #{a.id}",
+                                "status": a.status} for a in agreements],
+        "invoices_waiting": [{"id": i.id, "title": i.number or f"Invoice #{i.id}",
+                              "status": i.status} for i in invoices],
+    }
