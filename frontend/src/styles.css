@@ -46,7 +46,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); box-sh
 .sidebar { width: var(--sidebar-w); background: var(--sidebar-bg); color: var(--sidebar-text); display: flex; flex-direction: column; position: fixed; inset: 0 auto 0 0; z-index: 20; border-right: 1px solid var(--border); }
 .sidebar .logo { padding: 18px 16px 14px; color: var(--text); font-weight: 700; font-size: 17px; letter-spacing: .2px; display: flex; align-items: center; gap: 9px; }
 .sidebar .logo .rc-wave { height: 22px; width: auto; color: var(--text); flex-shrink: 0; }
-.sidebar .logo span { color: var(--accent); }
+.sidebar .logo span { color: var(--text); letter-spacing: -.01em; }
 .ws-switch { margin: 0 12px 10px; }
 .ws-switch select { width: 100%; height: 40px; background: #fff; color: var(--text); border: 1px solid var(--border); border-radius: 9px; font-weight: 600; }
 .ws-switch select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,91,255,.2); }
