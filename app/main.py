@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from . import config
 from .db import engine, init_db
 from .routers import (admin, agreements, auth, client, crm, enrich, enrich_lists, inbound,
-                      invoices, jobs, onboarding, public, reply)
+                      invoices, jobs, onboarding, public, reply, search)
 
 app = FastAPI(title=config.APP_NAME, version=config.VERSION)
 
@@ -65,6 +65,7 @@ def healthz():
 
 
 app.include_router(auth.router)
+app.include_router(search.router)
 app.include_router(admin.router)
 app.include_router(crm.router)
 app.include_router(jobs.router)

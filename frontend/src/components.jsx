@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 
+/* Phase 0 design system: all new primitives live in src/ui/ and are re-exported
+   here so pages keep a single import path. */
+export * from "./ui";
+export { DataTable } from "./ui/DataTable";
+export { CommandPalette } from "./ui/CommandPalette";
+
 // Tiny data hook: loading / error / reload — used by every page.
 export function useApi(path, params, deps = []) {
   const [data, setData] = useState(null);

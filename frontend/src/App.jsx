@@ -4,10 +4,11 @@ import {
   LayoutGrid, ListChecks, Database, CircleUser, Target, AlignLeft, CheckCheck, FileText,
   Mail, Inbox, FlaskConical, Settings2, SlidersHorizontal, Flag, Globe, Rows3, Building2,
   Contact, Activity as ActivityIcon, Cog, Wrench, ShieldCheck, ChevronDown, MoreHorizontal,
-  LogOut, Search, ClipboardList, Radar, Briefcase,
+  LogOut, Search, ClipboardList, Radar, Briefcase, Bell,
 } from "lucide-react";
 import { AuthProvider, useAuth } from "./auth";
-import { useApi } from "./components";
+import { CommandPalette, ToastProvider, useApi, useClickOutside } from "./components";
+import KitchenSink from "./pages/KitchenSink";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Pipeline from "./pages/Pipeline";
@@ -149,36 +150,47 @@ function Sidebar() {
   );
 }
 
-function Topbar() {
+function Topbar({ onSearch }) {
   const loc = useLocation();
   const { data: health } = useApi("/healthz", undefined, [loc.pathname]);
   const [statusOpen, setStatusOpen] = useState(false);
+  const [bellOpen, setBellOpen] = useState(false);
   const popRef = useRef(null);
-  useEffect(() => {
-    const h = (e) => { if (popRef.current && !popRef.current.contains(e.target)) setStatusOpen(false); };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, []);
+  const bellRef = useRef(null);
+  useClickOutside(popRef, () => setStatusOpen(false));
+  useClickOutside(bellRef, () => setBellOpen(false));
   const title = (NAV.find(([to]) => to === loc.pathname)?.[1]) ||
     (loc.pathname.startsWith("/admin") ? "Admin" :
      loc.pathname.startsWith("/companies") ? "Companies" :
+     loc.pathname.startsWith("/dev") ? "Kitchen sink" :
      loc.pathname.startsWith("/blueprints") ? "Blueprints" : "RevCadence");
   const workerOk = health?.worker?.alive;
   const allOk = workerOk && health?.ok;
   return (
     <header className="topbar">
       <h1>{title}</h1>
+      <button className="cmdbtn global" onClick={onSearch}>
+        <Search size={15} /> Search or ask… <kbd>⌘K</kbd>
+      </button>
       <div className="right">
-        <button className="cmdbtn" title="Search (coming soon)" disabled>
-          <Search size={15} /> Search <kbd>⌘K</kbd>
-        </button>
+        <div ref={bellRef} style={{ position: "relative" }}>
+          <button className="iconbtn" title="Notifications" onClick={() => setBellOpen((v) => !v)}>
+            <Bell size={16} />
+          </button>
+          {bellOpen && (
+            <div className="status-pop">
+              <div className="pop-title">Notifications</div>
+              <div style={{ color: "var(--muted)", fontSize: 13, padding: "8px 0" }}>You're all caught up.</div>
+            </div>
+          )}
+        </div>
         <div ref={popRef} style={{ position: "relative" }}>
           <button className="iconbtn" title="System status" onClick={() => setStatusOpen((v) => !v)}>
             <span className={`dot ${allOk ? "ok" : "bad"}`} />
           </button>
           {statusOpen && (
             <div className="status-pop">
-              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".4px", marginBottom: 6 }}>System status</div>
+              <div className="pop-title">System status</div>
               <div className="row"><span>API</span><span><span className={`dot ${health?.ok ? "ok" : "bad"}`} /> {health?.ok ? "online" : "down"}</span></div>
               <div className="row"><span>Worker</span><span><span className={`dot ${workerOk ? "ok" : "bad"}`} /> {workerOk ? "online" : "offline"}</span></div>
               <div className="row"><span>Database</span><span style={{ color: "var(--muted)" }}>{health?.db || "—"}</span></div>
@@ -191,14 +203,25 @@ function Topbar() {
 }
 
 function Shell({ children }) {
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  useEffect(() => {
+    const h = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPaletteOpen((v) => !v); }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
   return (
-    <div className="app">
-      <Sidebar />
-      <div className="main">
-        <Topbar />
-        <div className="content">{children}</div>
+    <ToastProvider>
+      <div className="app">
+        <Sidebar />
+        <div className="main">
+          <Topbar onSearch={() => setPaletteOpen(true)} />
+          <div className="content">{children}</div>
+        </div>
+        <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       </div>
-    </div>
+    </ToastProvider>
   );
 }
 
@@ -241,6 +264,7 @@ function Protected() {
         <Route path="/jobs" element={<Jobs />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/admin" element={<Admin />} />
+        <Route path="/dev/kitchen-sink" element={<KitchenSink />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </Shell>
