@@ -431,6 +431,13 @@ def update_document(doc_id: int, body: DocPatch, ctx: AuthContext = Depends(get_
                 d.slug = unique_slug(ctx.db, (c.name if c else "") or d.title or "blueprint")
             if d.status == "draft":
                 d.status = "published"
+            try:
+                from ..extapi import events as _ev
+                _ev.emit(ctx.db, d.workspace_id, "blueprint.published",
+                         {"id": d.id, "title": d.title, "slug": d.slug,
+                          "company_id": d.company_id})
+            except Exception:
+                pass
     ctx.db.commit()
     return _doc_out(d)
 

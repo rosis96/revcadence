@@ -414,3 +414,19 @@ def process_reply_job(db, job):
 # Future handlers, one decorator each:
 #   @register("same_day_nudge")     — handoff doc §12
 #   @register("proposal_follow_up") — unopened-proposal reminder
+
+
+# ---------------------------------------------------------------- external API platform
+@register("webhook_delivery")
+def webhook_delivery(db, job):
+    """Deliver one signed outbound webhook (retries are self-scheduled)."""
+    from ..extapi import events
+    return events.deliver(db, int(job.payload.get("delivery_id", 0)))
+
+
+@register("crm_sync")
+def crm_sync(db, job):
+    """Run an outbound CRM sync for one connection (full or event-triggered)."""
+    from ..extapi import sync
+    return sync.run_sync(db, int(job.payload.get("connection_id", 0)),
+                         entity_ids=job.payload.get("entity_ids") or None)

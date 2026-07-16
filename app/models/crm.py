@@ -30,6 +30,8 @@ class Company(Base):
     # Enrichment output lands here with provenance: {field: {value, source, at}}
     enrichment = Column(JSON, default=dict)
     icp_fit = Column(String(40), default="")       # e.g. strict / loose / no
+    external_id = Column(String(255), default="", index=True)      # client system's own id
+    external_source = Column(String(120), default="")               # which system owns external_id
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -54,6 +56,8 @@ class Contact(Base):
     # Legacy linkage for migration/dedup
     legacy_lead_ids = Column(JSON, default=list)    # old reply-manager leads.id values
     source = Column(String(120), default="")        # cold_email / import / form / manual
+    external_id = Column(String(255), default="", index=True)
+    external_source = Column(String(120), default="")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -104,6 +108,8 @@ class Deal(Base):
     tags = Column(JSON, default=list)
     description = Column(Text, default="")
     legacy_opportunity_id = Column(Integer, index=True)  # old crm opportunities.id
+    external_id = Column(String(255), default="", index=True)
+    external_source = Column(String(120), default="")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     stage_changed_at = Column(DateTime, default=datetime.utcnow)

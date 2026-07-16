@@ -147,6 +147,13 @@ def send(agreement_id: int, ctx: AuthContext = Depends(get_ctx)):
         service.send(ctx.db, a, ctx.user.id)
     except ValueError as e:
         raise HTTPException(409, str(e))
+    try:
+        from ..extapi import events as _ev
+        _ev.emit(ctx.db, a.workspace_id, "agreement.sent",
+                 {"id": a.id, "number": a.number, "title": a.title, "status": a.status,
+                  "company_id": a.company_id, "deal_id": a.deal_id})
+    except Exception:
+        pass
     return _out(a, full=True)
 
 
@@ -166,6 +173,13 @@ def countersign(agreement_id: int, body: CountersignIn, request: Request,
                             user_agent=request.headers.get("user-agent", ""))
     except ValueError as e:
         raise HTTPException(409, str(e))
+    try:
+        from ..extapi import events as _ev
+        _ev.emit(ctx.db, a.workspace_id, "agreement.executed",
+                 {"id": a.id, "number": a.number, "title": a.title, "status": a.status,
+                  "company_id": a.company_id, "deal_id": a.deal_id})
+    except Exception:
+        pass
     return _out(a, full=True)
 
 

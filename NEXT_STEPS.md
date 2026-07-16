@@ -1,5 +1,48 @@
 # NEXT_STEPS — living document
 
+## ✅ Session 13 (2026-07-16) — External API + CRM Sync foundation
+
+Built inside this repo (no new services):
+- **Workspace API keys**: hashed (HMAC + API_KEY_PEPPER), scoped, expiring,
+  revoke/rotate, last-used, request logs. Raw key shown once. `app/models/devapi.py`,
+  `app/routers/devapi.py`.
+- **External API** at `/api/v1` (own FastAPI app → its own /api/v1/docs +
+  /api/v1/openapi.json with ONLY public endpoints): companies/contacts/deals
+  (GET/POST/PATCH), activities (GET/POST), read-only replies/meetings/blueprints/
+  agreements/invoices. Pagination, sort, updated_since, external_id lookup +
+  dedupe (409), Idempotency-Key on writes, consistent {"error":{code,message}},
+  per-key rate limits (429 + Retry-After). `app/extapi/routes.py`.
+- **Outbound webhooks**: per-workspace endpoints + event selection, HMAC-signed
+  deliveries (X-RevCadence-Signature t=..,v1=..), retries w/ backoff
+  (1m/5m/30m/2h/12h → dead), replay, delivery logs, SSRF-guarded URLs, test event.
+  Emit hooks live on deal stage change, agreement sent/executed, invoice
+  issued/paid, blueprint published + all /api/v1 writes. `app/extapi/events.py`.
+- **CRM sync foundation**: provider interface + fully working Generic webhook/API
+  provider (signed upserts, external_id capture), SyncConnection (encrypted config,
+  direction, conflict policy, entities, field/stage/owner mappings) + SyncMapping
+  (dedupe, retry-failed). Worker kinds: `webhook_delivery`, `crm_sync`.
+  `app/extapi/sync.py`. Native HubSpot/Salesforce/GHL/Pipedrive/Zoho: UI-listed,
+  marked "coming soon", NOT claimed implemented.
+- **UI**: Settings → Developers (keys, scopes, request logs, webhooks, deliveries,
+  replay, client docs) and Settings → CRM Integrations. Design-system components.
+- **Tests**: `python -m tests.test_external_api` (42 checks) + existing suites green.
+
+### Railway variables (recommended)
+```
+API_KEY_PEPPER=<openssl rand -hex 32>
+WEBHOOK_SIGNING_PEPPER=<openssl rand -hex 32>
+CREDENTIAL_ENCRYPTION_KEY=<python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())">
+```
+(All fall back to JWT_SECRET-derived values if unset — set them before real client keys are issued.)
+
+### Still open for native CRM adapters
+Implement ProviderBase for each: OAuth/token config UI fields, create_or_update_*
+against real APIs, fetch_changes for inbound + two-way (conflict policies already
+stored and enforced at sync level), then move the provider into NATIVE_READY.
+
+---
+
+
 ## ✅ Session 20 (2026-07-15) — Agreement + Invoice system (end-to-end)
 
 Full contract + billing layer, built inside the existing repo (no new app/service).

@@ -409,6 +409,14 @@ def move_deal(deal_id: int, body: MoveIn, ctx: AuthContext = Depends(get_ctx)):
             profile_id = ensure_profile(ctx.db, d.company_id, d.id, ctx.user.id).id
         except Exception:
             pass  # never block the stage move
+    try:
+        from ..extapi import events as _ev
+        _st = ctx.db.get(Stage, d.stage_id) if d.stage_id else None
+        _ev.emit(ctx.db, d.workspace_id, "deal.stage_changed",
+                 {"id": d.id, "name": d.name, "value": d.value,
+                  "stage": _st.name if _st else "", "company_id": d.company_id})
+    except Exception:
+        pass
     return {"ok": True, "client_profile_id": profile_id}
 
 

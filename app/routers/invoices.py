@@ -110,6 +110,13 @@ def issue(invoice_id: int, ctx: AuthContext = Depends(get_ctx)):
         service.issue_invoice(ctx.db, i, ctx.user.id)
     except ValueError as e:
         raise HTTPException(409, str(e))
+    try:
+        from ..extapi import events as _ev
+        _ev.emit(ctx.db, i.workspace_id, "invoice.issued",
+                 {"id": i.id, "number": i.number, "status": i.status, "total": i.total,
+                  "currency": i.currency, "company_id": i.company_id})
+    except Exception:
+        pass
     return _out(i, full=True)
 
 
@@ -121,6 +128,14 @@ class PaymentIn(BaseModel):
 def payment(invoice_id: int, body: PaymentIn, ctx: AuthContext = Depends(get_ctx)):
     i = _inv(ctx, invoice_id)
     service.set_payment(ctx.db, i, body.amount_paid, ctx.user.id)
+    try:
+        if i.status == "paid":
+            from ..extapi import events as _ev
+            _ev.emit(ctx.db, i.workspace_id, "invoice.paid",
+                     {"id": i.id, "number": i.number, "status": i.status, "total": i.total,
+                      "amount_paid": i.amount_paid, "company_id": i.company_id})
+    except Exception:
+        pass
     return _out(i, full=True)
 
 

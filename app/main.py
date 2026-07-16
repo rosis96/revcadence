@@ -8,7 +8,7 @@ from fastapi import FastAPI
 
 from . import config
 from .db import engine, init_db
-from .routers import (admin, agreements, auth, client, crm, enrich, enrich_lists, inbound,
+from .routers import (admin, agreements, auth, client, crm, devapi, enrich, enrich_lists, inbound,
                       invoices, jobs, onboarding, public, reply, search)
 
 app = FastAPI(title=config.APP_NAME, version=config.VERSION)
@@ -66,6 +66,7 @@ def healthz():
 
 app.include_router(auth.router)
 app.include_router(search.router)
+app.include_router(devapi.router)
 app.include_router(admin.router)
 app.include_router(crm.router)
 app.include_router(jobs.router)
@@ -139,6 +140,12 @@ import os  # noqa: E402
 
 from fastapi.responses import FileResponse, RedirectResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
+
+# Client-facing external API: its own app so /api/v1/docs + /api/v1/openapi.json
+# document ONLY the public surface (internal Swagger stays at /docs).
+from .extapi.routes import extapp  # noqa: E402
+
+app.mount("/api/v1", extapp)
 
 _DIST = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
 if os.path.isdir(_DIST):

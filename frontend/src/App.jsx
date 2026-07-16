@@ -4,11 +4,13 @@ import {
   LayoutGrid, ListChecks, Database, CircleUser, Target, AlignLeft, CheckCheck, FileText,
   Mail, Inbox, FlaskConical, Settings2, SlidersHorizontal, Flag, Globe, Rows3, Building2,
   Contact, Activity as ActivityIcon, Cog, Wrench, ShieldCheck, ChevronDown, MoreHorizontal,
-  LogOut, Search, ClipboardList, Radar, Briefcase, Bell,
+  LogOut, Search, ClipboardList, Radar, Briefcase, Bell, KeyRound, Plug,
 } from "lucide-react";
 import { AuthProvider, useAuth } from "./auth";
 import { CommandPalette, ToastProvider, useApi, useClickOutside } from "./components";
 import KitchenSink from "./pages/KitchenSink";
+import Developers from "./pages/Developers";
+import CrmSync from "./pages/CrmSync";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Pipeline from "./pages/Pipeline";
@@ -89,7 +91,8 @@ const MODES = {
 };
 const MODE_ICON = { outbound: Mail, reply: Inbox, inbound: Globe, crm: Rows3 };
 const COMMON_NAV = [["/", "Master Dashboard", LayoutGrid]];
-const SYSTEM_NAV = [["/jobs", "Jobs", Cog], ["/settings", "Settings", Wrench]];
+const SYSTEM_NAV = [["/jobs", "Jobs", Cog], ["/settings", "Settings", Wrench],
+  ["/settings/developers", "Developers", KeyRound], ["/settings/crm", "CRM Integrations", Plug]];
 const NAV = [...COMMON_NAV, ...Object.values(MODES).flatMap((m) => m.nav), ...SYSTEM_NAV];
 const NavIcon = ({ ic: Ic }) => <span className="icon"><Ic size={I} /></span>;
 
@@ -266,6 +269,8 @@ function Protected() {
         <Route path="/activity" element={<ActivityPage />} />
         <Route path="/jobs" element={<Jobs />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/settings/developers" element={<Developers />} />
+        <Route path="/settings/crm" element={<CrmSync />} />
         <Route path="/admin" element={<Admin />} />
         <Route path="/dev/kitchen-sink" element={<KitchenSink />} />
         <Route path="*" element={<Navigate to="/" />} />
