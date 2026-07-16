@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, money } from "../api";
-import { Badge, Breadcrumbs, Button, ErrorBox, Modal, PageHeader, Spinner, Timeline, fitTone, scoreTone, useApi } from "../components";
+import { Badge, Breadcrumbs, Button, ErrorBox, JourneyTimeline, Modal, PageHeader, RowCard, Spinner, Timeline, fitTone, scoreTone, useApi } from "../components";
 import { StatusPill } from "./Companies";
 
 // Public blueprint/agreement URL — prefer a blueprint.<domain> host on engine.<domain>.
@@ -17,6 +17,7 @@ export default function CompanyDetail() {
   const { id } = useParams();
   const nav = useNavigate();
   const { data: c, error, loading, reload } = useApi(`/api/companies/${id}`);
+  const { data: journey } = useApi(`/api/companies/${id}/revenue-timeline`);
   const { data: ags, reload: reloadAgs } = useApi(`/api/agreements`, { company_id: id });
   const { data: invs } = useApi(`/api/invoices`, { company_id: id });
   const [busy, setBusy] = useState("");
@@ -123,6 +124,13 @@ export default function CompanyDetail() {
             <Button variant="danger" onClick={removeCompany}>Delete</Button>
           </>
         } />
+
+      <RowCard title="Revenue Timeline" className="span2" empty="The journey appears as it happens."
+        action={journey?.revenue > 0 ? <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--ok)" }}>
+          ${Math.round(journey.revenue).toLocaleString()} collected</span> : null}>
+        {journey && <JourneyTimeline events={journey.events} milestones={journey.milestones} revenue={journey.revenue} />}
+      </RowCard>
+
 
       {edit && (
         <Modal title={`Edit ${c.name}`} onClose={() => setEdit(null)}>

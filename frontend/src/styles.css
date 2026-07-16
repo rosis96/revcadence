@@ -560,3 +560,28 @@ iframe.preview { width: 100%; height: 70vh; border: 1px solid var(--border); bor
 .ss-body b { font-weight: 600; color: var(--muted); }
 .sstep.now .ss-body b, .sstep.done .ss-body b { color: var(--text); }
 .ss-body em { font-style: normal; color: var(--muted2); font-size: 11px; }
+
+/* ============================================================ Revenue Timeline */
+.jt-miles { display: flex; gap: 6px; flex-wrap: wrap; padding: 4px 10px 12px; align-items: center; }
+.jt-mile { font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: #F2F4F7; color: var(--muted2); border: 1px solid var(--border); }
+.jt-mile.on { background: var(--primary-soft); color: var(--primary); border-color: #D6E7FD; }
+.jt-rev { margin-left: auto; font-size: 12.5px; font-weight: 700; color: var(--ok); }
+.jt-rail { position: relative; padding: 2px 10px 8px 10px; max-height: 440px; overflow-y: auto; }
+.jt-ev { position: relative; display: flex; gap: 12px; padding: 7px 0 7px 8px; }
+.jt-ev::before { content: ""; position: absolute; left: 12px; top: 0; bottom: 0; width: 2px; background: #EEF0F3; }
+.jt-ev:first-child::before { top: 14px; } .jt-ev:last-child::before { bottom: auto; height: 14px; }
+.jt-dot { position: relative; z-index: 1; width: 10px; height: 10px; border-radius: 50%; background: #fff; border: 2px solid var(--border-strong); margin-top: 5px; flex-shrink: 0; }
+.jt-lead .jt-dot { border-color: var(--muted2); }
+.jt-outreach .jt-dot { border-color: var(--primary); }
+.jt-reply .jt-dot, .jt-reply_positive .jt-dot { border-color: var(--ok); background: var(--ok); }
+.jt-meeting .jt-dot { border-color: var(--primary); background: var(--primary); }
+.jt-blueprint .jt-dot { border-color: var(--accent); }
+.jt-agreement .jt-dot, .jt-signature .jt-dot { border-color: var(--warn); background: var(--warn); }
+.jt-invoice .jt-dot { border-color: var(--ok); }
+.jt-revenue .jt-dot { border-color: var(--ok); background: var(--ok); box-shadow: 0 0 0 4px #E7F6EE; }
+.jt-live .jt-dot { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.jt-body { display: flex; flex-direction: column; min-width: 0; }
+.jt-title { font-size: 13px; font-weight: 550; }
+.jt-title em { font-style: normal; color: var(--muted); font-weight: 400; }
+.jt-when { font-size: 11px; color: var(--muted2); }
+.jt-revenue .jt-title, .jt-live .jt-title { font-weight: 700; }

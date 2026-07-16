@@ -482,6 +482,113 @@ def dashboard_summary(workspace_id: int | None = None, ctx: AuthContext = Depend
     }
 
 
+@router.get("/companies/{company_id}/revenue-timeline")
+def revenue_timeline(company_id: int, ctx: AuthContext = Depends(get_ctx)):
+    """The Revenue Timeline: one chronological journey for a company, from the
+    first touch to revenue. Merges CRM activities, replies, documents,
+    agreements, invoices and onboarding into a single ordered stream, plus a
+    milestone summary of how far the journey has progressed."""
+    from ..models.agreements import Agreement, Invoice
+    from ..models.client_profile import ClientProfile
+    from ..models.documents import Document
+
+    c = _one_or_404(ctx, Company, company_id)
+    ev = []
+
+    def add(at, kind, title, detail="", href=None):
+        if at:
+            ev.append({"at": at.isoformat(), "kind": kind, "title": title,
+                       "detail": detail, "href": href})
+
+    add(c.created_at, "lead", "Lead created", c.source if hasattr(c, "source") else "")
+
+    # activities: outreach, replies, meetings, stage changes, docs viewed …
+    KIND_LABEL = {
+        "email_out": ("outreach", "Outbound email sent"),
+        "email_in": ("reply", "Reply received"),
+        "reply_drafted": ("reply", "AI reply drafted"),
+        "meeting_booked": ("meeting", "Meeting booked"),
+        "meeting_held": ("meeting", "Meeting completed"),
+        "stage_change": ("deal", "Deal stage changed"),
+        "deal_created": ("deal", "Deal created"),
+        "doc_viewed": ("doc", "Document viewed by client"),
+        "doc_signed": ("signature", "Document signed"),
+        "enriched": ("system", "Enriched"),
+    }
+    first_outreach_done = False
+    acts = (ctx.db.query(Activity).filter(Activity.company_id == c.id)
+            .order_by(Activity.occurred_at.asc()).limit(500).all())
+    for a in acts:
+        kind, label = KIND_LABEL.get(a.kind, ("system", a.kind.replace("_", " ")))
+        title = a.title or label
+        if a.kind == "email_out" and not first_outreach_done:
+            title = "Outbound campaign started"
+            first_outreach_done = True
+        elif a.kind == "email_in":
+            intent = str((a.data or {}).get("intent", ""))
+            if "positive" in intent.lower():
+                kind, title = "reply_positive", "Positive reply"
+        add(a.occurred_at, kind, title, (a.title if a.title and a.title != title else ""))
+
+    # blueprints
+    for d in ctx.db.query(Document).filter(Document.company_id == c.id,
+                                           Document.kind == "blueprint").all():
+        add(d.created_at, "blueprint", "Blueprint generated", d.title, f"/blueprints/{d.id}")
+        if d.published:
+            add(d.updated_at if not d.first_viewed_at else d.first_viewed_at,
+                "blueprint", "Blueprint published", d.title, f"/blueprints/{d.id}")
+        add(d.first_viewed_at, "doc", "Blueprint viewed by client", d.title, f"/blueprints/{d.id}")
+
+    # agreements
+    for a in ctx.db.query(Agreement).filter(Agreement.company_id == c.id).all():
+        if a.status not in ("draft", "ready"):
+            add(a.created_at, "agreement", "Agreement sent", a.number, f"/agreements/{a.id}")
+        add(a.first_viewed_at, "doc", "Agreement viewed by client", a.number, f"/agreements/{a.id}")
+        add(a.client_signed_at, "signature", "Client signed", a.number, f"/agreements/{a.id}")
+        add(a.executed_at, "signature", "Agreement executed", a.number, f"/agreements/{a.id}")
+
+    # invoices → revenue
+    revenue = 0.0
+    for i in ctx.db.query(Invoice).filter(Invoice.company_id == c.id).all():
+        if i.status not in ("draft", "void"):
+            add(i.created_at, "invoice", "Invoice issued",
+                f"{i.number} · {i.currency} {int(i.total or 0):,}", f"/invoices/{i.id}")
+        add(i.paid_at, "revenue", "Invoice paid — revenue generated",
+            f"{i.number} · {i.currency} {int(i.amount_paid or 0):,}", f"/invoices/{i.id}")
+        if i.paid_at:
+            revenue += i.amount_paid or 0
+
+    # onboarding + campaign live (client profile)
+    p = ctx.db.query(ClientProfile).filter(ClientProfile.company_id == c.id).first()
+    if p is not None:
+        try:
+            from ..models.onboarding import Onboarding
+            ob = (ctx.db.query(Onboarding)
+                  .filter(Onboarding.client_profile_id == p.id).first()
+                  if hasattr(Onboarding, "client_profile_id") else None)
+            if ob is not None:
+                add(ob.created_at, "onboarding", "Onboarding sent")
+                add(ob.submitted_at, "onboarding", "Onboarding submitted")
+        except Exception:
+            pass
+        if p.is_active_client:
+            add(getattr(p, "updated_at", None) or getattr(p, "created_at", None),
+                "live", "Client active — campaign live")
+
+    ev.sort(key=lambda e: e["at"])
+
+    ORDER = ["lead", "outreach", "reply_positive", "meeting", "blueprint",
+             "agreement", "signature", "invoice", "revenue", "live"]
+    reached = {k: None for k in ORDER}
+    for e in ev:
+        k = e["kind"] if e["kind"] in reached else None
+        if k and reached[k] is None:
+            reached[k] = e["at"]
+    return {"company": {"id": c.id, "name": c.name}, "events": ev,
+            "revenue": revenue,
+            "milestones": [{"key": k, "reached_at": reached[k]} for k in ORDER]}
+
+
 @router.get("/dashboard/master")
 def master_dashboard(workspace_id: int | None = None, ctx: AuthContext = Depends(get_ctx)):
     """One rollup across ALL sections — the master dashboard. Outbound

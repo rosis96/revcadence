@@ -350,6 +350,45 @@ export function StatusSteps({ steps, current }) {
   );
 }
 
+/* ---------------------------------------------------------------- JourneyTimeline (the Revenue Timeline) */
+const JT_ICONS = {}; // filled lazily below to avoid a big import block here
+export function JourneyTimeline({ events, milestones, revenue }) {
+  const reachedKeys = new Set((milestones || []).filter((m) => m.reached_at).map((m) => m.key));
+  const MILESTONE_LABEL = {
+    lead: "Lead", outreach: "Outreach", reply_positive: "Positive reply", meeting: "Meeting",
+    blueprint: "Blueprint", agreement: "Agreement", signature: "Signed", invoice: "Invoice",
+    revenue: "Revenue", live: "Live",
+  };
+  return (
+    <div className="jt">
+      <div className="jt-miles">
+        {(milestones || []).map((m) => (
+          <span key={m.key} className={`jt-mile ${m.reached_at ? "on" : ""}`}
+            title={m.reached_at ? new Date(m.reached_at + "Z").toLocaleString() : "not reached yet"}>
+            {MILESTONE_LABEL[m.key] || m.key}
+          </span>
+        ))}
+        {revenue > 0 && <span className="jt-rev">${Math.round(revenue).toLocaleString()} collected</span>}
+      </div>
+      <div className="jt-rail">
+        {(events || []).length === 0 && <div className="rc-empty">The journey starts with the first touch.</div>}
+        {(events || []).map((e, i) => (
+          <div key={i} className={`jt-ev jt-${e.kind}`}>
+            <span className="jt-dot" />
+            <span className="jt-body">
+              <span className="jt-title">
+                {e.href ? <a href={`#${e.href}`}>{e.title}</a> : e.title}
+                {e.detail && <em> · {e.detail}</em>}
+              </span>
+              <span className="jt-when">{new Date(e.at + (String(e.at).endsWith("Z") ? "" : "Z")).toLocaleString()}</span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ---------------------------------------------------------------- misc */
 export const Kbd = ({ children }) => <kbd className="ui-kbd">{children}</kbd>;
 export function useDebounced(value, ms = 150) {
