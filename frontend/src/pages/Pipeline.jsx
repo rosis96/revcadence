@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Plus, Rows3 } from "lucide-react";
 import { api, money, timeAgo } from "../api";
 import { useAuth } from "../auth";
-import { Badge, Drawer, ErrorBox, Modal, Spinner, Timeline, useApi } from "../components";
+import {
+  Badge, Button, DataTable, Drawer, ErrorBox, Modal, PageHeader, Spinner, Tabs,
+  Timeline, useApi,
+} from "../components";
 
 function NewLeadModal({ onClose, onCreated, workspaceId, stages }) {
   const { data: companies } = useApi("/api/companies", { workspace_id: workspaceId });
@@ -184,16 +188,56 @@ export default function Pipeline() {
     catch (err) { alert(err.message); }
   };
 
+  const [view, setView] = useState(localStorage.getItem("rc_pipeline_view") || "board");
+  const changeView = (v) => { localStorage.setItem("rc_pipeline_view", v); setView(v); };
+  const allDeals = useMemo(() => (board || []).flatMap((col) =>
+    col.deals.map((d) => ({ ...d, stage_name: col.stage.name, stage_color: col.stage.color }))), [board]);
+  const dealColumns = useMemo(() => [
+    { id: "deal", header: "Deal", size: 240, accessorFn: (d) => d.name || d.company_name || "Untitled deal",
+      cell: ({ row, getValue }) => (
+        <div><div className="lead-nm">{getValue()}</div>
+          <div className="lead-sub">{row.original.contact_name || ""}</div></div>) },
+    { accessorKey: "company_name", header: "Company", size: 190, cell: ({ getValue }) => getValue() || "—" },
+    { id: "stage", header: "Stage", size: 160, accessorFn: (d) => d.stage_name,
+      cell: ({ row }) => (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600 }}>
+          <span className="dot" style={{ background: row.original.stage_color }} />{row.original.stage_name}
+        </span>) },
+    { accessorKey: "value", header: "Value", size: 110, cell: ({ getValue }) => money(getValue()) },
+    { accessorKey: "lead_intent", header: "Intent", size: 140,
+      cell: ({ getValue }) => (getValue() ? <Badge tone="indigo">{getValue()}</Badge> : "—") },
+    { accessorKey: "updated_at", header: "Updated", size: 110, cell: ({ getValue }) => timeAgo(getValue()) },
+  ], []);
+
   if (loading) return <Spinner />;
   if (error) return <ErrorBox msg={error} retry={reload} />;
   return (
     <>
-      <div className="toolbar" style={{ marginBottom: 12 }}>
-        <h1 style={{ fontSize: 18 }}>Pipeline</h1>
-        <div className="spacer" />
-        {!wsId && <span style={{ fontSize: 12, color: "var(--muted)", marginRight: 8 }}>Pick a workspace to add a lead</span>}
-        <button className="btn" disabled={!wsId} onClick={() => setModal(true)}>+ New lead</button>
+      <PageHeader title="Pipeline" desc="Every open deal, by stage. Drag cards on the board, or work the table."
+        actions={
+          <>
+            {!wsId && <span style={{ fontSize: 12, color: "var(--muted)", alignSelf: "center" }}>Pick a workspace to add a lead</span>}
+            <Button icon={Plus} disabled={!wsId} onClick={() => setModal(true)}>New lead</Button>
+          </>
+        } />
+      <div style={{ marginBottom: 16 }}>
+        <Tabs value={view} onChange={changeView} tabs={[
+          { key: "board", label: "Board" },
+          { key: "table", label: "Table", count: allDeals.length },
+        ]} />
       </div>
+
+      {view === "table" && (
+        <DataTable
+          id="deals" columns={dealColumns} data={allDeals}
+          searchPlaceholder="Search deals…" getRowId={(r) => String(r.id)}
+          onRowClick={(r) => setOpenDeal(r.id)}
+          emptyIcon={Rows3} emptyTitle="No deals yet"
+          emptyHint="Add a lead or promote one from reply management."
+        />
+      )}
+
+      {view === "board" && (
       <div className="board">
         {board.map((col) => (
           <div key={col.stage.name} className={`col ${dragOver === col.stage.name ? "dragover" : ""}`}
@@ -221,6 +265,7 @@ export default function Pipeline() {
           </div>
         ))}
       </div>
+      )}
       {openDeal && <DealDrawer dealId={openDeal} onClose={() => setOpenDeal(null)} onChanged={reload} />}
       {modal && (
         <NewLeadModal workspaceId={wsId} stages={stages} onClose={() => setModal(false)}

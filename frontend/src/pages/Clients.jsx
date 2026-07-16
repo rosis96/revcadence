@@ -1,58 +1,58 @@
-// CRM → Clients: closed-won / active clients (a profile exists). Delivery-focused
-// summary — scope, onboarding %, start date, pricing, payment status — click into
-// the full Client Profile.
+// CRM → Clients: closed-won accounts (a Client Profile exists), on the shared DataTable.
+import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { Briefcase } from "lucide-react";
 import { useAuth } from "../auth";
-import { Badge, Empty, ErrorBox, Spinner, useApi } from "../components";
+import { Avatar, Badge, DataTable, ErrorBox, PageHeader, StatusPill, useApi } from "../components";
 
-const onbTone = { approved: "green", submitted: "blue", in_review: "amber", sent: "indigo", not_started: "" };
+const ONB_TONE = { approved: "green", submitted: "blue", in_review: "amber", sent: "blue", not_started: "gray" };
 
 export default function Clients() {
   const { wsParam } = useAuth();
   const nav = useNavigate();
   const { data, error, loading, reload } = useApi("/api/client-profiles", { workspace_id: wsParam });
 
+  const columns = useMemo(() => [
+    { accessorKey: "company_name", header: "Client", size: 220,
+      cell: ({ getValue }) => (
+        <div className="co"><Avatar name={getValue()} size={26} /><div className="lead-nm">{getValue()}</div></div>) },
+    { accessorKey: "scope_type", header: "Scope", size: 110,
+      cell: ({ getValue }) => <Badge>{getValue()}</Badge> },
+    { id: "onboarding", header: "Onboarding", size: 210, accessorFn: (r) => r.onboarding_status,
+      cell: ({ row }) => (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <StatusPill tone={ONB_TONE[row.original.onboarding_status] || "gray"}>
+            {String(row.original.onboarding_status || "").replaceAll("_", " ")}
+          </StatusPill>
+          <span style={{ color: "var(--muted)", fontSize: 12 }}>{row.original.completeness}%</span>
+          {row.original.review_flags > 0 && <Badge tone="amber">{row.original.review_flags} to review</Badge>}
+        </span>) },
+    { accessorKey: "start_date", header: "Start", size: 110, cell: ({ getValue }) => getValue() || "—" },
+    { accessorKey: "pricing", header: "Pricing", size: 140, cell: ({ getValue }) => getValue() || "—" },
+    { accessorKey: "payment_status", header: "Payment", size: 120, cell: ({ getValue }) => getValue() || "—" },
+    { id: "docs", header: "Docs", size: 170, enableSorting: false,
+      cell: ({ row }) => (
+        <span style={{ fontSize: 12 }} onClick={(e) => e.stopPropagation()}>
+          {row.original.blueprint_doc_id
+            ? <a href={`#/blueprints/${row.original.blueprint_doc_id}`}>Blueprint</a>
+            : <span style={{ color: "var(--muted)" }}>—</span>}
+          {" · "}
+          {row.original.agreement_doc_id ? "Agreement" : <span style={{ color: "var(--muted)" }}>no agreement</span>}
+        </span>) },
+  ], []);
+
+  if (error) return <ErrorBox msg={error} retry={reload} />;
+
   return (
     <>
-      <div className="toolbar" style={{ marginBottom: 6 }}>
-        <h1 style={{ fontSize: 18 }}>Clients</h1>
-        <span style={{ color: "var(--muted)", fontSize: 12.5 }}>Closed-won accounts — delivery, onboarding & payment</span>
-      </div>
-      {loading && <Spinner />}
-      {error && <ErrorBox msg={error} retry={reload} />}
-      {data && data.length === 0 && (
-        <Empty icon="◎" title="No clients yet" hint="A client appears here when a deal moves to a Won stage (or you Activate a company's profile)." />
-      )}
-      {data && data.length > 0 && (
-        <table className="tbl">
-          <thead><tr>
-            <th>Client</th><th>Scope</th><th>Onboarding</th><th>Start</th><th>Pricing</th><th>Payment</th><th>Docs</th>
-          </tr></thead>
-          <tbody>
-            {data.map((c) => (
-              <tr key={c.company_id} className="click" onClick={() => nav(`/companies/${c.company_id}/profile`)}>
-                <td><b>{c.company_name}</b></td>
-                <td><Badge>{c.scope_type}</Badge></td>
-                <td>
-                  <Badge tone={onbTone[c.onboarding_status] || ""}>{c.onboarding_status}</Badge>
-                  <span style={{ color: "var(--muted)", fontSize: 12, marginLeft: 6 }}>{c.completeness}%</span>
-                  {c.review_flags > 0 && <Badge tone="amber" >{c.review_flags} to review</Badge>}
-                </td>
-                <td style={{ color: "var(--muted)", fontSize: 12.5 }}>{c.start_date || "—"}</td>
-                <td style={{ fontSize: 12.5 }}>{c.pricing || "—"}</td>
-                <td style={{ fontSize: 12.5 }}>{c.payment_status || "—"}</td>
-                <td style={{ fontSize: 12 }} onClick={(e) => e.stopPropagation()}>
-                  {c.blueprint_doc_id
-                    ? <a className="link" onClick={() => nav(`/blueprints/${c.blueprint_doc_id}`)}>Blueprint</a>
-                    : <span style={{ color: "var(--muted)" }}>—</span>}
-                  {" · "}
-                  {c.agreement_doc_id ? "Agreement" : <span style={{ color: "var(--muted)" }}>no agreement</span>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <PageHeader title="Clients" desc="Closed-won accounts: delivery, onboarding and payment at a glance." />
+      <DataTable
+        id="clients" columns={columns} data={data || []} loading={loading}
+        searchPlaceholder="Search clients…" getRowId={(r) => String(r.company_id)}
+        onRowClick={(r) => nav(`/companies/${r.company_id}/profile`)}
+        emptyIcon={Briefcase} emptyTitle="No clients yet"
+        emptyHint="A client appears here when a deal moves to a Won stage (or you activate a company's profile)."
+      />
     </>
   );
 }

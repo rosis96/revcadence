@@ -1,8 +1,12 @@
-import { useState } from "react";
+// CRM → Companies. Shared DataTable + global shell (DESIGN_SYSTEM.md step 3).
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Building2, Plus, Trash2 } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { Badge, Empty, ErrorBox, Modal, Spinner, fitTone, useApi } from "../components";
+import {
+  Avatar, Badge, Button, DataTable, ErrorBox, Modal, PageHeader, fitTone, useApi, useToast,
+} from "../components";
 
 export function NewCompanyModal({ onClose, onCreated, workspaceId, workspaces }) {
   const [form, setForm] = useState({ name: "", website: "", workspace_id: workspaceId || (workspaces[0]?.id ?? "") });
@@ -32,8 +36,8 @@ export function NewCompanyModal({ onClose, onCreated, workspaceId, workspaces })
         <div className="field"><label>Website</label>
           <input value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} placeholder="acme.com" /></div>
         <div className="actions">
-          <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
-          <button className="btn" disabled={busy}>{busy ? "Creating…" : "Create"}</button>
+          <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>
+          <Button type="submit" loading={busy}>Create</Button>
         </div>
       </form>
     </Modal>
@@ -43,11 +47,12 @@ export function NewCompanyModal({ onClose, onCreated, workspaceId, workspaces })
 // pipeline-status chip order (matches stage progression)
 export const STATUS_ORDER = ["interested", "meeting_booked", "meeting_completed", "no_show",
                              "follow_up", "won", "client", "none"];
-// The Companies/Contacts lists are for real conversations — a meeting was booked
-// or beyond. Interested + no-deal are hidden by default (reachable via their chip).
+// Companies/Contacts default to real conversations: meeting booked & beyond.
 export const BOOKED_PLUS = new Set(["meeting_booked", "meeting_completed", "no_show", "follow_up", "won", "client"]);
 
-export function StatusPill({ status }) {
+// Dynamic-color pipeline pill (color comes from the stage record, so it can't
+// be a fixed StatusPill tone).
+export function PipelinePill({ status }) {
   if (!status) return null;
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600,
@@ -57,89 +62,98 @@ export function StatusPill({ status }) {
     </span>
   );
 }
+export const StatusPill = PipelinePill; // legacy import name (Contacts, CompanyDetail)
 
-export default function Companies() {
-  const { wsParam, me } = useAuth();
-  const [q, setQ] = useState("");
-  const [modal, setModal] = useState(false);
-  const [filter, setFilter] = useState("__booked");   // default: meetings booked & beyond
-  const nav = useNavigate();
-  const { data, error, loading, reload } = useApi("/api/companies", { workspace_id: wsParam, q });
-
-  const del = async (e, c) => {
-    e.stopPropagation();
-    if (!confirm(`Delete "${c.name}" and all its contacts, deals, documents & profile? This can't be undone.`)) return;
-    try { await api(`/api/companies/${c.id}`, { method: "DELETE" }); reload(); }
-    catch (err) { alert(err.message); }
-  };
-
+export function StatusChips({ data, filter, setFilter }) {
   const counts = {};
   (data || []).forEach((c) => { const k = c.status?.key || "none"; counts[k] = (counts[k] || 0) + 1; });
-  const bookedCount = (data || []).filter((c) => BOOKED_PLUS.has(c.status?.key)).length;
+  const booked = (data || []).filter((c) => BOOKED_PLUS.has(c.status?.key)).length;
   const chips = STATUS_ORDER.filter((k) => counts[k]);
   const colorFor = (k) => (data || []).find((c) => c.status?.key === k)?.status?.color || "#64748b";
   const labelFor = (k) => (data || []).find((c) => c.status?.key === k)?.status?.label || k;
-  const shown = (data || []).filter((c) => {
-    const k = c.status?.key || "none";
-    if (filter === "__booked") return BOOKED_PLUS.has(k);
-    if (filter === "") return true;
-    return k === filter;
-  });
-
+  if (!data?.length) return null;
   const Chip = ({ on, color, onClick, children }) => (
     <button onClick={onClick}
-            style={{ cursor: "pointer", fontSize: 12, fontWeight: 600, padding: "4px 12px", borderRadius: 999,
-                     border: `1px solid ${color}55`, background: on ? color : color + "1f", color: on ? "#fff" : color }}>
+      style={{ cursor: "pointer", fontSize: 12, fontWeight: 600, padding: "4px 12px", borderRadius: 999,
+               border: `1px solid ${color}55`, background: on ? color : color + "1f", color: on ? "#fff" : color }}>
       {children}
     </button>
   );
+  return (
+    <div className="chips" style={{ marginBottom: 14 }}>
+      <Chip on={filter === "__booked"} color="#3b82f6" onClick={() => setFilter("__booked")}>Meetings · {booked}</Chip>
+      <Chip on={filter === ""} color="#111827" onClick={() => setFilter("")}>All · {data.length}</Chip>
+      {chips.map((k) => (
+        <Chip key={k} on={filter === k} color={colorFor(k)} onClick={() => setFilter(filter === k ? "__booked" : k)}>
+          {labelFor(k)} · {counts[k]}
+        </Chip>
+      ))}
+    </div>
+  );
+}
+
+export const filterByStatus = (data, filter) => (data || []).filter((c) => {
+  const k = c.status?.key || "none";
+  if (filter === "__booked") return BOOKED_PLUS.has(k);
+  if (filter === "") return true;
+  return k === filter;
+});
+
+export default function Companies() {
+  const { wsParam, me } = useAuth();
+  const [modal, setModal] = useState(false);
+  const [filter, setFilter] = useState("__booked");
+  const nav = useNavigate();
+  const toast = useToast();
+  const { data, error, loading, reload } = useApi("/api/companies", { workspace_id: wsParam });
+
+  const shown = useMemo(() => filterByStatus(data, filter), [data, filter]);
+
+  const columns = useMemo(() => [
+    { accessorKey: "name", header: "Company", size: 260,
+      cell: ({ row }) => (
+        <div className="co"><Avatar name={row.original.name} size={26} />
+          <div><div className="lead-nm">{row.original.name}</div>
+            <div className="lead-sub">{row.original.domain || row.original.website || ""}</div></div>
+        </div>) },
+    { id: "status", header: "Status", size: 160, accessorFn: (r) => r.status?.label || "",
+      cell: ({ row }) => <PipelinePill status={row.original.status} /> },
+    { accessorKey: "industry", header: "Industry", size: 180, cell: ({ getValue }) => getValue() || "—" },
+    { accessorKey: "location", header: "Location", size: 160, cell: ({ getValue }) => getValue() || "—" },
+    { accessorKey: "icp_fit", header: "ICP fit", size: 120,
+      cell: ({ getValue }) => (getValue()
+        ? <Badge tone={fitTone(getValue())}>{getValue()}</Badge> : <Badge>not enriched</Badge>) },
+  ], []);
+
+  const bulkDelete = async (rows) => {
+    if (!confirm(`Delete ${rows.length} company(ies) with all contacts, deals, documents & profiles? This can't be undone.`)) return;
+    for (const c of rows) {
+      try { await api(`/api/companies/${c.id}`, { method: "DELETE" }); }
+      catch (err) { toast(`${c.name}: ${err.message}`, "bad"); }
+    }
+    toast(`Deleted ${rows.length} company(ies)`);
+    reload();
+  };
+
+  if (error) return <ErrorBox msg={error} retry={reload} />;
 
   return (
     <>
-      <div className="toolbar">
-        <input type="text" placeholder="Search companies…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <div className="spacer" />
-        <button className="btn" onClick={() => setModal(true)}>+ New company</button>
-      </div>
-
-      {data && data.length > 0 && (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "4px 0 12px", alignItems: "center" }}>
-          <Chip on={filter === "__booked"} color="#3b82f6" onClick={() => setFilter("__booked")}>Meetings · {bookedCount}</Chip>
-          <Chip on={filter === ""} color="#111827" onClick={() => setFilter("")}>All · {data.length}</Chip>
-          <span style={{ width: 1, height: 18, background: "var(--line,#e5e7eb)", margin: "0 2px" }} />
-          {chips.map((k) => (
-            <Chip key={k} on={filter === k} color={colorFor(k)} onClick={() => setFilter(filter === k ? "__booked" : k)}>
-              {labelFor(k)} · {counts[k]}
-            </Chip>
-          ))}
-        </div>
-      )}
-
-      {loading && <Spinner />}
-      {error && <ErrorBox msg={error} retry={reload} />}
-      {data && data.length === 0 && <Empty icon="◫" title="No companies" hint="Create one or import via enrichment." />}
-      {data && data.length > 0 && (
-        <table className="tbl">
-          <thead><tr><th>Name</th><th>Status</th><th>Domain</th><th>Industry</th><th>ICP fit</th><th></th></tr></thead>
-          <tbody>
-            {shown.map((c) => (
-              <tr key={c.id} className="click" onClick={() => nav(`/companies/${c.id}`)}>
-                <td><b>{c.name}</b></td>
-                <td><StatusPill status={c.status} /></td>
-                <td style={{ color: "var(--muted)" }}>{c.domain || "—"}</td>
-                <td>{c.industry || "—"}</td>
-                <td>{c.icp_fit ? <Badge tone={fitTone(c.icp_fit)}>{c.icp_fit}</Badge> : <Badge>not enriched</Badge>}</td>
-                <td style={{ textAlign: "right" }} onClick={(e) => e.stopPropagation()}>
-                  <button className="btn danger sm" onClick={(e) => del(e, c)}>Delete</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <PageHeader title="Companies" desc="Every account, with its live pipeline status."
+        actions={<Button icon={Plus} onClick={() => setModal(true)}>New company</Button>} />
+      <StatusChips data={data} filter={filter} setFilter={setFilter} />
+      <DataTable
+        id="companies" columns={columns} data={shown} loading={loading}
+        searchPlaceholder="Search companies…" getRowId={(r) => String(r.id)}
+        onRowClick={(r) => nav(`/companies/${r.id}`)}
+        bulkActions={[{ label: "Delete", icon: Trash2, onClick: bulkDelete }]}
+        emptyIcon={Building2} emptyTitle="No companies"
+        emptyHint="Create one or import via enrichment."
+        emptyAction={<Button icon={Plus} onClick={() => setModal(true)}>New company</Button>}
+      />
       {modal && (
         <NewCompanyModal workspaceId={wsParam} workspaces={me.workspaces} onClose={() => setModal(false)}
-                         onCreated={(id) => { setModal(false); nav(`/companies/${id}`); }} />
+          onCreated={(id) => { setModal(false); nav(`/companies/${id}`); }} />
       )}
     </>
   );

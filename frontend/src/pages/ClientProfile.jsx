@@ -5,7 +5,7 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api } from "../api";
-import { Badge, ErrorBox, Spinner, useApi } from "../components";
+import { Badge, Breadcrumbs, ErrorBox, PageHeader, Spinner, StatusPill, useApi } from "../components";
 
 const TABS = [
   ["overview", "Offer"], ["icp", "ICP"], ["sales_process", "Sales Process"],
@@ -60,16 +60,22 @@ export default function ClientProfile() {
 
   return (
     <div style={{ maxWidth: 1000 }}>
-      <div className="toolbar">
-        <h1 style={{ fontSize: 18 }}>Client Profile</h1>
-        <Badge tone={p.is_active_client ? "green" : "amber"}>{p.is_active_client ? "active client" : "prospect"}</Badge>
-        <div className="spacer" />
-        <label style={{ fontSize: 12.5, color: "var(--muted)" }}>Scope</label>
-        <select value={p.scope_type} onChange={(e) => setScope(e.target.value)}>
-          <option value="outbound">Outbound</option><option value="inbound">Inbound</option><option value="full">Full engine</option>
-        </select>
-        <Link className="btn ghost sm" to={`/companies/${id}`}>← Company</Link>
-      </div>
+      <Breadcrumbs items={[{ label: "Companies", href: "/companies" }, { label: "Company", href: `/companies/${id}` }, { label: "Client Profile" }]} />
+      <PageHeader
+        title={<span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+          Client Profile
+          <StatusPill tone={p.is_active_client ? "green" : "amber"}>{p.is_active_client ? "active client" : "prospect"}</StatusPill>
+        </span>}
+        desc="The operational source of truth for this engagement."
+        actions={
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <label style={{ fontSize: 12.5, color: "var(--muted)" }}>Scope</label>
+            <select value={p.scope_type} onChange={(e) => setScope(e.target.value)}>
+              <option value="outbound">Outbound</option><option value="inbound">Inbound</option><option value="full">Full engine</option>
+            </select>
+            <Link className="btn ghost sm" to={`/companies/${id}`}>← Company</Link>
+          </span>
+        } />
 
       {/* completeness + onboarding status */}
       <div className="card" style={{ padding: 14, marginBottom: 14, display: "flex", gap: 20, alignItems: "center" }}>

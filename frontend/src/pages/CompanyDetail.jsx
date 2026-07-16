@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, money } from "../api";
-import { Badge, ErrorBox, Modal, Spinner, Timeline, fitTone, scoreTone, useApi } from "../components";
+import { Badge, Breadcrumbs, Button, ErrorBox, Modal, PageHeader, Spinner, Timeline, fitTone, scoreTone, useApi } from "../components";
 import { StatusPill } from "./Companies";
 
 // Public blueprint/agreement URL — prefer a blueprint.<domain> host on engine.<domain>.
@@ -104,19 +104,25 @@ export default function CompanyDetail() {
   const enrichmentRows = Object.entries(c.enrichment || {}).filter(([k]) => k !== "last_crawl");
   return (
     <>
-      <div className="toolbar">
-        <h1 style={{ fontSize: 20 }}>{c.name}</h1>
-        {c.status && <StatusPill status={c.status} />}
-        {c.icp_fit && <Badge tone={fitTone(c.icp_fit)}>ICP: {c.icp_fit}</Badge>}
-        <div className="spacer" />
-        <button className="btn ghost" onClick={reload}>Refresh</button>
-        <button className="btn ghost" onClick={() => setEdit({ name: c.name, website: c.website || "", industry: c.industry || "", location: c.location || "" })}>Edit</button>
-        <button className="btn ghost" disabled={!!busy} onClick={enrich}>{busy === "enrich" ? "Queueing…" : "✦ Enrich"}</button>
-        <button className="btn ghost" onClick={() => nav(`/companies/${id}/profile`)}>◎ Client Profile</button>
-        <button className="btn" onClick={() => setFathom(true)}>▤ Blueprint from transcript</button>
-        <button className="btn ghost" onClick={() => setUpload(true)}>⬆ Upload blueprint</button>
-        <button className="btn danger" onClick={removeCompany}>Delete</button>
-      </div>
+      <Breadcrumbs items={[{ label: "Companies", href: "/companies" }, { label: c.name }]} />
+      <PageHeader
+        title={<span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+          {c.name}
+          {c.status && <StatusPill status={c.status} />}
+          {c.icp_fit && <Badge tone={fitTone(c.icp_fit)}>ICP: {c.icp_fit}</Badge>}
+        </span>}
+        desc={[c.industry, c.location, c.domain].filter(Boolean).join(" · ")}
+        actions={
+          <>
+            <Button variant="ghost" onClick={reload}>Refresh</Button>
+            <Button variant="secondary" onClick={() => setEdit({ name: c.name, website: c.website || "", industry: c.industry || "", location: c.location || "" })}>Edit</Button>
+            <Button variant="secondary" loading={busy === "enrich"} onClick={enrich}>Enrich</Button>
+            <Button variant="secondary" onClick={() => nav(`/companies/${id}/profile`)}>Client Profile</Button>
+            <Button onClick={() => setFathom(true)}>Blueprint from transcript</Button>
+            <Button variant="secondary" onClick={() => setUpload(true)}>Upload blueprint</Button>
+            <Button variant="danger" onClick={removeCompany}>Delete</Button>
+          </>
+        } />
 
       {edit && (
         <Modal title={`Edit ${c.name}`} onClose={() => setEdit(null)}>

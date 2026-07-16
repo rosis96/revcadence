@@ -1,8 +1,13 @@
-import { useEffect, useState } from "react";
+// CRM → Contacts. Shared DataTable + global shell (DESIGN_SYSTEM.md step 3).
+import { useMemo, useState } from "react";
+import { Contact as ContactIcon, Plus } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { Badge, Drawer, Empty, ErrorBox, Modal, Spinner, Timeline, scoreTone, useApi } from "../components";
-import { StatusPill, STATUS_ORDER, BOOKED_PLUS } from "./Companies";
+import {
+  Avatar, Badge, Button, DataTable, Drawer, ErrorBox, Modal, PageHeader, Spinner,
+  Timeline, scoreTone, useApi,
+} from "../components";
+import { PipelinePill, StatusChips, filterByStatus } from "./Companies";
 
 function NewContactModal({ onClose, onCreated, workspaceId }) {
   const { data: companies } = useApi("/api/companies", { workspace_id: workspaceId });
@@ -42,11 +47,11 @@ function NewContactModal({ onClose, onCreated, workspaceId }) {
             {(companies || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
           <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 4 }}>
-            New contacts have no deal yet — they appear under the “No deal” chip. Create a deal on Pipeline to book a meeting.</div>
+            New contacts have no deal yet. Create a deal on Pipeline to book a meeting.</div>
         </div>
         <div className="actions">
-          <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
-          <button className="btn" disabled={busy}>{busy ? "Creating…" : "Create contact"}</button>
+          <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>
+          <Button type="submit" loading={busy}>Create contact</Button>
         </div>
       </form>
     </Modal>
@@ -80,74 +85,50 @@ function ContactDrawer({ id, onClose }) {
 
 export default function Contacts() {
   const { wsParam, me } = useAuth();
-  const [q, setQ] = useState("");
   const [open, setOpen] = useState(null);
   const [modal, setModal] = useState(false);
-  const [filter, setFilter] = useState("__booked");   // default: meetings booked & beyond
-  const { data, error, loading, reload } = useApi("/api/contacts", { workspace_id: wsParam, q });
+  const [filter, setFilter] = useState("__booked");
+  const { data, error, loading, reload } = useApi("/api/contacts", { workspace_id: wsParam });
   const wsId = wsParam || (!me?.is_master ? me?.workspaces?.[0]?.id : null);
 
-  const counts = {};
-  (data || []).forEach((c) => { const k = c.status?.key || "none"; counts[k] = (counts[k] || 0) + 1; });
-  const bookedCount = (data || []).filter((c) => BOOKED_PLUS.has(c.status?.key)).length;
-  const chips = STATUS_ORDER.filter((k) => counts[k]);
-  const colorFor = (k) => (data || []).find((c) => c.status?.key === k)?.status?.color || "#64748b";
-  const labelFor = (k) => (data || []).find((c) => c.status?.key === k)?.status?.label || k;
-  const shown = (data || []).filter((c) => {
-    const k = c.status?.key || "none";
-    if (filter === "__booked") return BOOKED_PLUS.has(k);
-    if (filter === "") return true;
-    return k === filter;
-  });
-  const Chip = ({ on, color, onClick, children }) => (
-    <button onClick={onClick} style={{ cursor: "pointer", fontSize: 12, fontWeight: 600, padding: "4px 12px",
-            borderRadius: 999, border: `1px solid ${color}55`, background: on ? color : color + "1f", color: on ? "#fff" : color }}>{children}</button>
-  );
+  const shown = useMemo(() => filterByStatus(data, filter), [data, filter]);
+
+  const columns = useMemo(() => [
+    { accessorKey: "name", header: "Name", size: 230,
+      cell: ({ row }) => (
+        <div className="co"><Avatar name={row.original.name || row.original.email} size={26} />
+          <div><div className="lead-nm">{row.original.name || "—"}</div>
+            <div className="lead-sub">{row.original.email}</div></div>
+        </div>) },
+    { id: "status", header: "Status", size: 160, accessorFn: (r) => r.status?.label || "",
+      cell: ({ row }) => <PipelinePill status={row.original.status} /> },
+    { accessorKey: "company_name", header: "Company", size: 190, cell: ({ getValue }) => getValue() || "—" },
+    { accessorKey: "title", header: "Title", size: 190, cell: ({ getValue }) => getValue() || "—" },
+    { accessorKey: "source", header: "Source", size: 130,
+      cell: ({ getValue }) => <Badge>{getValue() || "—"}</Badge> },
+    { accessorKey: "revenue_score", header: "Score", size: 90,
+      cell: ({ getValue }) => (getValue() != null
+        ? <Badge tone={scoreTone(getValue())}>{getValue()}</Badge> : <Badge>—</Badge>) },
+  ], []);
+
+  if (error) return <ErrorBox msg={error} retry={reload} />;
 
   return (
     <>
-      <div className="toolbar">
-        <input type="text" placeholder="Search contacts…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <div className="spacer" />
-        <button className="btn" onClick={() => setModal(true)}>+ New contact</button>
-      </div>
-      {data && data.length > 0 && (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "4px 0 12px", alignItems: "center" }}>
-          <Chip on={filter === "__booked"} color="#3b82f6" onClick={() => setFilter("__booked")}>Meetings · {bookedCount}</Chip>
-          <Chip on={filter === ""} color="#111827" onClick={() => setFilter("")}>All · {data.length}</Chip>
-          <span style={{ width: 1, height: 18, background: "var(--line,#e5e7eb)", margin: "0 2px" }} />
-          {chips.map((k) => (
-            <Chip key={k} on={filter === k} color={colorFor(k)} onClick={() => setFilter(filter === k ? "__booked" : k)}>
-              {labelFor(k)} · {counts[k]}
-            </Chip>
-          ))}
-        </div>
-      )}
-      {loading && <Spinner />}
-      {error && <ErrorBox msg={error} retry={reload} />}
-      {data && data.length === 0 && <Empty icon="◔" title="No contacts" hint="Contacts arrive via import, enrichment, or the reply bridge." />}
-      {data && data.length > 0 && (
-        <table className="tbl">
-          <thead><tr><th>Name</th><th>Status</th><th>Company</th><th>Title</th><th>Email</th><th>Source</th><th>Score</th></tr></thead>
-          <tbody>
-            {shown.map((c) => (
-              <tr key={c.id} className="click" onClick={() => setOpen(c.id)}>
-                <td><b>{c.name || "—"}</b></td>
-                <td><StatusPill status={c.status} /></td>
-                <td>{c.company_name || "—"}</td>
-                <td>{c.title || "—"}</td>
-                <td style={{ color: "var(--muted)" }}>{c.email}</td>
-                <td><Badge>{c.source || "—"}</Badge></td>
-                <td>{c.revenue_score != null ? <Badge tone={scoreTone(c.revenue_score)}>{c.revenue_score}</Badge> : <Badge>—</Badge>}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <PageHeader title="Contacts" desc="Every person, connected to their company, deals and timeline."
+        actions={<Button icon={Plus} onClick={() => setModal(true)}>New contact</Button>} />
+      <StatusChips data={data} filter={filter} setFilter={setFilter} />
+      <DataTable
+        id="contacts" columns={columns} data={shown} loading={loading}
+        searchPlaceholder="Search contacts…" getRowId={(r) => String(r.id)}
+        onRowClick={(r) => setOpen(r.id)}
+        emptyIcon={ContactIcon} emptyTitle="No contacts"
+        emptyHint="Contacts arrive via import, enrichment, or the reply bridge."
+      />
       {open && <ContactDrawer id={open} onClose={() => setOpen(null)} />}
       {modal && (
         <NewContactModal workspaceId={wsId} onClose={() => setModal(false)}
-                         onCreated={() => { setModal(false); setFilter("none"); reload(); }} />
+          onCreated={() => { setModal(false); setFilter("none"); reload(); }} />
       )}
     </>
   );
