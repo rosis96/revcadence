@@ -406,7 +406,13 @@ def update_document(doc_id: int, body: DocPatch, ctx: AuthContext = Depends(get_
         raise HTTPException(404, "Document not found")
     if body.title is not None:
         d.title = body.title
-    if body.html is not None:
+    if body.html is not None and body.html != (d.html or ""):
+        # snapshot the outgoing content so edits are recoverable (cap 15)
+        from datetime import datetime as _dt
+        vers = list(d.versions or [])
+        if d.html:
+            vers.append({"at": _dt.utcnow().isoformat(), "title": d.title, "html": d.html})
+        d.versions = vers[-15:]
         d.html = body.html
     if body.fields is not None:
         d.fields = {**(d.fields or {}), **body.fields}
@@ -425,6 +431,33 @@ def update_document(doc_id: int, body: DocPatch, ctx: AuthContext = Depends(get_
                 d.slug = unique_slug(ctx.db, (c.name if c else "") or d.title or "blueprint")
             if d.status == "draft":
                 d.status = "published"
+    ctx.db.commit()
+    return _doc_out(d)
+
+
+@router.get("/documents/{doc_id}/versions")
+def document_versions(doc_id: int, ctx: AuthContext = Depends(get_ctx)):
+    d = scoped(ctx.db.query(Document), Document, ctx).filter(Document.id == doc_id).first()
+    if not d:
+        raise HTTPException(404, "Document not found")
+    vers = list(d.versions or [])
+    return [{"index": i, "at": v.get("at"), "title": v.get("title"),
+             "size": len(v.get("html") or "")} for i, v in enumerate(vers)][::-1]
+
+
+@router.post("/documents/{doc_id}/versions/{index}/restore")
+def document_restore(doc_id: int, index: int, ctx: AuthContext = Depends(get_ctx)):
+    from datetime import datetime as _dt
+    d = scoped(ctx.db.query(Document), Document, ctx).filter(Document.id == doc_id).first()
+    if not d:
+        raise HTTPException(404, "Document not found")
+    vers = list(d.versions or [])
+    if index < 0 or index >= len(vers):
+        raise HTTPException(404, "Version not found")
+    if d.html:
+        vers.append({"at": _dt.utcnow().isoformat(), "title": d.title, "html": d.html})
+    d.html = vers[index].get("html") or ""
+    d.versions = vers[-15:]
     ctx.db.commit()
     return _doc_out(d)
 

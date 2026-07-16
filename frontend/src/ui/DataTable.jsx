@@ -73,6 +73,8 @@ export function DataTable({
   columns, data, loading = false,
   searchable = true, searchPlaceholder = "Search…",
   tools,                    // extra toolbar node (right side)
+  leftTools,                // extra toolbar node (left side, e.g. a server-side search input)
+  manual,                   // {page, pages, total, onPage}: server-side pagination (disables client paging/virtualization)
   onRowClick,
   bulkActions,              // [{label, icon, onClick(selectedOriginals)}] -> adds checkbox column
   getRowId,
@@ -93,7 +95,7 @@ export function DataTable({
   useEffect(() => { store.set(`dt:${id}:views`, views); }, [id, views]);
 
   const rows = data || [];
-  const virtual = rows.length > virtualizeOver;
+  const virtual = !manual && rows.length > virtualizeOver;
 
   const allColumns = useMemo(() => {
     if (!bulkActions?.length) return columns;
@@ -121,7 +123,7 @@ export function DataTable({
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    ...(virtual ? {} : { getPaginationRowModel: getPaginationRowModel() }),
+    ...(virtual || manual ? {} : { getPaginationRowModel: getPaginationRowModel() }),
     enableRowSelection: !!bulkActions?.length,
   });
 
@@ -190,6 +192,7 @@ export function DataTable({
   return (
     <div className="surface dtc">
       <div className="dt-toolbar">
+        {leftTools}
         {searchable && (
           <div className="dt-search">
             <Search size={15} />
@@ -246,7 +249,17 @@ export function DataTable({
         </table>
       </div>
 
-      {!virtual && !loading && tableRows.length > 0 && (
+      {manual && !loading && (
+        <div className="pager">
+          <span>{(manual.total ?? 0).toLocaleString()} rows</span>
+          <div className="pr">
+            <span>Page {manual.page} of {Math.max(manual.pages, 1)}</span>
+            <button className="pgbtn" disabled={manual.page <= 1} onClick={() => manual.onPage(manual.page - 1)}>‹</button>
+            <button className="pgbtn" disabled={manual.page >= manual.pages} onClick={() => manual.onPage(manual.page + 1)}>›</button>
+          </div>
+        </div>
+      )}
+      {!manual && !virtual && !loading && tableRows.length > 0 && (
         <div className="pager">
           <span>{table.getFilteredRowModel().rows.length.toLocaleString()} rows</span>
           <div className="pr">

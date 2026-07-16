@@ -253,6 +253,103 @@ export function Row({ icon: Icon, avatar, title, sub, right, onClick }) {
   );
 }
 
+/* ---------------------------------------------------------------- document-editor primitives (Blueprint / Agreement / Invoice) */
+export function SaveIndicator({ state }) {
+  if (state === "saving") return <span className="save-ind saving"><span className="ui-btn-spin dark" /> Saving…</span>;
+  if (state === "saved") return <span className="save-ind saved"><Check size={13} /> Saved</span>;
+  if (state === "error") return <span className="save-ind error">Save failed</span>;
+  return null;
+}
+
+/* Debounced auto-save: call setValue on edits; saveFn(value) runs `delay` ms after
+   the last edit. Returns [state, flush]. */
+export function useAutoSave(value, saveFn, { delay = 1200, enabled = true } = {}) {
+  const [state, setState] = useState("idle");
+  const first = useRef(true);
+  const latest = useRef(value);
+  latest.current = value;
+  useEffect(() => {
+    if (!enabled) return;
+    if (first.current) { first.current = false; return; }
+    setState("saving");
+    const t = setTimeout(async () => {
+      try { await saveFn(latest.current); setState("saved"); setTimeout(() => setState("idle"), 2500); }
+      catch { setState("error"); }
+    }, delay);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [typeof value === "string" ? value : JSON.stringify(value), enabled]);
+  const flush = async () => {
+    if (!enabled) return;
+    setState("saving");
+    try { await saveFn(latest.current); setState("saved"); setTimeout(() => setState("idle"), 2500); }
+    catch { setState("error"); }
+  };
+  return [state, flush];
+}
+
+export function VersionList({ versions, onRestore, onOpen, currentLabel }) {
+  if (!versions?.length) return <div className="rc-empty">No versions yet.</div>;
+  return (
+    <div className="vlist">
+      {versions.map((v, i) => (
+        <div key={v.id ?? i} className="vrow">
+          <span className="vdot" />
+          <span className="vmain">
+            <b>{v.label || `Version ${v.version ?? versions.length - i}`}</b>
+            <em>{v.at ? new Date(v.at + (String(v.at).endsWith("Z") ? "" : "Z")).toLocaleString() : v.status || ""}</em>
+          </span>
+          {v.current
+            ? <span className="pill-badge pb-blue"><span className="bd" />{currentLabel || "current"}</span>
+            : onOpen ? <Button size="sm" variant="ghost" onClick={() => onOpen(v)}>Open</Button>
+            : onRestore ? <Button size="sm" variant="ghost" onClick={() => onRestore(v, i)}>Restore</Button> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function CommentsPanel({ comments, onAdd, me = "You" }) {
+  const [text, setText] = useState("");
+  const submit = () => { if (text.trim()) { onAdd(text.trim()); setText(""); } };
+  return (
+    <div className="cmts">
+      {(comments || []).length === 0 && <div className="rc-empty">No comments yet.</div>}
+      {(comments || []).map((c, i) => (
+        <div key={c.id ?? i} className="cmt">
+          <Avatar name={c.author || me} size={24} />
+          <div className="cmt-b">
+            <div className="cmt-h"><b>{c.author || me}</b>
+              <em>{c.at ? new Date(c.at).toLocaleString() : ""}</em></div>
+            <div className="cmt-t">{c.text}</div>
+          </div>
+        </div>
+      ))}
+      <div className="cmt-in">
+        <input value={text} placeholder="Add a comment…" onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()} />
+        <Button size="sm" onClick={submit} disabled={!text.trim()}>Post</Button>
+      </div>
+    </div>
+  );
+}
+
+/* Vertical progress of a document lifecycle (draft → sent → signed → executed …). */
+export function StatusSteps({ steps, current }) {
+  const idx = steps.findIndex((s) => s.key === current);
+  return (
+    <div className="ssteps">
+      {steps.map((s, i) => (
+        <div key={s.key} className={`sstep ${i < idx ? "done" : ""} ${i === idx ? "now" : ""}`}>
+          <span className="ss-rail"><span className="ss-dot">{i < idx ? <Check size={10} /> : null}</span>
+            {i < steps.length - 1 && <span className="ss-line" />}</span>
+          <span className="ss-body"><b>{s.label}</b>{s.sub && <em>{s.sub}</em>}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ---------------------------------------------------------------- misc */
 export const Kbd = ({ children }) => <kbd className="ui-kbd">{children}</kbd>;
 export function useDebounced(value, ms = 150) {

@@ -1,150 +1,210 @@
-// Blueprint editor: paste a Fathom transcript to (re)generate the client page,
-// edit the title/slug, publish, and copy the public per-client link
-// (blueprint.<domain>/{slug}). Internal notes stay here; the client page never shows them.
-import { useEffect, useState } from "react";
+// Blueprint editor (DESIGN_SYSTEM.md step 6). Notion feel: big quiet title,
+// auto-save with a live indicator, large distraction-free preview, version
+// history, comments, publish toggle, share. Shared components only.
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { ExternalLink, Eye, Link2, Sparkles, Trash2, Upload } from "lucide-react";
 import { api } from "../api";
-import { Badge, ErrorBox, Spinner, useApi } from "../components";
+import {
+  Badge, Breadcrumbs, Button, CommentsPanel, ConfirmDialog, ErrorBox, RowCard,
+  SaveIndicator, Spinner, StatusPill, Tabs, VersionList, useApi, useAutoSave, useToast,
+} from "../components";
 
 export default function BlueprintDetail() {
   const { id } = useParams();
   const nav = useNavigate();
+  const toast = useToast();
   const { data, error, loading, reload } = useApi(`/api/documents/${id}`);
+  const { data: versions, reload: reloadVers } = useApi(`/api/documents/${id}/versions`);
   const [d, setD] = useState(null);
   const [transcript, setTranscript] = useState("");
   const [busy, setBusy] = useState("");
-  const [copied, setCopied] = useState(false);
-  const [upName, setUpName] = useState("");
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [sideTab, setSideTab] = useState("build");
 
   useEffect(() => { if (data) setD(data); }, [data]);
+
+  const uploaded = d?.fields?.generator === "uploaded";
+  const editable = !!d;
+
+  // auto-save title + slug + (uploaded) html — Notion-style, no Save buttons
+  const [saveState] = useAutoSave(
+    d ? { title: d.title, slug: d.slug, html: uploaded ? d.html : undefined } : null,
+    async (v) => {
+      if (!v) return;
+      const body = { title: v.title, slug: v.slug };
+      if (uploaded && v.html !== undefined) body.html = v.html;
+      const r = await api(`/api/documents/${id}`, { method: "PUT", body });
+      setD((cur) => ({ ...r, html: cur?.html ?? r.html }));
+      reloadVers();
+    },
+    { enabled: editable },
+  );
+
+  const publicUrl = useMemo(() => {
+    if (!d?.slug) return "";
+    const host = window.location.host;
+    const bpHost = host.startsWith("engine.") ? host.replace(/^engine\./, "blueprint.") : "";
+    return bpHost ? `https://${bpHost}/${d.slug}` : `${window.location.origin}/p/${d.slug}`;
+  }, [d?.slug]);
+
   if (loading || !d) return <Spinner />;
   if (error) return <ErrorBox msg={error} retry={reload} />;
 
-  const uploaded = d.fields?.generator === "uploaded";
-  const replaceHtml = async (html, fileName) => {
+  const patch = async (body, key) => {
+    setBusy(key);
+    try { setD(await api(`/api/documents/${id}`, { method: "PUT", body })); }
+    catch (e) { toast(e.message, "bad"); }
+    setBusy("");
+  };
+  const regenerate = async () => {
+    if (!transcript.trim()) { toast("Paste the call transcript first.", "bad"); return; }
     setBusy("gen");
-    try { setD(await api("/api/blueprints/upload", { method: "POST", body: { doc_id: Number(id), html } })); setUpName(fileName || ""); }
-    catch (e) { alert(e.message); }
+    try {
+      setD(await api("/api/blueprints/from-transcript", { method: "POST", body: { doc_id: Number(id), transcript } }));
+      setTranscript(""); reloadVers(); toast("Blueprint generated");
+    } catch (e) { toast(e.message, "bad"); }
     setBusy("");
   };
   const onFile = (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
     const r = new FileReader();
-    r.onload = () => replaceHtml(String(r.result || ""), f.name);
+    r.onload = async () => {
+      setBusy("gen");
+      try {
+        setD(await api("/api/blueprints/upload", { method: "POST", body: { doc_id: Number(id), html: String(r.result || "") } }));
+        reloadVers(); toast(`Replaced with ${f.name}`);
+      } catch (err) { toast(err.message, "bad"); }
+      setBusy("");
+    };
     r.readAsText(f);
   };
-
-  // Public URL — prefer a blueprint.<domain> host if we're on engine.<domain>.
-  const host = window.location.host;
-  const bpHost = host.startsWith("engine.") ? host.replace(/^engine\./, "blueprint.") : "";
-  const publicUrl = bpHost ? `https://${bpHost}/${d.slug}` : `${window.location.origin}/p/${d.slug}`;
-
-  const patch = async (body, key) => {
-    setBusy(key);
-    try { setD(await api(`/api/documents/${id}`, { method: "PUT", body })); }
-    catch (e) { alert(e.message); }
+  const share = () => { navigator.clipboard?.writeText(publicUrl); toast("Public link copied"); };
+  const restore = async (_v, idx) => {
+    const real = (versions || [])[idx]?.index;
+    setBusy("restore");
+    try { setD(await api(`/api/documents/${id}/versions/${real}/restore`, { method: "POST" })); reloadVers(); toast("Version restored"); }
+    catch (e) { toast(e.message, "bad"); }
     setBusy("");
   };
-  const regenerate = async () => {
-    if (!transcript.trim()) { alert("Paste the call transcript first."); return; }
-    setBusy("gen");
-    try { setD(await api("/api/blueprints/from-transcript", { method: "POST", body: { doc_id: Number(id), transcript } })); setTranscript(""); }
-    catch (e) { alert(e.message); }
-    setBusy("");
-  };
-  const copy = () => { navigator.clipboard?.writeText(publicUrl); setCopied(true); setTimeout(() => setCopied(false), 1500); };
-  const remove = async () => {
-    if (!confirm("Delete this blueprint? This cannot be undone.")) return;
-    try { await api(`/api/documents/${id}`, { method: "DELETE" }); nav("/blueprints"); }
-    catch (e) { alert(e.message); }
+  const addComment = (text) => {
+    const comments = [...(d.fields?.comments || []), { id: Date.now(), text, author: "You", at: new Date().toISOString() }];
+    patch({ fields: { comments } }, "cmt");
   };
 
   const notes = d.fields?.notes_for_ascendly || "";
 
   return (
-    <div style={{ maxWidth: 1100 }}>
-      <div className="toolbar">
-        <input value={d.title} onChange={(e) => setD({ ...d, title: e.target.value })}
-               onBlur={() => patch({ title: d.title }, "title")}
-               style={{ fontSize: 16, fontWeight: 600, border: "none", background: "transparent", minWidth: 360 }} />
-        <Badge>{d.kind}</Badge>
-        <Badge tone={d.published ? "green" : "amber"}>{d.published ? "published" : d.status}</Badge>
-        <div className="spacer" />
-        <button className="btn danger sm" onClick={remove}>Delete</button>
+    <>
+      <Breadcrumbs items={[{ label: "Blueprints", href: "/blueprints" }, { label: d.title || "Blueprint" }]} />
+      <div className="page-head">
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <input className="doc-title" value={d.title} placeholder="Untitled blueprint"
+            onChange={(e) => setD({ ...d, title: e.target.value })} />
+          <p style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <StatusPill tone={d.published ? "green" : "gray"}>{d.published ? "published" : d.status}</StatusPill>
+            <Badge>{d.kind}</Badge>
+            <SaveIndicator state={saveState} />
+            <span style={{ color: "var(--muted2)", fontSize: 12 }}>
+              {d.view_count || 0} views{d.last_viewed_at ? ` · last ${new Date(d.last_viewed_at + "Z").toLocaleString()}` : ""}
+            </span>
+          </p>
+        </div>
+        <div className="acts">
+          <Button variant="secondary" icon={Link2} onClick={share}>Share</Button>
+          <Button variant="secondary" icon={ExternalLink} disabled={!d.published}
+            onClick={() => window.open(publicUrl, "_blank")}>Preview</Button>
+          <Button variant={d.published ? "secondary" : "primary"} icon={Eye} loading={busy === "pub"}
+            onClick={() => patch({ published: !d.published }, "pub")}>
+            {d.published ? "Unpublish" : "Publish"}</Button>
+          <Button variant="danger" icon={Trash2} onClick={() => setConfirmDel(true)}>Delete</Button>
+        </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: 16 }}>
-        <div>
-          {uploaded ? (
-            <div className="card" style={{ padding: 14, marginBottom: 12 }}>
-              <label style={{ fontSize: 12.5, fontWeight: 600 }}>Custom HTML</label>
-              <p style={{ fontSize: 12, color: "var(--muted)", margin: "3px 0 6px" }}>
-                This blueprint uses HTML you uploaded. Replace it any time — upload a new file or paste markup;
-                the slug and public link stay the same.</p>
-              <input type="file" accept=".html,.htm,text/html" onChange={onFile} disabled={busy === "gen"} />
-              {upName && <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 4 }}>Replaced with {upName}</div>}
-              <textarea rows={7} style={{ width: "100%", fontFamily: "monospace", fontSize: 12, marginTop: 8 }}
-                        value={d.html || ""} onChange={(e) => setD({ ...d, html: e.target.value })}
-                        placeholder="<!doctype html> …" />
-              <button className="btn" style={{ marginTop: 8, width: "100%" }} disabled={busy === "gen"}
-                      onClick={() => replaceHtml(d.html, "")}>
-                {busy === "gen" ? "Saving…" : "Save HTML"}</button>
-            </div>
-          ) : (
-            <div className="card" style={{ padding: 14, marginBottom: 12 }}>
-              <label style={{ fontSize: 12.5, fontWeight: 600 }}>Build from Fathom transcript</label>
-              <p style={{ fontSize: 12, color: "var(--muted)", margin: "3px 0 6px" }}>
-                Paste the call transcript (or Fathom chat/summary). Every section is generated from what was said;
-                pricing is used only if it came up on the call.</p>
-              <textarea rows={8} style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
+      <div className="doc-split">
+        {/* the document itself — large, distraction-free */}
+        <div className="doc-preview" style={{ minHeight: "70vh" }}>
+          <div className="dp-head">
+            <span>Client page</span>
+            <span style={{ fontFamily: "monospace", textTransform: "none", letterSpacing: 0 }}>
+              /{d.slug}
+            </span>
+          </div>
+          <iframe title="blueprint" style={{ width: "100%", height: "70vh", border: "none", display: "block" }}
+            srcDoc={d.html || "<p style='font-family:sans-serif;padding:24px;color:#6b7280'>No content yet. Paste a transcript on the right and Generate.</p>"} />
+        </div>
+
+        <div className="doc-side">
+          <div className="card" style={{ padding: 14 }}>
+            <Tabs value={sideTab} onChange={setSideTab} tabs={[
+              { key: "build", label: "Build" },
+              { key: "versions", label: "Versions", count: (versions || []).length },
+              { key: "comments", label: "Comments", count: (d.fields?.comments || []).length },
+            ]} />
+            <div style={{ paddingTop: 14 }}>
+              {sideTab === "build" && (
+                <div style={{ display: "grid", gap: 12 }}>
+                  {uploaded ? (
+                    <>
+                      <p style={{ fontSize: 12.5, color: "var(--muted)" }}>
+                        This blueprint uses uploaded HTML. Edit it below (auto-saves) or replace the file;
+                        the slug and public link stay the same.</p>
+                      <label className="ui-btn secondary sm" style={{ justifyContent: "center", cursor: "pointer" }}>
+                        <Upload size={14} /> Replace HTML file
+                        <input type="file" accept=".html,.htm,text/html" style={{ display: "none" }} onChange={onFile} />
+                      </label>
+                      <textarea rows={12} style={{ fontFamily: "monospace", fontSize: 11.5 }}
+                        value={d.html || ""} onChange={(e) => setD({ ...d, html: e.target.value })} />
+                    </>
+                  ) : (
+                    <>
+                      <p style={{ fontSize: 12.5, color: "var(--muted)" }}>
+                        Paste the call transcript. Every section is generated from what was said;
+                        pricing appears only if it came up on the call.</p>
+                      <textarea rows={9} style={{ fontFamily: "monospace", fontSize: 11.5 }}
                         value={transcript} onChange={(e) => setTranscript(e.target.value)}
                         placeholder="Paste the Fathom transcript here…" />
-              <button className="btn" style={{ marginTop: 8, width: "100%" }} disabled={busy === "gen"} onClick={regenerate}>
-                {busy === "gen" ? "Generating…" : "⚡ Generate blueprint"}</button>
-              <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>
-                Generator: {d.fields?.generator || "—"}</div>
-            </div>
-          )}
-
-          <div className="card" style={{ padding: 14, marginBottom: 12 }}>
-            <label style={{ fontSize: 12.5, fontWeight: 600 }}>Public link</label>
-            <div className="field" style={{ margin: "6px 0 0" }}>
-              <label>URL slug</label>
-              <input value={d.slug} onChange={(e) => setD({ ...d, slug: e.target.value })}
-                     onBlur={() => patch({ slug: d.slug }, "slug")} style={{ width: "100%", fontFamily: "monospace", fontSize: 12.5 }} />
-            </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
-              <input readOnly value={publicUrl} onFocus={(e) => e.target.select()}
-                     style={{ flex: 1, fontFamily: "monospace", fontSize: 11.5, padding: "6px 8px" }} />
-              <button className="btn ghost sm" onClick={copy}>{copied ? "Copied ✓" : "Copy"}</button>
-            </div>
-            <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10, fontSize: 13 }}>
-              <input type="checkbox" checked={!!d.published} disabled={busy === "pub"}
-                     onChange={(e) => patch({ published: e.target.checked }, "pub")} />
-              Published (live on the public link)
-            </label>
-            {d.published && (
-              <a href={publicUrl} target="_blank" rel="noreferrer" className="btn ghost sm" style={{ marginTop: 8, display: "inline-block" }}>Open public page →</a>
-            )}
-            <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 8 }}>
-              Views: {d.view_count || 0}{d.last_viewed_at ? ` · last ${new Date(d.last_viewed_at + "Z").toLocaleString()}` : ""}
+                      <Button icon={Sparkles} loading={busy === "gen"} onClick={regenerate}>Generate blueprint</Button>
+                      <span style={{ fontSize: 11.5, color: "var(--muted2)" }}>Generator: {d.fields?.generator || "—"}</span>
+                    </>
+                  )}
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>URL slug</label>
+                    <input value={d.slug} style={{ fontFamily: "monospace", fontSize: 12 }}
+                      onChange={(e) => setD({ ...d, slug: e.target.value })} />
+                  </div>
+                </div>
+              )}
+              {sideTab === "versions" && (
+                <VersionList
+                  versions={[{ label: "Current", at: d.updated_at, current: true },
+                    ...(versions || []).map((v) => ({ label: v.title || "Version", at: v.at }))]}
+                  onRestore={(v, i) => i > 0 && restore(v, i - 1)} />
+              )}
+              {sideTab === "comments" && (
+                <CommentsPanel comments={d.fields?.comments || []} onAdd={addComment} />
+              )}
             </div>
           </div>
 
           {notes && (
-            <div className="card" style={{ padding: 14, borderColor: "var(--amber, #f0b429)" }}>
-              <label style={{ fontSize: 12.5, fontWeight: 600 }}>Internal notes (never shown to client)</label>
-              <p style={{ fontSize: 12.5, color: "var(--muted)", margin: "6px 0 0", whiteSpace: "pre-wrap" }}>{notes}</p>
-            </div>
+            <RowCard title="Internal notes" empty="">
+              <p style={{ fontSize: 12.5, color: "var(--muted)", padding: "0 10px 8px", whiteSpace: "pre-wrap" }}>{notes}</p>
+            </RowCard>
           )}
         </div>
-
-        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-          <iframe title="blueprint" style={{ width: "100%", height: "78vh", border: "none" }}
-                  srcDoc={d.html || "<p style='font-family:sans-serif;padding:20px'>No content yet — paste a transcript and Generate.</p>"} />
-        </div>
       </div>
-    </div>
+
+      {confirmDel && (
+        <ConfirmDialog danger title="Delete this blueprint?" message="The public page goes offline immediately. This cannot be undone."
+          confirmLabel="Delete"
+          onConfirm={async () => {
+            try { await api(`/api/documents/${id}`, { method: "DELETE" }); nav("/blueprints"); }
+            catch (e) { toast(e.message, "bad"); }
+          }}
+          onClose={() => setConfirmDel(false)} />
+      )}
+    </>
   );
 }

@@ -1,176 +1,220 @@
-// Reply Management → Inbox: the review console (Needs Review queue, drawer with
-// editable draft + Approve & Send). Its OWN section — nothing else shown.
-import { useState } from "react";  // eslint-disable-line
+// Reply Management → Inbox (DESIGN_SYSTEM.md step 5). Gmail-feel, three panes:
+// conversation list · thread + composer · AI panel. Status tabs across the top.
+// Same backend as before; pinning is a local flag (no engine changes).
+import { useEffect, useMemo, useState } from "react";
+import { Pin, PinOff, RefreshCw, Send } from "lucide-react";
 import { api, timeAgo } from "../api";
 import { useAuth } from "../auth";
-import { Badge, Drawer, Empty, ErrorBox, Spinner, useApi } from "../components";
+import {
+  Avatar, Badge, Button, ErrorBox, PageHeader, Skeleton, StatusPill, Tabs,
+  useApi, useToast,
+} from "../components";
 
-const CHIPS = [["", "All"], ["needs_review", "Needs Review"], ["replied", "Replied"],
-  ["booked", "Meeting Booked"], ["stopped", "Stopped"]];
-const actionTone = (a) => a === "stop" ? "red" : a === "would_send" ? "amber"
-  : a === "send" ? "green" : a === "skip_enrich" ? "indigo" : "";
+const ACTION_TONE = (a) => a === "stop" ? "red" : a === "would_send" ? "amber"
+  : a === "send" ? "green" : a === "skip_enrich" ? "blue" : "gray";
+const INTENT_TONE = (i) =>
+  /positive/.test(i || "") ? "green" :
+  /pricing|question/.test(i || "") ? "blue" :
+  /not_interested|stop|unsub/.test(i || "") ? "red" : "gray";
 
-function LeadDrawer({ id, onClose, onChanged }) {
-  const { data: l, error, loading, reload } = useApi(`/api/reply/leads/${id}`);
-  const [draft, setDraft] = useState(null);
-  const [busy, setBusy] = useState("");
-  if (loading) return <Drawer title="Loading…" onClose={onClose}><Spinner /></Drawer>;
-  if (error) return <Drawer title="Error" onClose={onClose}><ErrorBox msg={error} /></Drawer>;
-  const body = draft ?? l.main_reply;
-  const act = async (fn, key) => { setBusy(key); try { await fn(); reload(); onChanged(); } catch (e) { alert(e.message); } setBusy(""); };
-  return (
-    <Drawer title={l.name || l.email} onClose={onClose}>
-      <div className="kv">
-        <div className="k">Workspace</div><div>{l.workspace}</div>
-        <div className="k">Intent</div><div>{l.intent ? <Badge tone="indigo">{l.intent}</Badge> : "—"} {l.confidence}</div>
-        <div className="k">Decision</div><div><Badge tone={actionTone(l.action)}>{l.action}</Badge> {l.replied && <Badge tone="green">sent</Badge>}</div>
-      </div>
-      {l.lead_details && Object.values(l.lead_details).some(Boolean) && (
-        <>
-          <h3 style={{ fontSize: 13, margin: "12px 0 6px" }}>Lead details (from sending platform)</h3>
-          <div className="kv" style={{ margin: 0 }}>
-            {l.lead_details.website && <><div className="k">Website</div><div><a href={l.lead_details.website.startsWith("http") ? l.lead_details.website : `https://${l.lead_details.website}`} target="_blank" rel="noreferrer">{l.lead_details.website}</a></div></>}
-            {l.lead_details.contact_linkedin && <><div className="k">LinkedIn</div><div><a href={l.lead_details.contact_linkedin} target="_blank" rel="noreferrer">profile ↗</a></div></>}
-            {l.lead_details.company_linkedin && <><div className="k">Company LinkedIn</div><div><a href={l.lead_details.company_linkedin} target="_blank" rel="noreferrer">company ↗</a></div></>}
-            {l.lead_details.location && <><div className="k">Location</div><div>{l.lead_details.location}</div></>}
-            {l.lead_details.title && <><div className="k">Title</div><div>{l.lead_details.title}</div></>}
-          </div>
-        </>
-      )}
-      <h3 style={{ fontSize: 13, margin: "12px 0 6px" }}>Conversation</h3>
-      {(l.thread || []).length > 0 ? (
-        <div className="card" style={{ padding: 12, fontSize: 12.5, background: "#fafbfc", maxHeight: 220, overflowY: "auto" }}>
-          {l.thread.map((m, i) => (
-            <div key={i} style={{ marginBottom: 8 }}>
-              <b style={{ color: m.direction === "in" ? "var(--accent)" : "var(--muted)" }}>{m.direction === "in" ? "Prospect" : "Us"}</b>
-              <div style={{ whiteSpace: "pre-wrap" }}>{m.text}</div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="card" style={{ padding: 12, fontSize: 13, background: "#fafbfc" }}>{l.reply_text || "—"}</div>
-      )}
-      <h3 style={{ fontSize: 13, margin: "14px 0 6px" }}>Reply to send</h3>
-      {l.send_error && (
-        <div className="error-box" style={{ marginBottom: 8, fontSize: 12.5 }}>
-          Last send failed: {l.send_error}
-        </div>
-      )}
-      {l.platform === "instantly" && l.can_send_instantly === false && (
-        <div className="card" style={{ padding: 10, marginBottom: 8, fontSize: 12.5, borderColor: "var(--amber, #f0b429)" }}>
-          This reply can't be sent through Instantly because the webhook didn't include the reply target
-          (<code>reply_to_uuid</code> + <code>eaccount</code>). Make sure the Instantly webhook fires on the
-          <b> reply-received</b> event (not just a tag/status change), which carries the email id and sending mailbox.
-        </div>
-      )}
-      <textarea rows={8} style={{ width: "100%" }} value={body} onChange={(e) => setDraft(e.target.value)} />
-      <div className="toolbar" style={{ marginTop: 10 }}>
-        <button className="btn ghost sm" disabled={busy} onClick={() => act(() => api(`/api/reply/leads/${id}/action`, { method: "POST", body: { main_reply: body } }), "save")}>Save draft</button>
-        <button className="btn sm" disabled={busy || l.replied} onClick={() => act(async () => { await api(`/api/reply/leads/${id}/action`, { method: "POST", body: { main_reply: body } }); await api(`/api/reply/leads/${id}/send`, { method: "POST" }); }, "send")}>
-          {busy === "send" ? "Sending…" : "✓ Approve & Send"}</button>
-      </div>
-      <div className="toolbar" style={{ marginTop: 6 }}>
-        <button className="btn ghost sm" disabled={busy} onClick={() => act(() => api(`/api/reply/leads/${id}/action`, { method: "POST", body: { stage: "booked", reviewed: true } }), "book")}>Mark booked</button>
-        <button className="btn ghost sm" disabled={busy} onClick={() => act(() => api(`/api/reply/leads/${id}/action`, { method: "POST", body: { reviewed: true } }), "rev")}>Mark reviewed</button>
-        <button className="btn danger sm" disabled={busy} onClick={() => act(() => api(`/api/reply/leads/${id}/action`, { method: "POST", body: { action: "stop" } }), "stop")}>Stop</button>
-      </div>
-      {l.followups?.length > 0 && (
-        <>
-          <h3 style={{ fontSize: 13, margin: "16px 0 6px" }}>Follow-ups ({l.followups.length})</h3>
-          {l.followups.map((f, i) => <div key={i} className="card" style={{ padding: 10, marginBottom: 6, fontSize: 12.5 }}><b>FUP{i + 1}</b><br />{f}</div>)}
-        </>
-      )}
-    </Drawer>
-  );
-}
-
-function csvCell(v) {
-  const s = String(v ?? "");
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-function exportLeadsCsv(rows) {
-  const head = ["first_name", "last_name", "email", "company", "intent", "decision", "workspace"];
-  const lines = [head.join(",")].concat(rows.map((l) => {
-    const [fn, ...rest] = (l.name || "").split(" ");
-    return [fn || "", rest.join(" ") || "", l.email || "", l.company || "", l.intent || "", l.action || "", l.workspace || ""]
-      .map(csvCell).join(",");
-  }));
-  const blob = new Blob([lines.join("\n")], { type: "text/csv" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob); a.download = `reply-leads-${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
-}
+const PINS_KEY = "rc_reply_pins";
+const getPins = () => { try { return new Set(JSON.parse(localStorage.getItem(PINS_KEY)) || []); } catch { return new Set(); } };
 
 export default function ReplyInbox() {
   const params = new URLSearchParams(window.location.hash.split("?")[1] || "");
   const { wsParam } = useAuth();
-  const [status, setStatus] = useState(params.get("status") ?? "needs_review");
-  const [open, setOpen] = useState(params.get("open") ? Number(params.get("open")) : null);
-  const [sel, setSel] = useState({});
-  const [intent, setIntent] = useState("");
-  const { data, error, loading, reload } = useApi("/api/reply/leads", { status, workspace_id: wsParam });
+  const [tab, setTab] = useState(params.get("status") ?? "needs_review");
+  const [q, setQ] = useState("");
+  const [openId, setOpenId] = useState(params.get("open") ? Number(params.get("open")) : null);
+  const [pins, setPins] = useState(getPins);
+  const status = tab === "pinned" ? "" : tab;
+  const { data, error, loading, reload } = useApi("/api/reply/leads", { status, q, workspace_id: wsParam });
 
   const leads = data?.leads || [];
-  const intents = [...new Set(leads.map((l) => l.intent).filter(Boolean))].sort();
-  const shown = leads.filter((l) => !intent || l.intent === intent);
-  const selIds = Object.keys(sel).filter((k) => sel[k]);
-  const allSel = shown.length > 0 && shown.every((l) => sel[l.id]);
-  const toggleAll = () => {
-    const next = { ...sel };
-    if (allSel) shown.forEach((l) => delete next[l.id]);
-    else shown.forEach((l) => { next[l.id] = true; });
-    setSel(next);
+  const counts = data?.counts || {};
+  const shown = useMemo(
+    () => (tab === "pinned" ? leads.filter((l) => pins.has(l.id)) : leads),
+    [leads, tab, pins]);
+
+  useEffect(() => {
+    if (openId && !shown.some((l) => l.id === openId)) setOpenId(shown[0]?.id ?? null);
+    else if (!openId && shown.length) setOpenId(shown[0].id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, data]);
+
+  const togglePin = (id) => {
+    const next = new Set(pins);
+    next.has(id) ? next.delete(id) : next.add(id);
+    setPins(next);
+    localStorage.setItem(PINS_KEY, JSON.stringify([...next]));
   };
-  const exportSel = () => {
-    const rows = leads.filter((l) => sel[l.id]);
-    if (!rows.length) { alert("Select some leads first (or use the header checkbox)."); return; }
-    exportLeadsCsv(rows);
-  };
+
+  if (error) return <ErrorBox msg={error} retry={reload} />;
 
   return (
     <>
-      <div className="chips">
-        {CHIPS.map(([v, label]) => (
-          <button key={v} className={status === v ? "on" : ""} onClick={() => { setStatus(v); setSel({}); }}>
-            {label} {data?.counts?.[v || "all"] ?? ""}
-          </button>
-        ))}
-        <div style={{ flex: 1 }} />
-        {intents.length > 0 && (
-          <select value={intent} onChange={(e) => setIntent(e.target.value)} style={{ maxWidth: 220, marginRight: 8 }}>
-            <option value="">All intents</option>
-            {intents.map((i) => <option key={i} value={i}>{i}</option>)}
-          </select>
-        )}
-        <span style={{ fontSize: 12.5, color: "var(--muted)", marginRight: 8 }}>{selIds.length} selected</span>
-        <button className="btn sm" disabled={!selIds.length} onClick={exportSel}>⭳ Export selected (CSV)</button>
-        <button className="btn ghost sm" onClick={reload}>Refresh</button>
+      <PageHeader title="Inbox" desc="Every conversation, with the AI's read and your one-click actions."
+        actions={<Button variant="secondary" icon={RefreshCw} onClick={reload}>Refresh</Button>} />
+
+      <div style={{ marginBottom: 14 }}>
+        <Tabs value={tab} onChange={(t) => { setTab(t); setOpenId(null); }} tabs={[
+          { key: "needs_review", label: "Needs Review", count: counts.needs_review ?? 0 },
+          { key: "replied", label: "Replied", count: counts.replied ?? 0 },
+          { key: "booked", label: "Meeting Booked", count: counts.booked ?? 0 },
+          { key: "stopped", label: "Stopped", count: counts.stopped ?? 0 },
+          { key: "pinned", label: "Pinned", count: pins.size },
+          { key: "draft", label: "Draft", count: counts.draft ?? 0 },
+        ]} />
       </div>
-      {loading && <Spinner />}
-      {error && <ErrorBox msg={error} retry={reload} />}
-      {data && shown.length === 0 && <Empty icon="✉" title="Nothing here" hint="Replies arrive from Bison/Instantly webhooks pointed at this workspace." />}
-      {data && shown.length > 0 && (
-        <table className="tbl">
-          <thead><tr>
-            <th style={{ width: 30 }}><input type="checkbox" checked={allSel} onChange={toggleAll} /></th>
-            <th>Lead</th><th>Workspace</th><th>Intent</th><th>Decision</th><th>When</th>
-          </tr></thead>
-          <tbody>
-            {shown.map((l) => (
-              <tr key={l.id} className="click" onClick={() => setOpen(l.id)}>
-                <td onClick={(e) => e.stopPropagation()}>
-                  <input type="checkbox" checked={!!sel[l.id]} onChange={(e) => setSel({ ...sel, [l.id]: e.target.checked })} /></td>
-                <td><b>{l.name || l.email}</b><div style={{ color: "var(--muted)", fontSize: 12 }}>{l.company} · {l.email}</div></td>
-                <td style={{ fontSize: 12.5 }}>{l.workspace}</td>
-                <td>{l.intent ? <Badge tone="indigo">{l.intent}</Badge> : "—"}</td>
-                <td><Badge tone={actionTone(l.action)}>{l.action}</Badge>{l.replied && " ✓"}</td>
-                <td>{timeAgo(l.at)}</td>
-              </tr>
+
+      <div className="inbox3">
+        <div className="ib-pane ib-list">
+          <div className="ib-search">
+            <input type="text" placeholder="Search conversations…" value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
+          <div className="ib-scroll">
+            {loading && [...Array(7)].map((_, i) => (
+              <div key={i} style={{ padding: "12px 14px", display: "grid", gap: 7 }}>
+                <Skeleton w="55%" /><Skeleton w="85%" h={10} />
+              </div>
             ))}
-          </tbody>
-        </table>
-      )}
-      {open && <LeadDrawer id={open} onClose={() => setOpen(null)} onChanged={reload} />}
+            {!loading && shown.length === 0 && (
+              <div className="rc-empty" style={{ padding: 30 }}>Nothing here.</div>
+            )}
+            {shown.map((l) => (
+              <button key={l.id} className={`conv ${openId === l.id ? "on" : ""}`} onClick={() => setOpenId(l.id)}>
+                <Avatar name={l.name || l.email} size={30} />
+                <span className="cv-main">
+                  <span className="cv-top">
+                    <span className="cv-name">{l.name || l.email}</span>
+                    <span className="cv-when">{timeAgo(l.at)}</span>
+                  </span>
+                  <span className="cv-snip">{l.company ? `${l.company} · ` : ""}{l.email}</span>
+                  <span className="cv-meta">
+                    {l.intent && <StatusPill tone={INTENT_TONE(l.intent)}>{l.intent.replaceAll("_", " ")}</StatusPill>}
+                    {pins.has(l.id) && <Badge tone="indigo">pinned</Badge>}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {openId
+          ? <Thread key={openId} id={openId} pinned={pins.has(openId)} onPin={() => togglePin(openId)} onChanged={reload} />
+          : <div className="ib-none">Select a conversation</div>}
+      </div>
+    </>
+  );
+}
+
+function Thread({ id, pinned, onPin, onChanged }) {
+  const toast = useToast();
+  const { data: l, error, loading, reload } = useApi(`/api/reply/leads/${id}`);
+  const [draft, setDraft] = useState(null);
+  const [busy, setBusy] = useState("");
+
+  if (loading) {
+    return (
+      <div className="ib-pane" style={{ gridColumn: "span 2", padding: 20, display: "grid", gap: 12, alignContent: "start" }}>
+        <Skeleton w="40%" /><Skeleton w="90%" h={60} /><Skeleton w="70%" h={40} />
+      </div>
+    );
+  }
+  if (error) return <div className="ib-pane" style={{ gridColumn: "span 2", padding: 20 }}><ErrorBox msg={error} /></div>;
+
+  const body = draft ?? l.main_reply;
+  const act = async (fn, key, ok) => {
+    setBusy(key);
+    try { await fn(); reload(); onChanged(); ok && toast(ok); }
+    catch (e) { toast(e.message, "bad"); }
+    setBusy("");
+  };
+  const save = () => act(() => api(`/api/reply/leads/${id}/action`, { method: "POST", body: { main_reply: body } }), "save", "Draft saved");
+  const send = () => act(async () => {
+    await api(`/api/reply/leads/${id}/action`, { method: "POST", body: { main_reply: body } });
+    await api(`/api/reply/leads/${id}/send`, { method: "POST" });
+  }, "send", "Reply sent");
+
+  const thread = (l.thread || []).length > 0 ? l.thread
+    : (l.reply_text ? [{ direction: "in", text: l.reply_text }] : []);
+
+  return (
+    <>
+      <div className="ib-pane">
+        <div className="ib-thread-head">
+          <Avatar name={l.name || l.email} size={30} />
+          <h2>{l.name || l.email}</h2>
+          <Button size="sm" variant="ghost" icon={pinned ? PinOff : Pin} onClick={onPin}>{pinned ? "Unpin" : "Pin"}</Button>
+        </div>
+        <div className="ib-msgs">
+          {thread.length === 0 && <div className="ib-none" style={{ background: "none" }}>No messages captured.</div>}
+          {thread.map((m, i) => (
+            <div key={i} className={`msg ${m.direction === "in" ? "in" : "out"}`}>
+              <div className="who">{m.direction === "in" ? (l.name || "Prospect") : "Us"}</div>
+              {m.text}
+            </div>
+          ))}
+        </div>
+        <div className="ib-compose">
+          {l.send_error && <div className="error-box" style={{ fontSize: 12.5 }}>Last send failed: {l.send_error}</div>}
+          {l.platform === "instantly" && l.can_send_instantly === false && (
+            <div className="error-box" style={{ fontSize: 12.5, background: "#FFFAEB", borderColor: "#FEDF89", color: "#B54708" }}>
+              Can't send through Instantly: the webhook didn't include the reply target. Point the Instantly
+              webhook at the reply-received event so it carries the email id and sending mailbox.
+            </div>
+          )}
+          <textarea value={body} onChange={(e) => setDraft(e.target.value)} placeholder="Your reply…" />
+          <div className="row">
+            <Button icon={Send} loading={busy === "send"} disabled={!!busy || l.replied} onClick={send}>
+              {l.replied ? "Already sent" : "Approve & Send"}</Button>
+            <Button variant="secondary" loading={busy === "save"} disabled={!!busy} onClick={save}>Save draft</Button>
+            <span style={{ flex: 1 }} />
+            <Button size="sm" variant="ghost" disabled={!!busy}
+              onClick={() => act(() => api(`/api/reply/leads/${id}/action`, { method: "POST", body: { stage: "booked", reviewed: true } }), "book", "Marked booked")}>Mark booked</Button>
+            <Button size="sm" variant="ghost" disabled={!!busy}
+              onClick={() => act(() => api(`/api/reply/leads/${id}/action`, { method: "POST", body: { reviewed: true } }), "rev", "Marked reviewed")}>Mark reviewed</Button>
+            <Button size="sm" variant="danger" disabled={!!busy}
+              onClick={() => act(() => api(`/api/reply/leads/${id}/action`, { method: "POST", body: { action: "stop" } }), "stop", "Stopped")}>Stop</Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="ib-pane ib-ai">
+        <div className="ib-ai-h">AI assistant</div>
+        <div className="ib-ai-body">
+          <div className="ai-block"><div className="lbl">Intent</div>
+            <div className="val">{l.intent
+              ? <StatusPill tone={INTENT_TONE(l.intent)}>{l.intent.replaceAll("_", " ")}</StatusPill> : "—"}
+              {l.confidence && <span style={{ color: "var(--muted2)", fontSize: 12, marginLeft: 6 }}>{l.confidence}</span>}
+            </div></div>
+          <div className="ai-block"><div className="lbl">Decision</div>
+            <div className="val"><StatusPill tone={ACTION_TONE(l.action)}>{l.action || "—"}</StatusPill>
+              {l.replied && <Badge tone="green">sent</Badge>}</div></div>
+          <div className="ai-block"><div className="lbl">Workspace</div><div className="val">{l.workspace}</div></div>
+          {l.lead_details && Object.values(l.lead_details).some(Boolean) && (
+            <div className="ai-block"><div className="lbl">Lead details</div>
+              <div className="val" style={{ display: "grid", gap: 4, fontSize: 12.5 }}>
+                {l.lead_details.title && <span>{l.lead_details.title}</span>}
+                {l.lead_details.location && <span>{l.lead_details.location}</span>}
+                {l.lead_details.website && <a href={l.lead_details.website.startsWith("http") ? l.lead_details.website : `https://${l.lead_details.website}`} target="_blank" rel="noreferrer">Website ↗</a>}
+                {l.lead_details.contact_linkedin && <a href={l.lead_details.contact_linkedin} target="_blank" rel="noreferrer">LinkedIn ↗</a>}
+                {l.lead_details.company_linkedin && <a href={l.lead_details.company_linkedin} target="_blank" rel="noreferrer">Company LinkedIn ↗</a>}
+              </div></div>
+          )}
+          {l.followups?.length > 0 && (
+            <div className="ai-block"><div className="lbl">Follow-ups queued ({l.followups.length})</div>
+              <div className="val" style={{ display: "grid", gap: 8 }}>
+                {l.followups.map((f, i) => (
+                  <div key={i} className="card" style={{ padding: 10, fontSize: 12.5 }}>
+                    <b style={{ fontSize: 11, color: "var(--muted2)" }}>FUP{i + 1}</b>
+                    <div style={{ whiteSpace: "pre-wrap", marginTop: 3 }}>{f}</div>
+                  </div>
+                ))}
+              </div></div>
+          )}
+        </div>
+      </div>
     </>
   );
 }

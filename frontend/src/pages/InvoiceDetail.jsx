@@ -1,11 +1,22 @@
-// Invoice editor/view: bill-to, line items, totals, notes/instructions, issue,
-// record payment status, void, copy public link, download PDF.
+// Invoice editor (DESIGN_SYSTEM.md step 8). Professional accounting UI:
+// bill-to + line items on the left, totals/status/actions/timeline on the right.
+// Auto-save while draft; issue → payment → paid lifecycle. Shared components only.
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { api, download } from "../api";
-import { Badge, ErrorBox, Modal, Spinner, useApi } from "../components";
+import { Download, Link2, Mail, Plus, Send, X } from "lucide-react";
+import { api, download, timeAgo } from "../api";
+import {
+  Badge, Breadcrumbs, Button, ErrorBox, Modal, RowCard, SaveIndicator, Spinner,
+  StatusPill, StatusSteps, useApi, useAutoSave, useToast,
+} from "../components";
 
-const TONE = { draft: "", issued: "blue", viewed: "indigo", partially_paid: "amber", paid: "green", overdue: "red", void: "" };
+const TONE = { draft: "gray", issued: "blue", viewed: "amber", partially_paid: "amber", paid: "green", overdue: "red", void: "gray" };
+const LIFE = [
+  { key: "draft", label: "Draft" }, { key: "issued", label: "Issued" },
+  { key: "viewed", label: "Viewed" }, { key: "partially_paid", label: "Partially paid" },
+  { key: "paid", label: "Paid" },
+];
+const stepKey = (s) => (s === "overdue" ? "issued" : s);
 
 function publicUrl(slug) {
   if (!slug) return "";
@@ -17,154 +28,184 @@ function publicUrl(slug) {
 export default function InvoiceDetail() {
   const { id } = useParams();
   const nav = useNavigate();
+  const toast = useToast();
   const { data, error, loading, reload } = useApi(`/api/invoices/${id}`);
+  const { data: timeline } = useApi(`/api/activities`, { limit: 50 });
   const [inv, setInv] = useState(null);
   const [busy, setBusy] = useState("");
-  const [copied, setCopied] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const [pay, setPay] = useState("");
 
   useEffect(() => { if (data) setInv(data); }, [data]);
+
+  const editable = inv?.status === "draft";
+  const [saveState] = useAutoSave(
+    inv && editable ? {
+      bill_to_company: inv.bill_to_company, bill_to_name: inv.bill_to_name, bill_to_email: inv.bill_to_email,
+      currency: inv.currency, issue_date: inv.issue_date, due_date: inv.due_date,
+      line_items: inv.line_items, tax_rate: inv.tax_rate, discount_amount: inv.discount_amount,
+      payment_instructions: inv.payment_instructions, notes: inv.notes,
+    } : null,
+    async (v) => { if (v) setInv(await api(`/api/invoices/${id}`, { method: "PUT", body: v })); },
+    { enabled: !!editable },
+  );
+
   if (loading || !inv) return <Spinner />;
   if (error) return <ErrorBox msg={error} retry={reload} />;
 
-  const editable = inv.status === "draft";
   const url = publicUrl(inv.slug);
   const items = inv.line_items || [];
-
-  const save = async (patch) => {
-    setBusy("save");
-    try { setInv(await api(`/api/invoices/${id}`, { method: "PUT", body: patch })); }
-    catch (e) { alert(e.message); }
-    setBusy("");
-  };
-  const setItem = (i, k, v) => {
-    const next = items.map((li, j) => (j === i ? { ...li, [k]: k === "description" ? v : Number(v) } : li));
-    setInv({ ...inv, line_items: next });
-  };
-  const addItem = () => setInv({ ...inv, line_items: [...items, { description: "", quantity: 1, rate: 0 }] });
-  const rmItem = (i) => { const next = items.filter((_, j) => j !== i); setInv({ ...inv, line_items: next }); save({ line_items: next }); };
-  const copy = () => { navigator.clipboard?.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); };
-  const doAction = async (path, body, key) => {
-    setBusy(key);
-    try { setInv(await api(`/api/invoices/${id}/${path}`, { method: "POST", body: body || {} })); reload(); }
-    catch (e) { alert(e.message); }
-    setBusy("");
-  };
-
   const cur = inv.currency;
   const fmt = (n) => `${cur} ${(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const acts = (timeline || []).filter((t) => (t.data || {}).invoice_id === inv.id);
+
+  const doAction = async (path, body, key, ok) => {
+    setBusy(key);
+    try { setInv(await api(`/api/invoices/${id}/${path}`, { method: "POST", body: body || {} })); reload(); ok && toast(ok); }
+    catch (e) { toast(e.message, "bad"); }
+    setBusy("");
+  };
+  const setItem = (i, k, v) =>
+    setInv({ ...inv, line_items: items.map((li, j) => (j === i ? { ...li, [k]: k === "description" ? v : Number(v) } : li)) });
+  const emailInvoice = () => {
+    const subject = encodeURIComponent(`Invoice ${inv.number}${inv.bill_to_company ? ` — ${inv.bill_to_company}` : ""}`);
+    const body = encodeURIComponent(`Hi ${inv.bill_to_name || ""},\n\nPlease find invoice ${inv.number} here:\n${url}\n\nTotal: ${fmt(inv.total)}${inv.due_date ? `\nDue: ${inv.due_date}` : ""}\n\nThank you!`);
+    window.location.href = `mailto:${inv.bill_to_email || ""}?subject=${subject}&body=${body}`;
+  };
 
   return (
-    <div style={{ maxWidth: 960 }}>
-      <div className="toolbar">
-        <h1 style={{ fontSize: 18 }}>Invoice {inv.number}</h1>
-        <Badge tone={TONE[inv.status] || ""}>{inv.status}</Badge>
-        <div className="spacer" />
-        {inv.agreement_id && <button className="btn ghost sm" onClick={() => nav(`/agreements/${inv.agreement_id}`)}>Agreement ↗</button>}
-        {inv.company_id && <button className="btn ghost sm" onClick={() => nav(`/companies/${inv.company_id}`)}>Company ↗</button>}
+    <>
+      <Breadcrumbs items={[{ label: "Invoices", href: "/invoices" }, { label: inv.number }]} />
+      <div className="page-head">
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 650 }}>Invoice {inv.number}</h1>
+          <p style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <StatusPill tone={TONE[inv.status] || "gray"}>{inv.status.replaceAll("_", " ")}</StatusPill>
+            {inv.agreement_id && <a href={`#/agreements/${inv.agreement_id}`} style={{ fontSize: 12.5 }}>Agreement →</a>}
+            {inv.company_id && <a href={`#/companies/${inv.company_id}`} style={{ fontSize: 12.5 }}>Company →</a>}
+            <SaveIndicator state={editable ? saveState : "idle"} />
+          </p>
+        </div>
+        <div className="acts">
+          {editable && <Button icon={Send} loading={busy === "issue"} onClick={() => doAction("issue", {}, "issue", "Invoice issued")}>Issue invoice</Button>}
+          {inv.status !== "draft" && inv.status !== "void" && inv.status !== "paid" &&
+            <Button onClick={() => { setPay(String(inv.balance_due)); setPayOpen(true); }}>Record payment</Button>}
+          <Button variant="secondary" icon={Mail} disabled={inv.status === "draft"} onClick={emailInvoice}>Email</Button>
+          <Button variant="secondary" icon={Download} onClick={() => download(`/api/invoices/${id}/pdf`)}>PDF</Button>
+          {inv.status !== "draft" &&
+            <Button variant="secondary" icon={Link2} onClick={() => { navigator.clipboard?.writeText(url); toast("Public link copied"); }}>Share</Button>}
+          {inv.status !== "void" && inv.status !== "paid" &&
+            <Button variant="danger" icon={X} loading={busy === "void"} onClick={() => doAction("void", {}, "void", "Invoice voided")}>Void</Button>}
+        </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 16, alignItems: "start" }}>
-        <div>
-          <div className="card" style={{ padding: 16, marginBottom: 14 }}>
+      <div className="doc-split">
+        <div style={{ display: "grid", gap: 12 }}>
+          <div className="card" style={{ padding: 16 }}>
             <h3 style={{ fontSize: 13, margin: "0 0 10px" }}>Bill to</h3>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div className="field"><label>Company</label>
-                <input disabled={!editable} value={inv.bill_to_company || ""} onChange={(e) => setInv({ ...inv, bill_to_company: e.target.value })} onBlur={() => editable && save({ bill_to_company: inv.bill_to_company })} /></div>
+                <input disabled={!editable} value={inv.bill_to_company || ""} onChange={(e) => setInv({ ...inv, bill_to_company: e.target.value })} /></div>
               <div className="field"><label>Name</label>
-                <input disabled={!editable} value={inv.bill_to_name || ""} onChange={(e) => setInv({ ...inv, bill_to_name: e.target.value })} onBlur={() => editable && save({ bill_to_name: inv.bill_to_name })} /></div>
+                <input disabled={!editable} value={inv.bill_to_name || ""} onChange={(e) => setInv({ ...inv, bill_to_name: e.target.value })} /></div>
               <div className="field"><label>Email</label>
-                <input disabled={!editable} value={inv.bill_to_email || ""} onChange={(e) => setInv({ ...inv, bill_to_email: e.target.value })} onBlur={() => editable && save({ bill_to_email: inv.bill_to_email })} /></div>
+                <input disabled={!editable} value={inv.bill_to_email || ""} onChange={(e) => setInv({ ...inv, bill_to_email: e.target.value })} /></div>
               <div className="field"><label>Currency</label>
-                <input disabled={!editable} value={inv.currency} onChange={(e) => setInv({ ...inv, currency: e.target.value })} onBlur={() => editable && save({ currency: inv.currency })} /></div>
+                <input disabled={!editable} value={inv.currency} onChange={(e) => setInv({ ...inv, currency: e.target.value })} /></div>
               <div className="field"><label>Issue date</label>
-                <input type="date" disabled={!editable} value={inv.issue_date || ""} onChange={(e) => setInv({ ...inv, issue_date: e.target.value })} onBlur={() => editable && save({ issue_date: inv.issue_date })} /></div>
+                <input type="date" disabled={!editable} value={inv.issue_date || ""} onChange={(e) => setInv({ ...inv, issue_date: e.target.value })} /></div>
               <div className="field"><label>Due date</label>
-                <input type="date" disabled={!editable} value={inv.due_date || ""} onChange={(e) => setInv({ ...inv, due_date: e.target.value })} onBlur={() => editable && save({ due_date: inv.due_date })} /></div>
+                <input type="date" disabled={!editable} value={inv.due_date || ""} onChange={(e) => setInv({ ...inv, due_date: e.target.value })} /></div>
             </div>
           </div>
 
-          <div className="card" style={{ padding: 16, marginBottom: 14 }}>
+          <div className="card" style={{ padding: 16 }}>
             <h3 style={{ fontSize: 13, margin: "0 0 10px" }}>Line items</h3>
-            <table className="tbl">
-              <thead><tr><th>Description</th><th style={{ width: 70 }}>Qty</th><th style={{ width: 110 }}>Rate</th><th style={{ width: 110, textAlign: "right" }}>Amount</th><th></th></tr></thead>
+            <table className="dt">
+              <thead><tr><th>Description</th><th style={{ width: 70 }}>Qty</th><th style={{ width: 110 }}>Rate</th><th style={{ width: 120, textAlign: "right" }}>Amount</th><th style={{ width: 40 }} /></tr></thead>
               <tbody>
                 {items.map((li, i) => (
                   <tr key={i}>
                     <td><input disabled={!editable} value={li.description || ""} style={{ width: "100%" }}
-                               onChange={(e) => setItem(i, "description", e.target.value)} onBlur={() => editable && save({ line_items: items })} /></td>
+                      onChange={(e) => setItem(i, "description", e.target.value)} /></td>
                     <td><input type="number" disabled={!editable} value={li.quantity ?? 1} style={{ width: "100%" }}
-                               onChange={(e) => setItem(i, "quantity", e.target.value)} onBlur={() => editable && save({ line_items: items })} /></td>
+                      onChange={(e) => setItem(i, "quantity", e.target.value)} /></td>
                     <td><input type="number" disabled={!editable} value={li.rate ?? 0} style={{ width: "100%" }}
-                               onChange={(e) => setItem(i, "rate", e.target.value)} onBlur={() => editable && save({ line_items: items })} /></td>
+                      onChange={(e) => setItem(i, "rate", e.target.value)} /></td>
                     <td style={{ textAlign: "right", fontWeight: 600 }}>{fmt((li.quantity || 0) * (li.rate || 0))}</td>
-                    <td>{editable && <button className="btn ghost sm" onClick={() => rmItem(i)}>✕</button>}</td>
+                    <td>{editable && <Button size="sm" variant="ghost" icon={X} onClick={() =>
+                      setInv({ ...inv, line_items: items.filter((_, j) => j !== i) })} />}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            {editable && <button className="btn ghost sm" style={{ marginTop: 8 }} onClick={addItem}>+ Add line</button>}
+            {editable && <Button size="sm" variant="secondary" icon={Plus} style={{ marginTop: 10 }}
+              onClick={() => setInv({ ...inv, line_items: [...items, { description: "", quantity: 1, rate: 0 }] })}>Add line</Button>}
           </div>
 
           <div className="card" style={{ padding: 16 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div className="field"><label>Tax rate (%)</label>
-                <input type="number" disabled={!editable} value={inv.tax_rate ?? 0} onChange={(e) => setInv({ ...inv, tax_rate: Number(e.target.value) })} onBlur={() => editable && save({ tax_rate: inv.tax_rate })} /></div>
+                <input type="number" disabled={!editable} value={inv.tax_rate ?? 0} onChange={(e) => setInv({ ...inv, tax_rate: Number(e.target.value) })} /></div>
               <div className="field"><label>Discount ({cur})</label>
-                <input type="number" disabled={!editable} value={inv.discount_amount ?? 0} onChange={(e) => setInv({ ...inv, discount_amount: Number(e.target.value) })} onBlur={() => editable && save({ discount_amount: inv.discount_amount })} /></div>
+                <input type="number" disabled={!editable} value={inv.discount_amount ?? 0} onChange={(e) => setInv({ ...inv, discount_amount: Number(e.target.value) })} /></div>
             </div>
             <div className="field"><label>Payment instructions</label>
-              <textarea rows={2} disabled={!editable} value={inv.payment_instructions || ""} onChange={(e) => setInv({ ...inv, payment_instructions: e.target.value })} onBlur={() => editable && save({ payment_instructions: inv.payment_instructions })} /></div>
-            <div className="field"><label>Notes</label>
-              <textarea rows={2} disabled={!editable} value={inv.notes || ""} onChange={(e) => setInv({ ...inv, notes: e.target.value })} onBlur={() => editable && save({ notes: inv.notes })} /></div>
+              <textarea rows={2} disabled={!editable} value={inv.payment_instructions || ""} onChange={(e) => setInv({ ...inv, payment_instructions: e.target.value })} /></div>
+            <div className="field" style={{ marginBottom: 0 }}><label>Notes</label>
+              <textarea rows={2} disabled={!editable} value={inv.notes || ""} onChange={(e) => setInv({ ...inv, notes: e.target.value })} /></div>
           </div>
         </div>
 
-        <div>
-          <div className="card" style={{ padding: 16, marginBottom: 12 }}>
-            <div className="row" style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}><span>Subtotal</span><span>{fmt(inv.subtotal)}</span></div>
-            {inv.discount_amount ? <div className="row" style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}><span>Discount</span><span>-{fmt(inv.discount_amount)}</span></div> : null}
-            {inv.tax_amount ? <div className="row" style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}><span>Tax</span><span>{fmt(inv.tax_amount)}</span></div> : null}
-            <div className="row" style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, fontSize: 16, borderTop: "2px solid var(--ink,#111)", marginTop: 6, paddingTop: 8 }}><span>Total</span><span>{fmt(inv.total)}</span></div>
-            {inv.amount_paid ? <div className="row" style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}><span>Paid</span><span>{fmt(inv.amount_paid)}</span></div> : null}
-            <div className="row" style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0", color: "var(--muted)" }}><span>Balance due</span><span>{fmt(inv.balance_due)}</span></div>
-          </div>
-
-          <div className="card" style={{ padding: 14, marginBottom: 12 }}>
-            {editable && <button className="btn" style={{ width: "100%", marginBottom: 6 }} disabled={busy === "issue"} onClick={() => doAction("issue", {}, "issue")}>{busy === "issue" ? "Issuing…" : "Issue invoice"}</button>}
-            {inv.status !== "draft" && inv.status !== "void" && inv.status !== "paid" && (
-              <button className="btn" style={{ width: "100%", marginBottom: 6 }} onClick={() => { setPay(String(inv.balance_due)); setPayOpen(true); }}>Record payment</button>
-            )}
-            <button className="btn ghost sm" style={{ width: "100%", marginBottom: 6 }} onClick={() => download(`/api/invoices/${id}/pdf`)}>Download PDF</button>
-            {inv.status !== "void" && inv.status !== "paid" && <button className="btn ghost sm" style={{ width: "100%" }} onClick={() => doAction("void", {}, "void")}>Void</button>}
-          </div>
-
-          {inv.status !== "draft" && (
-            <div className="card" style={{ padding: 14 }}>
-              <h3 style={{ fontSize: 13, margin: "0 0 8px" }}>Public link</h3>
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <input readOnly value={url} onFocus={(e) => e.target.select()} style={{ flex: 1, fontFamily: "monospace", fontSize: 11, padding: "6px 8px" }} />
-                <button className="btn ghost sm" onClick={copy}>{copied ? "✓" : "Copy"}</button>
-              </div>
-              <a href={url} target="_blank" rel="noreferrer" className="btn ghost sm" style={{ display: "inline-block", marginTop: 8 }}>Open →</a>
-              <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 8 }}>Views: {inv.view_count}</div>
+        <div className="doc-side">
+          <div className="doc-preview">
+            <div className="dp-head"><span>Totals</span><Badge>{cur}</Badge></div>
+            <div className="doc-paper" style={{ maxHeight: "none", padding: "18px 22px" }}>
+              <table><tbody>
+                <tr><td>Subtotal</td><td>{fmt(inv.subtotal)}</td></tr>
+                {inv.discount_amount ? <tr><td>Discount</td><td>-{fmt(inv.discount_amount)}</td></tr> : null}
+                {inv.tax_amount ? <tr><td>Tax</td><td>{fmt(inv.tax_amount)}</td></tr> : null}
+                <tr><td style={{ fontWeight: 700, fontSize: 15 }}>Total</td><td style={{ fontWeight: 700, fontSize: 15 }}>{fmt(inv.total)}</td></tr>
+                {inv.amount_paid ? <tr><td>Paid</td><td>{fmt(inv.amount_paid)}</td></tr> : null}
+                <tr><td style={{ color: "var(--muted)" }}>Balance due</td><td style={{ color: "var(--muted)" }}>{fmt(inv.balance_due)}</td></tr>
+              </tbody></table>
             </div>
-          )}
+          </div>
+
+          <RowCard title="Payment status" empty="">
+            <div style={{ padding: "4px 10px 8px" }}>
+              {inv.status === "void"
+                ? <StatusPill tone="gray">void</StatusPill>
+                : <StatusSteps steps={LIFE.map((s) => ({
+                    ...s,
+                    sub: s.key === "issued" && inv.status === "overdue" ? "overdue" : undefined,
+                  }))} current={stepKey(inv.status)} />}
+              {inv.status !== "draft" && <div style={{ fontSize: 11.5, color: "var(--muted2)" }}>Views: {inv.view_count || 0}</div>}
+            </div>
+          </RowCard>
+
+          <RowCard title="Timeline" empty="No events yet.">
+            {acts.map((t) => (
+              <div key={t.id} style={{ fontSize: 12, padding: "5px 10px", borderTop: "1px solid #F2F3F5" }}>
+                {t.title}<div style={{ color: "var(--muted2)", fontSize: 11 }}>{timeAgo(t.occurred_at)}</div>
+              </div>
+            ))}
+          </RowCard>
         </div>
       </div>
 
       {payOpen && (
         <Modal title="Record payment" onClose={() => setPayOpen(false)}>
-          <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 0 }}>Enter the total amount received so far ({cur}). This updates the status — no payment processor is connected.</p>
+          <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 0 }}>
+            Enter the total amount received so far ({cur}). This updates the status — no payment processor is connected.</p>
           <div className="field"><label>Amount paid ({cur})</label>
             <input type="number" value={pay} onChange={(e) => setPay(e.target.value)} autoFocus /></div>
           <div className="actions">
-            <button className="btn ghost" onClick={() => setPayOpen(false)}>Cancel</button>
-            <button className="btn" onClick={() => { doAction("payment", { amount_paid: Number(pay) }, "pay"); setPayOpen(false); }}>Save</button>
+            <Button variant="ghost" onClick={() => setPayOpen(false)}>Cancel</Button>
+            <Button onClick={() => { doAction("payment", { amount_paid: Number(pay) }, "pay", "Payment recorded"); setPayOpen(false); }}>Save</Button>
           </div>
         </Modal>
       )}
-    </div>
+    </>
   );
 }

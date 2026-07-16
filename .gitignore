@@ -8,3 +8,4 @@ venv/
 .DS_Store
 logs/
 node_modules/
+frontend/vite.config.js.timestamp-*.mjs

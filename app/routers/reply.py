@@ -260,9 +260,14 @@ def reply_leads(status: str = "", q: str = "", page: int = 1, workspace_id: int 
         "replied": base.filter(ReplyLead.replied == True).count(),          # noqa: E712
         "booked": base.filter(ReplyLead.stage == "booked").count(),
         "stopped": base.filter(ReplyLead.action == "stop").count(),
+        "draft": base.filter(ReplyLead.main_reply != "", ReplyLead.replied == False,  # noqa: E712
+                             ReplyLead.action != "stop").count(),
     }
     q2 = base
-    if status == "needs_review":
+    if status == "draft":
+        q2 = base.filter(ReplyLead.main_reply != "", ReplyLead.replied == False,  # noqa: E712
+                         ReplyLead.action != "stop")
+    elif status == "needs_review":
         q2 = base.filter(ReplyLead.action.in_(["skip_enrich", "would_send"]),
                          ReplyLead.reviewed == False)  # noqa: E712
     elif status == "replied":
