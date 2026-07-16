@@ -9,3 +9,4 @@ venv/
 logs/
 node_modules/
 frontend/vite.config.js.timestamp-*.mjs
+frontend/public/_favicon-48.png

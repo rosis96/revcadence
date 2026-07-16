@@ -91,7 +91,9 @@ _BLUEPRINT_HOSTS = tuple(h.strip().lower() for h in _os.getenv("BLUEPRINT_HOSTS"
 _AGREEMENT_HOSTS = tuple(h.strip().lower() for h in _os.getenv("AGREEMENT_HOSTS", "").split(",") if h.strip())
 _INVOICE_HOSTS = tuple(h.strip().lower() for h in _os.getenv("INVOICE_HOSTS", "").split(",") if h.strip())
 _RESERVED_SEG = {"", "api", "assets", "healthz", "docs", "redoc", "openapi.json",
-                 "p", "agreement", "invoice", "favicon.ico", "robots.txt", "sitemap.xml"}
+                 "p", "agreement", "invoice", "favicon.ico", "robots.txt", "sitemap.xml",
+                 "favicon-16x16.png", "favicon-32x32.png", "apple-touch-icon.png",
+                 "android-chrome-192x192.png", "android-chrome-512x512.png", "site.webmanifest"}
 
 
 @app.middleware("http")
@@ -148,6 +150,31 @@ from .extapi.routes import extapp  # noqa: E402
 app.mount("/api/v1", extapp)
 
 _DIST = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
+
+_ICON_FILES = {
+    "favicon.ico": "image/x-icon",
+    "favicon-16x16.png": "image/png",
+    "favicon-32x32.png": "image/png",
+    "apple-touch-icon.png": "image/png",
+    "android-chrome-192x192.png": "image/png",
+    "android-chrome-512x512.png": "image/png",
+    "site.webmanifest": "application/manifest+json",
+}
+
+
+def _icon_route(fname: str, media: str):
+    async def _serve():
+        p = os.path.join(_DIST, fname)
+        if os.path.isfile(p):
+            return FileResponse(p, media_type=media,
+                                headers={"Cache-Control": "public, max-age=86400"})
+        return RedirectResponse("/")
+    return _serve
+
+
+for _fname, _media in _ICON_FILES.items():
+    app.get(f"/{_fname}", include_in_schema=False)(_icon_route(_fname, _media))
+
 if os.path.isdir(_DIST):
     app.mount("/assets", StaticFiles(directory=os.path.join(_DIST, "assets")), name="assets")
 
