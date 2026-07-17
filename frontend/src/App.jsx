@@ -46,94 +46,89 @@ import Admin from "./pages/Admin";
 import Onboarding from "./pages/Onboarding";
 import OnboardingForm from "./pages/OnboardingForm";
 
-// ONE navigation. No modes. Grouped sections so the whole Revenue OS is legible
-// at a glance. Home is standalone at the top; heavy config lives under System.
+// MODES: the four sections. Pick a mode → the sidebar shows ONLY that section.
+// Master Dashboard + System are always present. Each section is self-contained.
 const I = 18;
-const HOME_NAV = ["/", "Home", LayoutGrid];
-const SECTIONS = [
-  { group: "CRM", items: [
-    ["/pipeline", "Pipeline", Rows3],
-    ["/companies", "Companies", Building2],
-    ["/contacts", "Contacts", Contact],
-    // Reports → added in T12
-  ] },
-  { group: "Conversations", items: [
-    ["/reply/inbox", "Replies", Inbox],
-    ["/reply/processing", "Processing", Radar],
-    ["/reply/test", "Test Thread", FlaskConical],
-  ] },
-  { group: "Documents", items: [
-    ["/blueprints", "Blueprints", FileText],
-    ["/invoices", "Invoices", ClipboardList],
-  ] },
-  { group: "Clients", items: [
-    ["/clients", "Clients", Briefcase],
-    ["/onboarding", "Onboarding", CheckCheck],
-    ["/activity", "Activity", ActivityIcon],
-  ] },
-  { group: "Prospecting", collapsed: true, items: [
-    ["/enrichment", "Lists", ListChecks],
-    ["/enrichment/database", "Database", Database],
-    ["/enrichment/icp", "ICP / Non-ICP", Target],
-    ["/enrichment/formats", "Formats", AlignLeft],
-    ["/enrichment/rules", "Rules", CheckCheck],
-    ["/enrichment/profile", "Enrichment Profile", CircleUser],
-    ["/inbound", "Website Visitors", Globe],
-  ] },
-  { group: "System", collapsed: true, items: [
-    ["/settings/email", "Email", Mail],
-    ["/reply/setup", "Reply Setup", Settings2],
-    ["/reply/settings", "Reply Settings", SlidersHorizontal],
-    ["/reply/workspaces", "Extra Channels", Flag],
-    ["/settings/crm", "Integrations", Plug],
-    ["/settings/developers", "Developers", KeyRound],
-    ["/jobs", "Jobs", Cog],
-    ["/settings", "Settings", Wrench],
-  ] },
-];
-const NAV = [HOME_NAV, ...SECTIONS.flatMap((s) => s.items)];
-const NavIcon = ({ ic: Ic }) => <span className="icon"><Ic size={I} /></span>;
-
-const COLLAPSE_KEY = "rc_nav_collapsed";
-const initCollapsed = () => {
-  try {
-    const saved = JSON.parse(localStorage.getItem(COLLAPSE_KEY));
-    if (Array.isArray(saved)) return new Set(saved);
-  } catch { /* noop */ }
-  return new Set(SECTIONS.filter((s) => s.collapsed).map((s) => s.group));
+const MODES = {
+  outbound: {
+    label: "Outbound",
+    nav: [
+      ["/enrichment", "Lists", ListChecks],
+      ["/enrichment/database", "Database", Database],
+      ["/enrichment/profile", "Client Profile", CircleUser],
+      ["/enrichment/icp", "ICP / Non-ICP", Target],
+      ["/enrichment/formats", "Formats", AlignLeft],
+      ["/enrichment/rules", "Rules", CheckCheck],
+    ],
+  },
+  reply: {
+    label: "Reply Management",
+    nav: [
+      ["/reply", "Dashboard", LayoutGrid],
+      ["/reply/inbox", "Inbox", Inbox],
+      ["/reply/processing", "Processing", Radar],
+      ["/reply/test", "Test Thread", FlaskConical],
+      ["/settings/email", "Email Accounts", Mail],
+      ["/reply/setup", "Setup", Settings2],
+      ["/reply/settings", "Reply Settings", SlidersHorizontal],
+      ["/reply/workspaces", "Extra Channels", Flag],
+    ],
+  },
+  inbound: {
+    label: "Inbound (Visitors)",
+    nav: [["/inbound", "Website Visitors", Globe]],
+  },
+  crm: {
+    label: "CRM",
+    nav: [
+      ["/pipeline", "Pipeline", Rows3],
+      ["/blueprints", "Blueprints & Agreements", FileText],
+      ["/invoices", "Invoices", ClipboardList],
+      ["/clients", "Clients", Briefcase],
+      ["/companies", "Companies", Building2],
+      ["/contacts", "Contacts", Contact],
+      ["/onboarding", "Onboarding", ClipboardList],
+      ["/activity", "Activity", ActivityIcon],
+    ],
+  },
 };
+const COMMON_NAV = [["/", "Master Dashboard", LayoutGrid]];
+const SYSTEM_NAV = [["/jobs", "Jobs", Cog], ["/settings", "Settings", Wrench],
+  ["/settings/developers", "Developers", KeyRound], ["/settings/crm", "CRM Integrations", Plug]];
+const NAV = [...COMMON_NAV, ...Object.values(MODES).flatMap((m) => m.nav), ...SYSTEM_NAV];
+const NavIcon = ({ ic: Ic }) => <span className="icon"><Ic size={I} /></span>;
 
 function Sidebar() {
   const { me, logout } = useAuth();
-  const loc = useLocation();
+  const [mode, setModeRaw] = useState(localStorage.getItem("rc_mode") || "outbound");
+  const nav = useNavigate();
+  const setMode = (m) => {
+    localStorage.setItem("rc_mode", m);
+    setModeRaw(m);
+    nav(MODES[m].nav[0][0]);   // land on the mode's first screen
+  };
   const [menu, setMenu] = useState(false);
-  const [collapsed, setCollapsed] = useState(initCollapsed);
-  const toggle = (g) => setCollapsed((prev) => {
-    const next = new Set(prev);
-    next.has(g) ? next.delete(g) : next.add(g);
-    localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...next]));
-    return next;
-  });
   const initials = (me.user.name || me.user.email).slice(0, 2).toUpperCase();
   return (
     <aside className="sidebar">
       <div className="logo"><svg className="rc-wave" viewBox="80 20 560 235" aria-hidden="true"><path d="M104 235 L121 235 C134 235 134 204 147 204 C160 204 160 235 173 235 C186 235 186 197 199 197 C212 197 212 235 225 235 C238 235 238 177 251 177 C264 177 264 235 277 235 C290 235 290 154 303 154 C316 154 316 235 329 235 C342 235 342 129 355 129 C368 129 368 235 381 235 C394 235 394 101 407 101 C420 101 420 235 433 235 C446 235 446 72 459 72 C472 72 472 235 485 235 C498 235 498 42 511 42 C524 42 524 235 537 235 L553 235" fill="none" stroke="currentColor" strokeWidth="20" strokeLinecap="round" strokeLinejoin="round" /></svg><span>revcadence</span></div>
+      <div className="ws-switch">
+        <select value={mode} onChange={(e) => setMode(e.target.value)}>
+          {Object.entries(MODES).map(([key, m]) => <option key={key} value={key}>{m.label}</option>)}
+        </select>
+      </div>
       <nav className="nav">
-        <NavLink to={HOME_NAV[0]} end><NavIcon ic={HOME_NAV[2]} /><span>{HOME_NAV[1]}</span></NavLink>
-        {SECTIONS.map(({ group, items }) => {
-          const isCollapsed = collapsed.has(group);
-          const activeInside = items.some(([to]) => loc.pathname === to || loc.pathname.startsWith(to + "/"));
-          return (
-            <div key={group} className="nav-group">
-              <button className="group" onClick={() => toggle(group)}>
-                <ChevronDown size={13} className={`chev ${isCollapsed ? "closed" : ""}`} />{group}
-              </button>
-              {(!isCollapsed || activeInside) && items.map(([to, label, ic]) => (
-                <NavLink key={to} to={to} end={to.split("/").length <= 2}><NavIcon ic={ic} /><span>{label}</span></NavLink>
-              ))}
-            </div>
-          );
-        })}
+        {COMMON_NAV.map(([to, label, ic]) => (
+          <NavLink key={to} to={to} end><NavIcon ic={ic} /><span>{label}</span></NavLink>
+        ))}
+        <div className="group">{MODES[mode].label}</div>
+        {MODES[mode].nav.map(([to, label, ic]) => (
+          <NavLink key={to} to={to} end={to.split("/").length <= 2}><NavIcon ic={ic} /><span>{label}</span></NavLink>
+        ))}
+        <div className="group">System</div>
+        {SYSTEM_NAV.map(([to, label, ic]) => (
+          <NavLink key={to} to={to}><NavIcon ic={ic} /><span>{label}</span></NavLink>
+        ))}
         {me.is_master && <NavLink to="/admin"><NavIcon ic={ShieldCheck} /><span>Admin</span></NavLink>}
       </nav>
       <div className="foot">
