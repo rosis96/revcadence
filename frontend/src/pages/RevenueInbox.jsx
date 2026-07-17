@@ -42,7 +42,7 @@ export default function RevenueInbox() {
       {loading && <Spinner />}
       {error && <ErrorBox msg={error} retry={reload} />}
       {data && data.length === 0 && (
-        <Empty icon={Mail} title="Nothing waiting"
+        <Empty icon={<Mail size={26} />} title="Nothing waiting"
           hint="When your connected mailbox is on an email thread with a known contact, it shows up here to attach to a deal." />
       )}
 
