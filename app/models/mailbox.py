@@ -11,7 +11,7 @@ data-model change.
 """
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, JSON, String, Text
 
 from ..db import Base
 
@@ -45,6 +45,32 @@ class DealConversation(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class RevenueInboxItem(Base):
+    """A candidate email thread surfaced into the Revenue Inbox: the connected
+    mailbox was a participant (to/cc/from) on a thread that includes an email we
+    already know (a Contact). The user attaches it to a Deal with one click, which
+    turns it into that Deal's Conversation."""
+    __tablename__ = "revenue_inbox_items"
+
+    id = Column(Integer, primary_key=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False, index=True)
+    from_email = Column(String(255), default="")
+    subject = Column(String(512), default="")
+    body_text = Column(Text, default="")
+    participants = Column(JSON, default=list)        # all emails on the thread
+    rfc_message_id = Column(String(512), default="", index=True)
+    in_reply_to = Column(String(512), default="")
+    references = Column(Text, default="")
+
+    matched_contact_id = Column(Integer, ForeignKey("contacts.id"), index=True)
+    matched_company_id = Column(Integer, ForeignKey("companies.id"), index=True)
+
+    status = Column(String(20), default="pending")   # pending | attached | dismissed
+    deal_id = Column(Integer, ForeignKey("deals.id"))
+    conversation_id = Column(Integer, ForeignKey("deal_conversations.id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class ConversationMessage(Base):

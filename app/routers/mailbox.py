@@ -11,7 +11,7 @@ from ..mailbox import service
 from ..models.crm import Company, Contact, Deal, Stage
 from ..models.documents import Document
 from ..models.agreements import Agreement, Invoice
-from ..models.mailbox import ConversationMessage, DealConversation
+from ..models.mailbox import ConversationMessage, DealConversation, RevenueInboxItem
 from ..models.onboarding import MailboxConnection
 
 router = APIRouter(prefix="/api", tags=["deal-conversation"])
@@ -144,6 +144,60 @@ def draft(deal_id: int, ctx: AuthContext = Depends(get_ctx)):
     d = _deal(ctx, deal_id)
     conv = service.ensure_conversation(ctx.db, d)
     return service.draft_followup(ctx.db, conv)
+
+
+# ============================================================ revenue inbox (candidates)
+@router.get("/revenue-inbox")
+def revenue_inbox(workspace_id: int | None = None, status: str = "pending",
+                  ctx: AuthContext = Depends(get_ctx)):
+    """Threads where our mailbox was a participant WITH a known Contact, not yet
+    attached to a deal. The user attaches each to a deal with one click."""
+    ws_ids = ctx.workspace_ids_for_query(workspace_id)
+    q = ctx.db.query(RevenueInboxItem).filter(RevenueInboxItem.workspace_id.in_(ws_ids))
+    if status:
+        q = q.filter(RevenueInboxItem.status == status)
+    rows = q.order_by(RevenueInboxItem.id.desc()).limit(100).all()
+    out = []
+    for r in rows:
+        contact = ctx.db.get(Contact, r.matched_contact_id) if r.matched_contact_id else None
+        company = ctx.db.get(Company, r.matched_company_id) if r.matched_company_id else None
+        deals = []
+        if contact:
+            deals = [{"id": d.id, "name": d.name} for d in
+                     ctx.db.query(Deal).filter(Deal.workspace_id == r.workspace_id,
+                                               Deal.contact_id == contact.id).all()]
+        out.append({"id": r.id, "from_email": r.from_email, "subject": r.subject,
+                    "preview": (r.body_text or "")[:180], "participants": r.participants or [],
+                    "status": r.status, "created_at": r.created_at.isoformat() if r.created_at else None,
+                    "contact": {"id": contact.id, "name": f"{contact.first_name} {contact.last_name}".strip(),
+                                "email": contact.email} if contact else None,
+                    "company": {"id": company.id, "name": company.name} if company else None,
+                    "deals": deals})
+    return out
+
+
+class AttachIn(BaseModel):
+    deal_id: int
+
+
+@router.post("/revenue-inbox/{item_id}/attach")
+def attach(item_id: int, body: AttachIn, ctx: AuthContext = Depends(get_ctx)):
+    item = ctx.db.get(RevenueInboxItem, item_id)
+    if not item or item.workspace_id not in ctx.allowed_workspace_ids():
+        raise HTTPException(404, "Not found")
+    d = _deal(ctx, body.deal_id)
+    conv = service.attach_item_to_deal(ctx.db, item, d, user_id=ctx.user.id)
+    return {"ok": True, "deal_id": d.id, "conversation_id": conv.id}
+
+
+@router.post("/revenue-inbox/{item_id}/dismiss")
+def dismiss(item_id: int, ctx: AuthContext = Depends(get_ctx)):
+    item = ctx.db.get(RevenueInboxItem, item_id)
+    if not item or item.workspace_id not in ctx.allowed_workspace_ids():
+        raise HTTPException(404, "Not found")
+    item.status = "dismissed"
+    ctx.db.commit()
+    return {"ok": True}
 
 
 @router.get("/deals/{deal_id}/conversation/briefing")

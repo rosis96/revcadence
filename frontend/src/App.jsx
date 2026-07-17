@@ -27,6 +27,7 @@ import AgreementDetail from "./pages/AgreementDetail";
 import InvoiceDetail from "./pages/InvoiceDetail";
 import DealRecord from "./pages/DealRecord";
 import MailboxConnect from "./pages/MailboxConnect";
+import RevenueInbox from "./pages/RevenueInbox";
 import Invoices from "./pages/Invoices";
 import ClientProfile from "./pages/ClientProfile";
 import Clients from "./pages/Clients";
@@ -82,6 +83,7 @@ const MODES = {
     label: "CRM",
     nav: [
       ["/pipeline", "Pipeline", Rows3],
+      ["/revenue-inbox", "Revenue Inbox", Inbox],
       ["/blueprints", "Blueprints & Agreements", FileText],
       ["/invoices", "Invoices", ClipboardList],
       ["/clients", "Clients", Briefcase],
@@ -244,6 +246,7 @@ function Protected() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/pipeline" element={<Pipeline />} />
         <Route path="/deals/:id" element={<DealRecord />} />
+        <Route path="/revenue-inbox" element={<RevenueInbox />} />
         <Route path="/settings/email" element={<MailboxConnect />} />
         <Route path="/companies" element={<Companies />} />
         <Route path="/companies/:id" element={<CompanyDetail />} />

@@ -140,6 +140,29 @@ def main():
     check("MIME parse extracts threading + body", parsed["from_email"] == "dana@acme.test"
           and parsed["in_reply_to"] == first_mid and "Sounds good" in parsed["body_text"])
 
+    # ---- Revenue Inbox: CC'd thread with a KNOWN contact surfaces as a candidate ----
+    # a brand-new inbound from a known contact (Dana) but on a DIFFERENT thread with
+    # no matching conversation refs → should become a pending candidate.
+    transport.imap_fetch_unseen = lambda host, port, user, pw, limit=25: [{
+        "from_email": "someoneelse@partner.test", "to_email": "rep@ascendly.one",
+        "participants": ["someoneelse@partner.test", "rep@ascendly.one", "dana@acme.test"],
+        "subject": "Intro + question", "rfc_message_id": "<cc-thread-1@partner.test>",
+        "in_reply_to": "", "references": "", "body_text": "Looping in Dana — can you help?"}]
+    with session() as db:
+        summary = service.poll_and_sync(db, ids["w1"])
+        check("CC'd thread with known contact becomes a candidate", summary["candidates"] == 1, str(summary))
+    inbox = client.get("/api/revenue-inbox", params={"workspace_id": ids["w1"]}, headers=auth(tok)).json()
+    check("revenue inbox lists the candidate with matched contact + deal options",
+          len(inbox) == 1 and inbox[0]["contact"]["email"] == "dana@acme.test" and len(inbox[0]["deals"]) >= 1, str(inbox)[:220])
+    # attach it to the deal → becomes part of that deal's conversation
+    r = client.post(f"/api/revenue-inbox/{inbox[0]['id']}/attach", json={"deal_id": ids["deal"]}, headers=auth(tok))
+    check("attach candidate to deal ok", r.status_code == 200, r.text[:160])
+    conv2 = client.get(f"/api/deals/{ids['deal']}/conversation", headers=auth(tok)).json()
+    check("attached thread now appears in the deal conversation",
+          any("Looping in Dana" in (m.get("body_text") or "") for m in conv2["messages"]))
+    left = client.get("/api/revenue-inbox", params={"workspace_id": ids["w1"]}, headers=auth(tok)).json()
+    check("attached candidate leaves the pending list", len(left) == 0)
+
     # ---- workspace isolation ----
     r = client.get(f"/api/deals/{ids['deal']}/conversation", headers=auth(ctok))
     check("client in another workspace cannot read the conversation", r.status_code == 404)

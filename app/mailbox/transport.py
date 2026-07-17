@@ -56,12 +56,21 @@ def imap_fetch_unseen(host: str, port: int, username: str, password: str, limit:
 
 
 def parse_message(raw: bytes) -> dict:
-    """Parse a raw RFC822 message into the fields we care about (pure — unit tested)."""
+    """Parse a raw RFC822 message into the fields we care about (pure — unit tested).
+    `participants` = every address on From/To/Cc (lowercased), for known-lead matching."""
     msg = email.message_from_bytes(raw)
     body = _plain_body(msg)
+    participants = []
+    for hdr in ("From", "To", "Cc"):
+        for _, addr in email.utils.getaddresses(msg.get_all(hdr, [])):
+            a = (addr or "").lower().strip()
+            if a and a not in participants:
+                participants.append(a)
     return {
         "from_email": email.utils.parseaddr(msg.get("From", ""))[1].lower(),
         "to_email": email.utils.parseaddr(msg.get("To", ""))[1].lower(),
+        "cc": [a for _, a in email.utils.getaddresses(msg.get_all("Cc", []))],
+        "participants": participants,
         "subject": msg.get("Subject", ""),
         "rfc_message_id": (msg.get("Message-ID", "") or "").strip(),
         "in_reply_to": (msg.get("In-Reply-To", "") or "").strip(),

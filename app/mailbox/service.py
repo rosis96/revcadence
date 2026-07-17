@@ -207,38 +207,98 @@ def record_inbound(db, conv: DealConversation, *, from_email, subject, body_text
     return cm, cancelled
 
 
+def find_known_contact(db, workspace_id, emails: list, exclude: str = ""):
+    """Return the first workspace Contact whose email is among `emails` (any known
+    lead on the thread). Excludes our own mailbox address."""
+    ex = (exclude or "").lower().strip()
+    cands = [e.lower().strip() for e in (emails or []) if e and e.lower().strip() != ex]
+    if not cands:
+        return None
+    return (db.query(Contact)
+            .filter(Contact.workspace_id == workspace_id, Contact.email.in_(cands))
+            .order_by(Contact.id).first())
+
+
 def poll_and_sync(db, workspace_id) -> dict:
-    """Fetch new replies from the connected mailbox and land each into the SAME
-    Deal Conversation it belongs to (cancelling that deal's scheduled follow-ups).
-    Runs on a schedule; safe to call repeatedly. Returns a small summary."""
+    """Fetch new mail from the connected mailbox. Each message either:
+    1) matches an existing Deal Conversation → land it (cancels scheduled follow-ups), or
+    2) involves a KNOWN Contact but no conversation yet → surface it in the Revenue
+       Inbox as a pending candidate the user can attach to a deal.
+    Safe to call repeatedly."""
+    from ..models.mailbox import RevenueInboxItem
     mailbox = workspace_mailbox(db, workspace_id)
     if not mailbox or mailbox.status != "connected":
         return {"skipped": "no connected mailbox"}
     secret = decrypt(mailbox.app_password_enc)
     incoming = transport.imap_fetch_unseen(mailbox.imap_host, mailbox.imap_port, mailbox.username, secret)
-    matched, unmatched = 0, 0
+    matched, candidates, ignored = 0, 0, 0
     for m in incoming:
-        # ignore our own outbound echoes
         if (m.get("from_email") or "").lower() == mailbox.email.lower():
-            continue
+            continue  # our own outbound echo
+        mid = m.get("rfc_message_id", "")
         conv = match_inbound_to_conversation(db, workspace_id, from_email=m.get("from_email", ""),
                                              in_reply_to=m.get("in_reply_to", ""),
                                              references=m.get("references", ""))
-        if not conv:
-            unmatched += 1
+        if conv:
+            if mid and db.query(ConversationMessage).filter(
+                    ConversationMessage.conversation_id == conv.id,
+                    ConversationMessage.rfc_message_id == mid).first():
+                continue
+            record_inbound(db, conv, from_email=m.get("from_email", ""), subject=m.get("subject", ""),
+                           body_text=m.get("body_text", ""), rfc_message_id=mid,
+                           in_reply_to=m.get("in_reply_to", ""), references=m.get("references", ""))
+            matched += 1
             continue
-        # dedupe: skip if we've already stored this message id
-        if m.get("rfc_message_id") and db.query(ConversationMessage).filter(
-                ConversationMessage.conversation_id == conv.id,
-                ConversationMessage.rfc_message_id == m["rfc_message_id"]).first():
+        # no conversation yet → is a known lead on the thread?
+        participants = m.get("participants") or [m.get("from_email", "")]
+        contact = find_known_contact(db, workspace_id, participants, exclude=mailbox.email)
+        if not contact:
+            ignored += 1
             continue
-        record_inbound(db, conv, from_email=m.get("from_email", ""), subject=m.get("subject", ""),
-                       body_text=m.get("body_text", ""), rfc_message_id=m.get("rfc_message_id", ""),
-                       in_reply_to=m.get("in_reply_to", ""), references=m.get("references", ""))
-        matched += 1
+        if mid and db.query(RevenueInboxItem).filter(RevenueInboxItem.workspace_id == workspace_id,
+                                                     RevenueInboxItem.rfc_message_id == mid).first():
+            continue  # already surfaced
+        db.add(RevenueInboxItem(
+            workspace_id=workspace_id, from_email=m.get("from_email", ""), subject=m.get("subject", ""),
+            body_text=(m.get("body_text", "") or "")[:8000], participants=participants,
+            rfc_message_id=mid, in_reply_to=m.get("in_reply_to", ""), references=m.get("references", ""),
+            matched_contact_id=contact.id, matched_company_id=contact.company_id, status="pending"))
+        candidates += 1
     mailbox.last_sync_at = datetime.utcnow()
     db.commit()
-    return {"matched": matched, "unmatched": unmatched, "fetched": len(incoming)}
+    return {"matched": matched, "candidates": candidates, "ignored": ignored, "fetched": len(incoming)}
+
+
+def attach_item_to_deal(db, item, deal, user_id=None):
+    """Turn a Revenue Inbox candidate into a Deal Conversation: ensure the deal's
+    conversation exists, drop the email in as the first inbound message, and mark
+    the candidate attached."""
+    conv = ensure_conversation(db, deal)
+    # seed the prospect email + thread refs from the item so future sends thread onto it
+    if not conv.prospect_email:
+        conv.prospect_email = (item.from_email or "").lower()
+    if item.rfc_message_id:
+        conv.thread_refs = (f"{conv.thread_refs} {item.rfc_message_id}").strip()[:4000]
+    if item.subject and not conv.subject:
+        conv.subject = item.subject
+    cm = ConversationMessage(
+        conversation_id=conv.id, workspace_id=conv.workspace_id, deal_id=conv.deal_id,
+        direction="in", from_email=item.from_email, to_email=conv.prospect_email or "",
+        subject=item.subject or "", body_text=item.body_text or "", rfc_message_id=item.rfc_message_id,
+        in_reply_to=item.in_reply_to, references=item.references, status="received")
+    db.add(cm)
+    conv.last_inbound_at = datetime.utcnow()
+    conv.state = "active"
+    item.status = "attached"
+    item.deal_id = deal.id
+    item.conversation_id = conv.id
+    db.add(Activity(workspace_id=conv.workspace_id, deal_id=deal.id, contact_id=conv.contact_id,
+                    company_id=conv.company_id, kind="email_in",
+                    title=f"Thread attached to deal: {item.subject or '(no subject)'}",
+                    body=(item.body_text or "")[:1000], data={"revenue_inbox_item": item.id},
+                    actor_user_id=user_id))
+    db.commit()
+    return conv
 
 
 def draft_followup(db, conv: DealConversation) -> dict:
