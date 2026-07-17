@@ -98,7 +98,11 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); box-sh
 .dot.ok { background: var(--ok); box-shadow: 0 0 0 3px rgba(18,183,106,.15); } .dot.bad { background: var(--bad); box-shadow: 0 0 0 3px rgba(240,68,56,.15); }
 
 .content { padding: 32px; width: 100%; }
-.nav .group { margin: 16px 10px 6px; font-size: 10.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted2); }
+.nav .group { display: flex; align-items: center; gap: 5px; width: calc(100% - 12px); margin: 14px 6px 4px; padding: 4px 6px; border: none; background: none; text-align: left; font-size: 10.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted2); border-radius: 6px; cursor: pointer; }
+.nav .group:hover { color: var(--text); background: var(--sidebar-hover); }
+.nav .group .chev { transition: transform .15s ease; }
+.nav .group .chev.closed { transform: rotate(-90deg); }
+.nav-group { display: flex; flex-direction: column; }
 .grid { display: grid; gap: 14px; }
 .stats { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
 .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
