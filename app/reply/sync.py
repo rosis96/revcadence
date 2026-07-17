@@ -132,6 +132,82 @@ def sync_interested_to_opportunity(db, lead) -> dict:
     return {"deal_id": deal.id, "created": True}
 
 
+# ---- two-way status sync: CRM deal stage <-> ReplyLead.stage ----------------
+# The reply inbox and the CRM pipeline are two views of the same conversation, so
+# a status change in either place must show in the other.
+CRM_TO_REPLY_STAGE = {
+    "Meeting Booked": "booked", "Meeting Completed": "meeting_completed",
+    "No Show": "no_show", "Follow-up": "follow_up", "Won": "won", "Lost": "lost",
+}
+REPLY_TO_CRM_STAGE = {v: k for k, v in CRM_TO_REPLY_STAGE.items()}
+
+
+def sync_deal_stage_to_reply(db, deal, stage) -> dict:
+    """CRM → Reply: when a deal moves stage (drag on the board or the drawer),
+    reflect it on the matching ReplyLead(s) so the inbox shows the same status."""
+    from ..models.crm import Contact
+    from ..models.reply import ReplyLead
+    if not deal or not stage:
+        return {"skipped": "no deal/stage"}
+    rstage = CRM_TO_REPLY_STAGE.get(stage.name)
+    if not rstage:
+        return {"skipped": f"no reply mapping for {stage.name}"}
+    contact = db.get(Contact, deal.contact_id) if deal.contact_id else None
+    email = (contact.email or "").lower().strip() if contact else ""
+    if not email:
+        return {"skipped": "no contact email"}
+    leads = (db.query(ReplyLead)
+             .filter(ReplyLead.workspace_id == deal.workspace_id,
+                     ReplyLead.email.ilike(email)).all())
+    n = 0
+    for l in leads:
+        if l.stage != rstage:
+            l.stage = rstage
+            l.updated_at = datetime.utcnow()
+            n += 1
+    return {"updated": n, "stage": rstage}
+
+
+def sync_reply_stage_to_deal(db, lead) -> dict:
+    """Reply → CRM: when a ReplyLead's stage changes (Mark booked, etc.), move the
+    matching CRM deal to the mapped stage (creating contact/company/deal if
+    needed). Never downgrades a deal already further along than the target."""
+    from ..models.crm import Activity, Deal, Stage
+    stage_name = REPLY_TO_CRM_STAGE.get(lead.stage or "")
+    if not lead.workspace_id or not stage_name:
+        return {"skipped": "no mapping"}
+    synced = sync_reply_lead_to_crm(db, lead, queue_enrich=False)
+    cid = synced.get("contact_id")
+    stage = (db.query(Stage).filter(Stage.workspace_id == lead.workspace_id,
+                                    Stage.name == stage_name).first())
+    if not stage:
+        return {"skipped": "stage missing"}
+    deal = (db.query(Deal).filter(Deal.workspace_id == lead.workspace_id,
+                                  Deal.contact_id == cid).first()) if cid else None
+    if deal is None:
+        deal = Deal(workspace_id=lead.workspace_id,
+                    name=f"{lead.company or lead.name or lead.email} — {stage_name.lower()}",
+                    contact_id=cid, company_id=synced.get("company_id"),
+                    stage_id=stage.id, lead_intent=lead.intent, source="reply")
+        db.add(deal)
+        db.flush()
+        db.add(Activity(workspace_id=lead.workspace_id, deal_id=deal.id, contact_id=cid,
+                        kind="stage_change", title=f"{stage_name} (from reply inbox)",
+                        data={"reply_lead_id": lead.id}))
+        return {"deal_id": deal.id, "created": True}
+    # don't downgrade a more-advanced stage
+    cur = db.get(Stage, deal.stage_id) if deal.stage_id else None
+    if cur and (cur.sort_order or 0) > (stage.sort_order or 0) and not stage.is_won and not stage.is_lost:
+        return {"deal_id": deal.id, "kept": cur.name}
+    if deal.stage_id != stage.id:
+        deal.stage_id = stage.id
+        deal.stage_changed_at = datetime.utcnow()
+        db.add(Activity(workspace_id=lead.workspace_id, deal_id=deal.id, contact_id=cid,
+                        kind="stage_change", title=f"Stage → {stage_name} (from reply inbox)",
+                        data={"reply_lead_id": lead.id}))
+    return {"deal_id": deal.id, "updated": True}
+
+
 def sync_booked_to_deal(db, lead) -> dict:
     """When a reply lead is marked booked, create/update a CRM deal in the
     'Meeting Booked' stage, linked to the synced contact/company (legacy

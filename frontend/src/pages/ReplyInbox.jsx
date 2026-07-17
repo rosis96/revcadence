@@ -2,7 +2,7 @@
 // conversation list · thread + composer · AI panel. Status tabs across the top.
 // Same backend as before; pinning is a local flag (no engine changes).
 import { useEffect, useMemo, useState } from "react";
-import { Pin, PinOff, RefreshCw, Send } from "lucide-react";
+import { Download, Pin, PinOff, RefreshCw, Send } from "lucide-react";
 import { api, timeAgo } from "../api";
 import { useAuth } from "../auth";
 import {
@@ -12,6 +12,11 @@ import {
 
 const ACTION_TONE = (a) => a === "stop" ? "red" : a === "would_send" ? "amber"
   : a === "send" ? "green" : a === "skip_enrich" ? "blue" : "gray";
+// CRM pipeline stage reflected onto the reply lead (two-way sync).
+const STAGE_LABEL = { booked: "Meeting Booked", meeting_completed: "Meeting Completed",
+  no_show: "No Show", follow_up: "Follow-up", won: "Won", lost: "Lost" };
+const STAGE_TONE = { booked: "blue", meeting_completed: "indigo", no_show: "amber",
+  follow_up: "amber", won: "green", lost: "red" };
 const INTENT_TONE = (i) =>
   /positive/.test(i || "") ? "green" :
   /pricing|question/.test(i || "") ? "blue" :
@@ -20,6 +25,20 @@ const INTENT_TONE = (i) =>
 const PINS_KEY = "rc_reply_pins";
 const getPins = () => { try { return new Set(JSON.parse(localStorage.getItem(PINS_KEY)) || []); } catch { return new Set(); } };
 
+function csvCell(v) { const s = String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
+function exportLeadsCsv(rows) {
+  const head = ["first_name", "last_name", "email", "company", "intent", "decision", "stage", "workspace"];
+  const lines = [head.join(",")].concat(rows.map((l) => {
+    const [fn, ...rest] = (l.name || "").split(" ");
+    return [fn || "", rest.join(" ") || "", l.email || "", l.company || "", l.intent || "",
+            l.action || "", l.stage || "", l.workspace || ""].map(csvCell).join(",");
+  }));
+  const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = `reply-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+}
+
 export default function ReplyInbox() {
   const params = new URLSearchParams(window.location.hash.split("?")[1] || "");
   const { wsParam } = useAuth();
@@ -27,14 +46,26 @@ export default function ReplyInbox() {
   const [q, setQ] = useState("");
   const [openId, setOpenId] = useState(params.get("open") ? Number(params.get("open")) : null);
   const [pins, setPins] = useState(getPins);
+  const [intent, setIntent] = useState("");
+  const [sel, setSel] = useState({});
+  const toast = useToast();
   const status = tab === "pinned" ? "" : tab;
   const { data, error, loading, reload } = useApi("/api/reply/leads", { status, q, workspace_id: wsParam });
 
   const leads = data?.leads || [];
   const counts = data?.counts || {};
-  const shown = useMemo(
-    () => (tab === "pinned" ? leads.filter((l) => pins.has(l.id)) : leads),
-    [leads, tab, pins]);
+  const intents = useMemo(() => [...new Set(leads.map((l) => l.intent).filter(Boolean))].sort(), [leads]);
+  const shown = useMemo(() => {
+    let s = tab === "pinned" ? leads.filter((l) => pins.has(l.id)) : leads;
+    if (intent) s = s.filter((l) => l.intent === intent);
+    return s;
+  }, [leads, tab, pins, intent]);
+  const selIds = Object.keys(sel).filter((k) => sel[k]);
+  const exportSel = () => {
+    const rows = leads.filter((l) => sel[l.id]);
+    if (!rows.length) { toast("Select some leads first (checkboxes)", "bad"); return; }
+    exportLeadsCsv(rows);
+  };
 
   useEffect(() => {
     if (openId && !shown.some((l) => l.id === openId)) setOpenId(shown[0]?.id ?? null);
@@ -54,7 +85,18 @@ export default function ReplyInbox() {
   return (
     <>
       <PageHeader title="Inbox" desc="Every conversation, with the AI's read and your one-click actions."
-        actions={<Button variant="secondary" icon={RefreshCw} onClick={reload}>Refresh</Button>} />
+        actions={<>
+          {intents.length > 0 && (
+            <select value={intent} onChange={(e) => setIntent(e.target.value)}
+              style={{ padding: "7px 10px", borderRadius: 8, fontSize: 13, maxWidth: 200 }}>
+              <option value="">All intents</option>
+              {intents.map((i) => <option key={i} value={i}>{i.replaceAll("_", " ")}</option>)}
+            </select>
+          )}
+          <Button variant="secondary" icon={Download} disabled={!selIds.length} onClick={exportSel}>
+            Export{selIds.length ? ` (${selIds.length})` : ""}</Button>
+          <Button variant="secondary" icon={RefreshCw} onClick={reload}>Refresh</Button>
+        </>} />
 
       <div style={{ marginBottom: 14 }}>
         <Tabs value={tab} onChange={(t) => { setTab(t); setOpenId(null); }} tabs={[
@@ -83,6 +125,9 @@ export default function ReplyInbox() {
             )}
             {shown.map((l) => (
               <button key={l.id} className={`conv ${openId === l.id ? "on" : ""}`} onClick={() => setOpenId(l.id)}>
+                <input type="checkbox" checked={!!sel[l.id]} onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => setSel({ ...sel, [l.id]: e.target.checked })}
+                  style={{ alignSelf: "center", marginRight: 2 }} />
                 <Avatar name={l.name || l.email} size={30} />
                 <span className="cv-main">
                   <span className="cv-top">
@@ -92,6 +137,7 @@ export default function ReplyInbox() {
                   <span className="cv-snip">{l.company ? `${l.company} · ` : ""}{l.email}</span>
                   <span className="cv-meta">
                     {l.intent && <StatusPill tone={INTENT_TONE(l.intent)}>{l.intent.replaceAll("_", " ")}</StatusPill>}
+                    {STAGE_LABEL[l.stage] && <Badge tone={STAGE_TONE[l.stage] || "gray"}>{STAGE_LABEL[l.stage]}</Badge>}
                     {pins.has(l.id) && <Badge tone="indigo">pinned</Badge>}
                   </span>
                 </span>
@@ -136,8 +182,20 @@ function Thread({ id, pinned, onPin, onChanged }) {
     await api(`/api/reply/leads/${id}/send`, { method: "POST" });
   }, "send", "Reply sent");
 
-  const thread = (l.thread || []).length > 0 ? l.thread
-    : (l.reply_text ? [{ direction: "in", text: l.reply_text }] : []);
+  // Build a clean thread: tolerate key variants (text/body/message), drop empty
+  // bubbles, and always fall back to the captured inbound reply so the prospect's
+  // message shows even when only our outbound was stored.
+  const msgText = (m) => (m.text || m.body || m.message || m.text_body || "").trim();
+  let thread = (l.thread || [])
+    .map((m) => ({ direction: m.direction === "out" ? "out" : "in", text: msgText(m) }))
+    .filter((m) => m.text);
+  const hasIn = thread.some((m) => m.direction === "in");
+  if (!hasIn && (l.reply_text || "").trim()) {
+    thread = [{ direction: "in", text: l.reply_text.trim() }, ...thread];
+  }
+  if (thread.length === 0 && (l.reply_text || "").trim()) {
+    thread = [{ direction: "in", text: l.reply_text.trim() }];
+  }
 
   return (
     <>
@@ -152,7 +210,7 @@ function Thread({ id, pinned, onPin, onChanged }) {
           {thread.map((m, i) => (
             <div key={i} className={`msg ${m.direction === "in" ? "in" : "out"}`}>
               <div className="who">{m.direction === "in" ? (l.name || "Prospect") : "Us"}</div>
-              {m.text}
+              <div style={{ whiteSpace: "pre-wrap" }}>{m.text}</div>
             </div>
           ))}
         </div>

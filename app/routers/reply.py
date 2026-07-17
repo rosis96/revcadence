@@ -323,7 +323,16 @@ def reply_processing(workspace_id: int | None = None, ctx: AuthContext = Depends
         lo = d.get("lead") or d
         return str(lo.get("email") or lo.get("lead_email") or "").lower()
 
-    rows = base.order_by(Job.id.desc()).limit(40).all()
+    # Keep the live view clean: show only what's still in flight (pending/running)
+    # plus jobs that finished in the last 2 hours. Anything done/failed older than
+    # that drops off — the queue isn't a permanent log (Activity/audit is).
+    from sqlalchemy import and_, or_
+    cutoff = now - timedelta(hours=2)
+    rows = (base.filter(or_(
+                Job.status.in_(["pending", "running"]),
+                and_(Job.status.in_(["done", "failed"]),
+                     Job.finished_at.isnot(None), Job.finished_at >= cutoff)))
+            .order_by(Job.id.desc()).limit(60).all())
     jobs = []
     for j in rows:
         p = j.payload or {}
@@ -376,12 +385,13 @@ def reply_lead_action(lead_id: int, body: LeadAction, ctx: AuthContext = Depends
         l.main_reply = body.main_reply
     if body.stage is not None:
         l.stage = body.stage
-        if body.stage == "booked":
-            try:
-                from ..reply.sync import sync_booked_to_deal
-                sync_booked_to_deal(ctx.db, l)
-            except Exception:
-                pass
+        # reply → CRM: move the matching deal to the mapped stage (booked, won,
+        # no_show, …). Two-way with the CRM board's stage-change sync.
+        try:
+            from ..reply.sync import sync_reply_stage_to_deal
+            sync_reply_stage_to_deal(ctx.db, l)
+        except Exception:
+            pass
     if body.reviewed is not None:
         l.reviewed = body.reviewed
     if body.action is not None:
@@ -408,19 +418,17 @@ def test_thread(body: TestThreadIn, ctx: AuthContext = Depends(require_master)):
         raise HTTPException(404, "Reply workspace not found")
     ctx.require_workspace(w.workspace_id)
     thread = [{"direction": "in", "text": body.thread.strip()}]
-    ai = E.call_llm(*E.build_reply_prompt(w, thread), E.build_ai_cfg(w))
-    action = E.decide_reply_action(ai, w.reply_format or {}, body.thread)
-    if ai.get("_fallback") and action == "send":
-        action = "skip_enrich"
-    main = E.normalize_reply(E.enforce_style_rules(str(ai.get("main_reply", "")), w.ai_rules))
-    reply = E.add_signature(main, w.sender_name, w.website) if main else ""
+    # Same engine path production uses (generate_reply), so the drafted reply,
+    # follow-ups, intent and decision here match what the live pipeline produces.
+    # Scheduling context is omitted (no real slot reservation in a dry run).
+    gen = E.generate_reply(w, thread, prospect={"first_name": ""})
+    reply = E.add_signature(gen["main_reply"], w.sender_name, w.website) if gen["main_reply"] else ""
     return {
-        "intent": ai.get("intent"), "confidence": ai.get("confidence"),
-        "decision": action, "would_auto_send": action == "send" and E.auto_send_enabled(),
-        "model_ran": not ai.get("_fallback"),
+        "intent": gen["intent"], "confidence": gen["confidence"],
+        "decision": gen["action"], "would_auto_send": gen["action"] == "send" and E.auto_send_enabled(),
+        "model_ran": gen["model_ran"],
         "reply": reply,
-        "followups": [E.normalize_reply(E.enforce_style_rules(str(ai.get(f"followup_{i}")), w.ai_rules))
-                      for i in range(1, 7) if ai.get(f"followup_{i}")],
+        "followups": gen["followups"],
     }
 
 

@@ -400,6 +400,13 @@ def move_deal(deal_id: int, body: MoveIn, ctx: AuthContext = Depends(get_ctx)):
     ctx.db.add(Activity(workspace_id=d.workspace_id, deal_id=d.id, contact_id=d.contact_id,
                         kind="stage_change", title=f"Stage → {stage.name}",
                         data={"from": old, "to": stage.id}, actor_user_id=ctx.user.id))
+    # two-way sync: reflect this stage on the matching ReplyLead(s) so the reply
+    # inbox shows the same status (e.g. mark No Show / Meeting Booked in the CRM).
+    try:
+        from ..reply.sync import sync_deal_stage_to_reply
+        sync_deal_stage_to_reply(ctx.db, d, stage)
+    except Exception:
+        pass
     ctx.db.commit()
     # Closed Won → activate the client + build the Client Profile (idempotent).
     profile_id = None

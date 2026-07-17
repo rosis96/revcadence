@@ -361,6 +361,41 @@ def build_reply_prompt(rws, thread: list, scheduling_context: str = "", prospect
     return prompt, system
 
 
+def generate_reply(rws, thread: list, scheduling_context: str = "", prospect: dict = None) -> dict:
+    """THE single reply-generation path. Both the live worker and the Test Thread
+    screen call this, so a paste-in test produces the SAME intent/decision/reply/
+    follow-ups the production pipeline would — they can never drift apart.
+
+    Returns: {intent, confidence, action, main_reply, followups[], model_ran}.
+    main_reply/follow-ups are cleaned (name filled, style rules, spacing) but the
+    signature is NOT appended here — the caller adds it at send/preview time so
+    the exact same body is stored and sent."""
+    prospect = prospect or {}
+    first = (prospect.get("first_name") or "").strip()
+    prompt, system = build_reply_prompt(rws, thread, scheduling_context=scheduling_context,
+                                        prospect=prospect)
+    ai = call_llm(prompt, system, build_ai_cfg(rws))
+
+    def _clean(t):
+        return normalize_reply(enforce_style_rules(fill_name(str(t or ""), first), rws.ai_rules))
+
+    main = _clean(ai.get("main_reply", ""))
+    followups = [_clean(ai.get(f"followup_{i}")) for i in range(1, 7) if ai.get(f"followup_{i}")]
+    last_in = next((m.get("text", "") for m in reversed(thread) if m.get("direction") == "in"), "")
+    action = decide_reply_action(ai, rws.reply_format or {}, last_in)
+    # a detectable model fallback is never auto-sent (a stop/unsubscribe still wins)
+    if ai.get("_fallback") and action == "send":
+        action = "skip_enrich"
+    return {
+        "intent": str(ai.get("intent", "")),
+        "confidence": str(ai.get("confidence", "")),
+        "action": action,
+        "main_reply": main,
+        "followups": followups,
+        "model_ran": not ai.get("_fallback"),
+    }
+
+
 # ---------------------------------------------------------------- platform sends (legacy fixes)
 def lookup_instantly_reply_target(api_key: str, lead_email: str, campaign_id: str = "", diag: dict = None) -> dict:
     """Recover {reply_to_uuid, eaccount} from Instantly when the webhook didn't

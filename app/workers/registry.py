@@ -329,24 +329,17 @@ def process_reply_job(db, job):
     except Exception:
         sched = ""
 
-    # generate + decide
+    # generate + decide — via the ONE shared path the Test Thread screen also uses,
+    # so a paste-in test always matches what production produces here.
     first = E.first_name_of(lead.name)
-    prompt, system = E.build_reply_prompt(rws, thread, scheduling_context=sched,
-                                          prospect={"first_name": first, "company": lead.company})
-    ai = E.call_llm(prompt, system, E.build_ai_cfg(rws))
-    lead.intent = str(ai.get("intent", ""))
-    lead.confidence = str(ai.get("confidence", ""))
-    # Fill any literal name token, enforce deterministic style rules (e.g. no em
-    # dashes), then tidy spacing so it reads like a real email.
-    def _clean(t):
-        return E.normalize_reply(E.enforce_style_rules(E.fill_name(str(t), first), rws.ai_rules))
-    lead.main_reply = _clean(ai.get("main_reply", ""))
-    lead.followups = [_clean(ai.get(f"followup_{i}")) for i in range(1, 7) if ai.get(f"followup_{i}")]
-    lead.reply_added = bool(lead.main_reply) and not ai.get("_fallback")
-    action = E.decide_reply_action(ai, rws.reply_format or {}, lead.reply_text)
-    # detectable fallback is NEVER sent — but a stop (unsubscribe/OOO) still wins
-    if ai.get("_fallback") and action == "send":
-        action = "skip_enrich"
+    gen = E.generate_reply(rws, thread, scheduling_context=sched,
+                           prospect={"first_name": first, "company": lead.company})
+    lead.intent = gen["intent"]
+    lead.confidence = gen["confidence"]
+    lead.main_reply = gen["main_reply"]
+    lead.followups = gen["followups"]
+    lead.reply_added = bool(lead.main_reply) and gen["model_ran"]
+    action = gen["action"]
 
     if action == "send" and not E.auto_send_enabled():
         action = "would_send"   # kill-switch: review instead of sending
