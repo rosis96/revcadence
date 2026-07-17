@@ -384,14 +384,19 @@ def reply_lead_action(lead_id: int, body: LeadAction, ctx: AuthContext = Depends
     if body.main_reply is not None:
         l.main_reply = body.main_reply
     if body.stage is not None:
+        from ..reply.sync import STOP_LABELS, sync_reply_stage_to_deal
         l.stage = body.stage
-        # reply → CRM: move the matching deal to the mapped stage (booked, won,
-        # no_show, …). Two-way with the CRM board's stage-change sync.
-        try:
-            from ..reply.sync import sync_reply_stage_to_deal
-            sync_reply_stage_to_deal(ctx.db, l)
-        except Exception:
-            pass
+        # "stop" outcomes (out of office / wrong person / unsubscribe) don't move
+        # the pipeline — they just halt the lead.
+        if body.stage in STOP_LABELS:
+            l.action = "stop"
+        else:
+            # reply → CRM: move the matching deal to the mapped stage. Two-way with
+            # the CRM board's stage-change sync.
+            try:
+                sync_reply_stage_to_deal(ctx.db, l)
+            except Exception:
+                pass
     if body.reviewed is not None:
         l.reviewed = body.reviewed
     if body.action is not None:
@@ -399,6 +404,103 @@ def reply_lead_action(lead_id: int, body: LeadAction, ctx: AuthContext = Depends
     l.updated_at = datetime.utcnow()
     ctx.db.commit()
     return {"ok": True}
+
+
+class LeadEdit(BaseModel):
+    """Edit the details the webhook captured (and sync them to the CRM)."""
+    name: str | None = None
+    email: str | None = None
+    company: str | None = None
+    title: str | None = None
+    location: str | None = None
+    website: str | None = None
+    contact_linkedin: str | None = None
+    company_linkedin: str | None = None
+
+
+@router.put("/leads/{lead_id}")
+def edit_reply_lead(lead_id: int, body: LeadEdit, ctx: AuthContext = Depends(get_ctx)):
+    """Edit the lead's captured details, then push the changes to the matching CRM
+    contact/company so both stay in sync."""
+    from ..reply.sync import extract_lead_enrichment
+    l = ctx.db.get(ReplyLead, lead_id)
+    if not l or (l.workspace_id is not None and l.workspace_id not in ctx.allowed_workspace_ids()):
+        raise HTTPException(404, "Not found")
+    patch = body.model_dump(exclude_unset=True)
+    if "name" in patch:
+        l.name = patch["name"]
+    if "email" in patch:
+        l.email = (patch["email"] or "").strip()
+    if "company" in patch:
+        l.company = patch["company"]
+    # merge the rich fields into lead_data so extract_lead_enrichment reflects them
+    ld = dict(l.lead_data or {})
+    for k in ("title", "location", "website", "contact_linkedin", "company_linkedin"):
+        if k in patch:
+            ld[k] = patch[k]
+    l.lead_data = ld
+    l.updated_at = datetime.utcnow()
+    # sync to CRM contact/company (best-effort)
+    synced = {}
+    if l.workspace_id:
+        try:
+            from ..models.crm import Company, Contact
+            email = (l.email or "").lower().strip()
+            contact = (ctx.db.query(Contact).filter(Contact.workspace_id == l.workspace_id,
+                       Contact.email.ilike(email)).first()) if email else None
+            if contact:
+                if "name" in patch:
+                    first, _, last = (l.name or "").partition(" ")
+                    contact.first_name, contact.last_name = first, last
+                if patch.get("title"):
+                    contact.title = patch["title"]
+                if patch.get("location"):
+                    contact.location = patch["location"]
+                if patch.get("contact_linkedin"):
+                    contact.linkedin_url = patch["contact_linkedin"]
+                if contact.company_id and (patch.get("website") or patch.get("company")):
+                    co = ctx.db.get(Company, contact.company_id)
+                    if co:
+                        if patch.get("company"):
+                            co.name = patch["company"]
+                        if patch.get("website"):
+                            co.website = patch["website"]
+                synced = {"contact_id": contact.id}
+        except Exception:
+            pass
+    ctx.db.commit()
+    return {"ok": True, "synced": synced,
+            "lead_details": extract_lead_enrichment(l.lead_data or {})}
+
+
+@router.delete("/leads/{lead_id}")
+def delete_reply_lead(lead_id: int, block: bool = False, ctx: AuthContext = Depends(get_ctx)):
+    """Delete a reply lead. With ?block=true, also add the sender's email to the
+    workspace blocklist so future replies from them are auto-stopped."""
+    from ..models.reply import ReplyBlock
+    l = ctx.db.get(ReplyLead, lead_id)
+    if not l or (l.workspace_id is not None and l.workspace_id not in ctx.allowed_workspace_ids()):
+        raise HTTPException(404, "Not found")
+    blocked = False
+    email = (l.email or "").lower().strip()
+    if block and email and l.workspace_id:
+        exists = (ctx.db.query(ReplyBlock)
+                  .filter(ReplyBlock.workspace_id == l.workspace_id, ReplyBlock.email.ilike(email)).first())
+        if not exists:
+            ctx.db.add(ReplyBlock(workspace_id=l.workspace_id, email=email, reason="blocked from inbox"))
+        blocked = True
+    ctx.db.delete(l)
+    ctx.db.commit()
+    return {"ok": True, "blocked": blocked, "email": email}
+
+
+@router.get("/blocklist")
+def list_blocklist(workspace_id: int | None = None, ctx: AuthContext = Depends(get_ctx)):
+    from ..models.reply import ReplyBlock
+    ws_ids = ctx.workspace_ids_for_query(workspace_id)
+    rows = ctx.db.query(ReplyBlock).filter(ReplyBlock.workspace_id.in_(ws_ids)).order_by(ReplyBlock.id.desc()).all()
+    return [{"id": b.id, "email": b.email, "reason": b.reason,
+             "at": b.created_at.isoformat() if b.created_at else None} for b in rows]
 
 
 # ================================================================ test thread (zero side effects)

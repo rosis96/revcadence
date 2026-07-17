@@ -57,6 +57,18 @@ class ProposedSlot(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class ReplyBlock(Base):
+    """Blocked senders — a reply from a blocked email is auto-stopped (never
+    drafted or sent). Populated from the inbox 'Block sender' action."""
+    __tablename__ = "reply_blocks"
+
+    id = Column(Integer, primary_key=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), index=True)
+    email = Column(String(255), default="", index=True)
+    reason = Column(String(255), default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class ReplyLead(Base):
     """One row per processed reply (legacy `leads` table)."""
     __tablename__ = "reply_leads"

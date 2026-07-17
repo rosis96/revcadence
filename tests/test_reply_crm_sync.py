@@ -107,6 +107,44 @@ def main():
     check("recent done job (10m) stays", recent_id in shown)
     check("pending job stays", pending_id in shown)
 
+    # ---- edit reply lead → syncs to CRM contact/company ----
+    with session() as db:
+        c3 = Contact(workspace_id=ids["w1"], first_name="Old", last_name="Name", email="edit@acme.test"); db.add(c3); db.flush()
+        rl3 = ReplyLead(workspace_id=ids["w1"], email="edit@acme.test", name="Old Name", company="OldCo",
+                        intent="pricing_question", stage="replied"); db.add(rl3); db.flush()
+        rl3_id, c3_id = rl3.id, c3.id
+    r = client.put(f"/api/reply/leads/{rl3_id}", json={"name": "New Name", "title": "VP Sales",
+                   "location": "Austin", "website": "acme.io"}, headers=auth(tok))
+    check("edit reply lead ok", r.status_code == 200, r.text[:120])
+    with session() as db:
+        c = db.get(Contact, c3_id)
+        check("edit synced name+title to CRM contact", c.first_name == "New" and c.title == "VP Sales", f"{c.first_name}/{c.title}")
+        rl = db.get(ReplyLead, rl3_id)
+        check("edit stored rich details on lead", (rl.lead_data or {}).get("location") == "Austin")
+
+    # ---- delete + block → lead gone, sender blocked, future reply auto-stops ----
+    with session() as db:
+        rl4 = ReplyLead(workspace_id=ids["w1"], email="spam@bad.test", name="Spammy", stage="replied"); db.add(rl4); db.flush()
+        rl4_id = rl4.id
+    r = client.delete(f"/api/reply/leads/{rl4_id}?block=true", headers=auth(tok))
+    check("delete + block ok", r.status_code == 200 and r.json()["blocked"], r.text[:120])
+    with session() as db:
+        check("reply lead deleted", db.get(ReplyLead, rl4_id) is None)
+        bl = client.get("/api/reply/blocklist", params={"workspace_id": ids["w1"]}, headers=auth(tok)).json()
+        check("sender on blocklist", any(b["email"] == "spam@bad.test" for b in bl), str(bl)[:120])
+        from app.reply.sync import is_blocked
+        check("is_blocked true for blocked email", is_blocked(db, ids["w1"], "spam@bad.test"))
+        check("is_blocked false for other email", not is_blocked(db, ids["w1"], "ok@good.test"))
+
+    # ---- stop-type label (out of office) halts without a pipeline move ----
+    with session() as db:
+        rl5 = ReplyLead(workspace_id=ids["w1"], email="ooo@x.test", name="OOO", stage="replied"); db.add(rl5); db.flush()
+        rl5_id = rl5.id
+    client.post(f"/api/reply/leads/{rl5_id}/action", json={"stage": "out_of_office"}, headers=auth(tok))
+    with session() as db:
+        rl = db.get(ReplyLead, rl5_id)
+        check("out_of_office label sets action=stop", rl.action == "stop" and rl.stage == "out_of_office")
+
     print(f"\n{sum(1 for _, ok in PASS if ok)}/{len(PASS)} checks passed")
 
 

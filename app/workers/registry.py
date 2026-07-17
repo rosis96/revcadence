@@ -318,6 +318,18 @@ def process_reply_job(db, job):
     lead.thread = thread
     lead.send_meta = send_meta
 
+    # blocklist: a reply from a blocked sender is never drafted or sent.
+    try:
+        from ..reply.sync import is_blocked
+        if is_blocked(db, lead.workspace_id, email):
+            lead.action = "stop"
+            lead.stage = "stopped"
+            lead.intent = lead.intent or "blocked"
+            db.commit()
+            return {"stopped": "blocked sender", "email": email}
+    except Exception:
+        pass
+
     # Calendly scheduling context (real open times, prospect TZ, reserved so no
     # two prospects get the same slot). Graceful "" when no token / error.
     sched = ""

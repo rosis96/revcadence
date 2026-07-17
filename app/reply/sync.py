@@ -136,10 +136,28 @@ def sync_interested_to_opportunity(db, lead) -> dict:
 # The reply inbox and the CRM pipeline are two views of the same conversation, so
 # a status change in either place must show in the other.
 CRM_TO_REPLY_STAGE = {
-    "Meeting Booked": "booked", "Meeting Completed": "meeting_completed",
-    "No Show": "no_show", "Follow-up": "follow_up", "Won": "won", "Lost": "lost",
+    "Opportunity": "interested", "Meeting Booked": "booked",
+    "Meeting Completed": "meeting_completed", "No Show": "no_show",
+    "Follow-up": "follow_up", "Won": "won", "Lost": "not_interested",
 }
-REPLY_TO_CRM_STAGE = {v: k for k, v in CRM_TO_REPLY_STAGE.items()}
+# reply-side label token → CRM stage name (the inbox label picker).
+REPLY_TO_CRM_STAGE = {
+    "interested": "Opportunity", "booked": "Meeting Booked", "meeting_booked": "Meeting Booked",
+    "meeting_completed": "Meeting Completed", "no_show": "No Show", "follow_up": "Follow-up",
+    "won": "Won", "lost": "Lost", "not_interested": "Lost",
+}
+# labels that are really "stop" outcomes — no pipeline move, mark the lead stopped.
+STOP_LABELS = {"out_of_office", "wrong_person", "unsubscribe", "stopped"}
+
+
+def is_blocked(db, workspace_id, email) -> bool:
+    """True if the sender is on the workspace blocklist (auto-stop new replies)."""
+    from ..models.reply import ReplyBlock
+    email = (email or "").lower().strip()
+    if not email or not workspace_id:
+        return False
+    return db.query(ReplyBlock).filter(ReplyBlock.workspace_id == workspace_id,
+                                       ReplyBlock.email.ilike(email)).first() is not None
 
 
 def sync_deal_stage_to_reply(db, deal, stage) -> dict:
