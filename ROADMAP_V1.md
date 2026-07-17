@@ -20,7 +20,9 @@ together." Every decision below is judged against that one sentence.
 2. **One vocabulary.** The same nouns everywhere (see §3).
 3. **One record, one timeline.** Company/Deal/Contact each show every interaction in one place.
 4. **The revenue story runs end-to-end in a demo** — lead → meeting → blueprint →
-   agreement → invoice → **and the post-meeting follow-up** (the minimal Revenue Inbox slice, §6).
+   agreement → invoice → **and the post-meeting relationship continues inside the
+   Deal, in the same email thread** (Deal Conversation, §6). The story never
+   dead-ends at the meeting.
 5. **Every client-facing artifact (Blueprint, Agreement, Invoice) looks premium** — branded, designed, presentable.
 6. **A real Reports screen** exists (pipeline, conversion, revenue, aging, going-cold).
 7. **First run isn't empty** — seeded demo + guided setup + coached empty states.
@@ -183,11 +185,25 @@ Complexity: S (hours) · M (1–2 days) · L (3–5 days).
 - **Reuse:** existing provisioning/bootstrap; empty-state component.
 - **Unifies:** the product introduces *itself* as one OS.
 
-### T14 — Revenue Inbox — minimal slice (§6) **[C] · L**
-- **Why:** the demo dies at "meeting booked" without it; this is the actual value.
-- **Impact:** completes the revenue story end-to-end.
-- **Reuse:** `generate_reply()`, sequences/follow-ups, approval flow, timeline, event bus.
-- **Unifies:** the post-meeting conversation finally lives inside the OS.
+### T14 — Deal Conversation: same-thread relationship management (§6) **[C] · L**
+- **What it is:** NOT an inbox module and NOT a campaign tool. Every **Deal owns a
+  Conversation** that lives in **one continuous email thread** with the prospect,
+  from post-meeting until the Deal is Won or Lost. The AI drafts the *next reply in
+  the same thread*; the rep approves; it sends from the connected mailbox; the
+  prospect experiences a normal human email. The instant the prospect replies, all
+  scheduled follow-ups cancel. The rep can jump into the same thread manually anytime.
+- **Why:** without it RevCadence stops at the meeting — the OS breaks. This is a
+  primary reason companies buy: the prospect never knows they entered a follow-up.
+- **Impact:** the post-meeting relationship stays connected to the Deal, Company,
+  Contact, Meeting, Blueprint, Agreement, and Invoice — nothing leaks to Gmail.
+- **Depends on:** a real **Deal record page with tabs** (Timeline · Conversation ·
+  Blueprint · Agreement · Invoice) — elevate the Deal from a drawer to a record
+  (fold into T4/T5). Plus a connected-mailbox layer + RFC-thread persistence.
+- **Reuse:** `generate_reply()` for drafting in-thread, the follow-up scheduler
+  (jobs queue), the approval UX, the `Activity` timeline, the event bus, encrypted
+  token storage (`crypto.encrypt`).
+- **Unifies:** the conversation becomes part of the Deal itself — the literal
+  continuation of the revenue journey, not a separate surface.
 
 ### T15 — Global polish pass **[C] · M**
 - **Why:** consistency is the difference between "tool" and "premium product."
@@ -197,29 +213,62 @@ Complexity: S (hours) · M (1–2 days) · L (3–5 days).
 
 ---
 
-## 6. Revenue Inbox — the minimal v1.0 slice (nothing more)
+## 6. Deal Conversation (Revenue Inbox v1) — the definitive spec
 
-**Only** this, and it must reuse what exists:
+This is **persistent, same-thread relationship management owned by the Deal.** It is
+**not** an inbox, **not** a campaign engine, **not** a new conversation each time.
+There is exactly one email thread per Deal's relationship, and it never leaves that thread.
 
+### The workflow
 ```
-Connect ONE mailbox (Gmail or Outlook, via a unified email API — Aurinko/Unipile/Nylas)
+Connect ONE mailbox (Google Workspace or Microsoft 365) — one is enough for v1
         ↓
-Post-meeting emails to/from that mailbox land on the matching Deal Timeline
+The Deal gets a Conversation tab (Timeline · Conversation · Blueprint · Agreement · Invoice)
         ↓
-AI understands the conversation (reuse the reply engine's analysis)
+Every email is SENT THROUGH the connected mailbox, from the rep's real address
         ↓
-AI prepares a grounded follow-up + sequence (reuse generate_reply + follow-ups)
+Every reply returns into the EXACT SAME email thread (Gmail/Outlook thread it natively)
         ↓
-User reviews / edits / approves (reuse the approval UX)
+AI reads the full history + Blueprint + Agreement + meeting transcript
         ↓
-Sequence begins (auto-pauses the instant the prospect replies)
+When proposal-sent + no-reply + intent-alive → AI DRAFTS the next email IN the same thread
+        ↓
+Rep reviews / edits / approves  (or just types and sends manually in the same thread)
+        ↓
+It sends through the connected mailbox, in the same conversation — reads like the rep wrote it
+        ↓
+The MOMENT the prospect replies → every scheduled follow-up is cancelled
+        ↓
+Continues until the Deal is Won or Lost
 ```
 
-**Explicitly NOT in v1.0:** shared/team inboxes, collaboration/assignment/collision,
-multi-mailbox, calling, SMS, WhatsApp, LinkedIn. Those are future roadmap.
+### The non-negotiable rules
+1. **Same thread forever.** On send, set `In-Reply-To` + `References` to the last
+   message and keep the `Re:` subject, so Gmail/Outlook keep it in the *same visible
+   thread*. Send via the mailbox's native reply (Gmail `messages.send` with `threadId`
+   / Graph reply). Never open a new thread, never a campaign.
+2. **From the rep's real mailbox.** No separate sending domain, no ESP, no Instantly.
+3. **Never feels automated.** No unsubscribe footer, no campaign artifacts, no tracking
+   pixel by default. It is indistinguishable from the rep writing it.
+4. **AI never auto-sends.** It drafts in-thread; a human approves (or pre-approves the plan).
+5. **Reply cancels everything.** A synced inbound reply immediately cancels all
+   pending scheduled follow-ups for that Deal, and hands control back to the human.
+6. **The rep is always in control.** They can write and send in the same thread at any moment.
+7. **Stops on Won / Lost.**
 
-**Why an aggregator:** avoids Google's CASA restricted-scope review and months of
-sync-engine work; keep a provider-abstraction layer to migrate to direct APIs later.
+### Data model (reuse-first)
+- **MailboxConnection** (provider, encrypted tokens, address) — one per workspace for v1.
+- **Deal → Conversation → Message** (rfc `Message-ID`, `In-Reply-To`, `References`,
+  `thread_id`, direction, from/to, body, sent_at). Each Message is also an `Activity`.
+- **Follow-up schedule** on the Deal (Day 2/5/9/…): each step is a same-thread draft
+  requiring approval; a nightly/near-real-time check cancels the schedule on any inbound.
+- Drafting reuses `generate_reply()`; scheduling reuses the jobs queue; sync + send use a
+  provider layer (aggregator such as Aurinko/Unipile/Nylas to avoid Google's CASA review,
+  behind an abstraction so we can move to direct Gmail/Graph APIs later).
+
+**Explicitly NOT in v1.0:** shared/team inboxes, assignment/collision, multiple mailboxes,
+calling, SMS, WhatsApp, LinkedIn. Those are future roadmap. But **Deal Conversation v1 is
+a Critical part of RevCadence v1.0 — not optional.**
 
 ---
 
