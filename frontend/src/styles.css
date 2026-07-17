@@ -81,6 +81,12 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); box-sh
 .topbar { height: var(--header-h); background: var(--card); border-bottom: 1px solid var(--border); padding: 0 24px; display: grid; grid-template-columns: 1fr minmax(280px, 560px) 1fr; align-items: center; gap: 16px; position: sticky; top: 0; z-index: 10; }
 .topbar h1 { font-size: 15px; font-weight: 650; }
 .topbar .right { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
+/* workspace switcher relocated from the sidebar into the top bar */
+.ws-top { display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 6px 0 10px; border: 1px solid var(--border); border-radius: 9px; background: #fff; color: var(--text); }
+.ws-top select { border: none; background: none; font-weight: 600; font-size: 13px; color: var(--text); height: 100%; padding-right: 4px; max-width: 180px; }
+.ws-top select:focus { outline: none; }
+.ws-top:hover { border-color: #d3d7e0; }
+.ws-top-static { font-size: 13px; font-weight: 600; padding-right: 12px; color: var(--muted); }
 .cmdbtn { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px; border: 1px solid var(--border); border-radius: 9px; background: #fff; color: var(--muted); font-size: 13px; }
 .cmdbtn:hover { border-color: #d3d7e0; }
 .cmdbtn kbd { background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; font-size: 11px; color: var(--muted2); font-family: inherit; }

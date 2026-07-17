@@ -110,16 +110,6 @@ function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="logo"><svg className="rc-wave" viewBox="80 20 560 235" aria-hidden="true"><path d="M104 235 L121 235 C134 235 134 204 147 204 C160 204 160 235 173 235 C186 235 186 197 199 197 C212 197 212 235 225 235 C238 235 238 177 251 177 C264 177 264 235 277 235 C290 235 290 154 303 154 C316 154 316 235 329 235 C342 235 342 129 355 129 C368 129 368 235 381 235 C394 235 394 101 407 101 C420 101 420 235 433 235 C446 235 446 72 459 72 C472 72 472 235 485 235 C498 235 498 42 511 42 C524 42 524 235 537 235 L553 235" fill="none" stroke="currentColor" strokeWidth="20" strokeLinecap="round" strokeLinejoin="round" /></svg><span>revcadence</span></div>
-      {me.is_master ? (
-        <div className="ws-switch">
-          <select value={workspaceId} onChange={(e) => setWorkspaceId(e.target.value)}>
-            <option value="">All workspaces</option>
-            {me.workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-          </select>
-        </div>
-      ) : (
-        <div className="ws-badge">◫ {me.workspaces[0]?.name || "Workspace"}</div>
-      )}
       <div className="ws-switch">
         <select value={mode} onChange={(e) => setMode(e.target.value)}>
           {Object.entries(MODES).map(([key, m]) => <option key={key} value={key}>{m.label}</option>)}
@@ -157,6 +147,7 @@ function Sidebar() {
 
 function Topbar({ onSearch }) {
   const loc = useLocation();
+  const { me, workspaceId, setWorkspaceId } = useAuth();
   const { data: health } = useApi("/healthz", undefined, [loc.pathname]);
   const [statusOpen, setStatusOpen] = useState(false);
   const [bellOpen, setBellOpen] = useState(false);
@@ -178,6 +169,17 @@ function Topbar({ onSearch }) {
         <Search size={15} /> Search or ask… <kbd>⌘K</kbd>
       </button>
       <div className="right">
+        {me?.is_master ? (
+          <div className="ws-top" title="Active workspace">
+            <Building2 size={14} style={{ opacity: 0.6 }} />
+            <select value={workspaceId} onChange={(e) => setWorkspaceId(e.target.value)}>
+              <option value="">All workspaces</option>
+              {me.workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+            </select>
+          </div>
+        ) : (
+          <span className="ws-top ws-top-static"><Building2 size={14} style={{ opacity: 0.6 }} />{me?.workspaces?.[0]?.name || "Workspace"}</span>
+        )}
         <div ref={bellRef} style={{ position: "relative" }}>
           <button className="iconbtn" title="Notifications" onClick={() => setBellOpen((v) => !v)}>
             <Bell size={16} />
