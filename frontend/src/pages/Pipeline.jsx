@@ -150,6 +150,8 @@ function DealDrawer({ dealId, onClose, onChanged }) {
             <div className="k">Close date</div><div>{d.close_date || "—"}</div>
           </div>
           {d.description && <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>{d.description}</p>}
+          <button className="btn" style={{ width: "100%", marginBottom: 12 }} onClick={() => nav(`/deals/${dealId}`)}>
+            Open deal record (Conversation, Timeline, Docs) →</button>
           <div style={{ display: "flex", alignItems: "center", margin: "10px 0 6px" }}>
             <h3 style={{ fontSize: 13, flex: 1, margin: 0 }}>Agreement</h3>
             <button className="btn ghost sm" disabled={busy} onClick={newAgreement}>+ New</button>

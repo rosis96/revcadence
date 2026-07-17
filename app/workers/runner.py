@@ -65,6 +65,24 @@ def run_one(db, job) -> None:
         db.commit()
 
 
+_MAILBOX_POLL_SECONDS = int(os.getenv("MAILBOX_POLL_SECONDS", "120"))
+
+
+def poll_mailboxes(db):
+    """Every connected mailbox: fetch new replies and land them into the right Deal
+    Conversation (which cancels that deal's scheduled follow-ups). Best-effort."""
+    from ..mailbox import service
+    from ..models.onboarding import MailboxConnection
+    boxes = (db.query(MailboxConnection)
+             .filter(MailboxConnection.active == True, MailboxConnection.status == "connected")  # noqa: E712
+             .all())
+    for b in boxes:
+        try:
+            service.poll_and_sync(db, b.workspace_id)
+        except Exception as e:  # noqa: BLE001
+            print(f"[worker] mailbox poll error ws={b.workspace_id}: {e}")
+
+
 def main():
     init_db()
     print(f"[worker] started · db={engine.dialect.name} · handlers={sorted(HANDLERS)}")
@@ -73,10 +91,14 @@ def main():
               "DATABASE_URL is NOT set on this service, and the worker is polling "
               "a private throwaway DB instead of the shared Postgres. Jobs queued "
               "by the web service will NEVER be seen. Fix the service variables. ***")
+    last_mailbox_poll = 0.0
     while True:
         db = SessionLocal()
         try:
             beat(db)
+            if time.time() - last_mailbox_poll >= _MAILBOX_POLL_SECONDS:
+                poll_mailboxes(db)
+                last_mailbox_poll = time.time()
             job = _claim(db)
             if job:
                 print(f"[worker] running job {job.id} kind={job.kind} attempt={job.attempts}")

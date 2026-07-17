@@ -25,6 +25,8 @@ import Blueprints from "./pages/Blueprints";
 import BlueprintDetail from "./pages/BlueprintDetail";
 import AgreementDetail from "./pages/AgreementDetail";
 import InvoiceDetail from "./pages/InvoiceDetail";
+import DealRecord from "./pages/DealRecord";
+import MailboxConnect from "./pages/MailboxConnect";
 import Invoices from "./pages/Invoices";
 import ClientProfile from "./pages/ClientProfile";
 import Clients from "./pages/Clients";
@@ -79,6 +81,7 @@ const SECTIONS = [
     ["/inbound", "Website Visitors", Globe],
   ] },
   { group: "System", collapsed: true, items: [
+    ["/settings/email", "Email", Mail],
     ["/reply/setup", "Reply Setup", Settings2],
     ["/reply/settings", "Reply Settings", SlidersHorizontal],
     ["/reply/workspaces", "Extra Channels", Flag],
@@ -245,6 +248,8 @@ function Protected() {
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/pipeline" element={<Pipeline />} />
+        <Route path="/deals/:id" element={<DealRecord />} />
+        <Route path="/settings/email" element={<MailboxConnect />} />
         <Route path="/companies" element={<Companies />} />
         <Route path="/companies/:id" element={<CompanyDetail />} />
         <Route path="/companies/:id/profile" element={<ClientProfile />} />

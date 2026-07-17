@@ -30,13 +30,20 @@ class MailboxConnection(Base):
 
     id = Column(Integer, primary_key=True)
     workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))          # who connected it
     email = Column(String(255), default="")
-    app_password_enc = Column(Text, default="")
+    from_name = Column(String(255), default="")                # display name on outgoing mail
+    username = Column(String(255), default="")                 # SMTP/IMAP login (usually == email)
+    app_password_enc = Column(Text, default="")                # encrypted app password
     imap_host = Column(String(120), default="imap.gmail.com")
     imap_port = Column(Integer, default=993)
     smtp_host = Column(String(120), default="smtp.gmail.com")
-    smtp_port = Column(Integer, default=465)
+    smtp_port = Column(Integer, default=587)
     provider = Column(String(30), default="gmail")
     active = Column(Boolean, default=True)
+    status = Column(String(20), default="pending")             # pending | connected | error
+    last_error = Column(Text, default="")
+    last_checked_at = Column(DateTime)
     last_sync_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
