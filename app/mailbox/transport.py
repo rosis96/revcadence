@@ -55,6 +55,37 @@ def imap_fetch_unseen(host: str, port: int, username: str, password: str, limit:
     return out
 
 
+def imap_fetch_since(host: str, port: int, username: str, password: str,
+                     days: int = 60, limit: int = 200, folder: str = "INBOX") -> list[dict]:
+    """Backfill: fetch messages received in the last `days` from a folder, WITHOUT
+    marking them read (readonly select + BODY.PEEK). Best-effort; returns [] on
+    failure or an unknown folder."""
+    import datetime as _dt
+    out = []
+    try:
+        m = imaplib.IMAP4_SSL(host, int(port))
+        m.login(username, password)
+        typ, _ = m.select(folder, readonly=True)   # readonly → never sets \Seen
+        if typ != "OK":
+            m.logout()
+            return []
+        since = (_dt.date.today() - _dt.timedelta(days=max(1, days))).strftime("%d-%b-%Y")
+        typ, data = m.search(None, f"(SINCE {since})")
+        if typ != "OK":
+            m.logout()
+            return []
+        ids = (data[0].split() or [])[-limit:]
+        for num in ids:
+            typ, msg_data = m.fetch(num, "(BODY.PEEK[])")
+            if typ != "OK" or not msg_data or not msg_data[0]:
+                continue
+            out.append(parse_message(msg_data[0][1]))
+        m.logout()
+    except Exception:  # noqa: BLE001
+        return out
+    return out
+
+
 def parse_message(raw: bytes) -> dict:
     """Parse a raw RFC822 message into the fields we care about (pure — unit tested).
     `participants` = every address on From/To/Cc (lowercased), for known-lead matching."""

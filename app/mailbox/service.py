@@ -269,6 +269,57 @@ def poll_and_sync(db, workspace_id) -> dict:
     return {"matched": matched, "candidates": candidates, "ignored": ignored, "fetched": len(incoming)}
 
 
+def backfill(db, workspace_id, days=60, limit=200) -> dict:
+    """The 'wow on connect' import: pull the last `days` of mail, match each thread
+    to an existing Deal Conversation (record it) or to a known Contact (surface it
+    in the Revenue Inbox). Marks nothing as read; deduped; safe to re-run."""
+    from ..models.mailbox import RevenueInboxItem
+    mailbox = workspace_mailbox(db, workspace_id)
+    if not mailbox or mailbox.status != "connected":
+        return {"skipped": "no connected mailbox"}
+    secret = decrypt(mailbox.app_password_enc)
+    msgs = transport.imap_fetch_since(mailbox.imap_host, mailbox.imap_port, mailbox.username,
+                                      secret, days=days, limit=limit, folder="INBOX")
+    matched, candidates = 0, 0
+    contacts_touched = set()
+    for m in msgs:
+        frm = (m.get("from_email") or "").lower()
+        if frm == mailbox.email.lower():
+            continue  # our own outbound (from the connected box)
+        mid = m.get("rfc_message_id", "")
+        conv = match_inbound_to_conversation(db, workspace_id, from_email=frm,
+                                             in_reply_to=m.get("in_reply_to", ""),
+                                             references=m.get("references", ""))
+        if conv:
+            if mid and db.query(ConversationMessage).filter(
+                    ConversationMessage.conversation_id == conv.id,
+                    ConversationMessage.rfc_message_id == mid).first():
+                continue
+            record_inbound(db, conv, from_email=frm, subject=m.get("subject", ""),
+                           body_text=m.get("body_text", ""), rfc_message_id=mid,
+                           in_reply_to=m.get("in_reply_to", ""), references=m.get("references", ""))
+            matched += 1
+            continue
+        participants = m.get("participants") or [frm]
+        contact = find_known_contact(db, workspace_id, participants, exclude=mailbox.email)
+        if not contact:
+            continue
+        if mid and db.query(RevenueInboxItem).filter(RevenueInboxItem.workspace_id == workspace_id,
+                                                     RevenueInboxItem.rfc_message_id == mid).first():
+            continue
+        db.add(RevenueInboxItem(
+            workspace_id=workspace_id, from_email=frm, subject=m.get("subject", ""),
+            body_text=(m.get("body_text", "") or "")[:8000], participants=participants,
+            rfc_message_id=mid, in_reply_to=m.get("in_reply_to", ""), references=m.get("references", ""),
+            matched_contact_id=contact.id, matched_company_id=contact.company_id, status="pending"))
+        candidates += 1
+        contacts_touched.add(contact.id)
+    mailbox.last_sync_at = datetime.utcnow()
+    db.commit()
+    return {"scanned": len(msgs), "matched": matched, "candidates": candidates,
+            "contacts": len(contacts_touched), "days": days}
+
+
 def attach_item_to_deal(db, item, deal, user_id=None):
     """Turn a Revenue Inbox candidate into a Deal Conversation: ensure the deal's
     conversation exists, drop the email in as the first inbound message, and mark

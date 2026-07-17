@@ -163,6 +163,29 @@ def main():
     left = client.get("/api/revenue-inbox", params={"workspace_id": ids["w1"]}, headers=auth(tok)).json()
     check("attached candidate leaves the pending list", len(left) == 0)
 
+    # ---- WOW on connect: backfill imports recent mail + surfaces known contacts ----
+    # a known contact who does NOT yet have a conversation → should surface; a
+    # stranger → skipped.
+    with session() as db:
+        p = Contact(workspace_id=ids["w1"], first_name="Priya", last_name="N", email="priya@newco.test")
+        db.add(p); db.flush()
+    transport.imap_fetch_since = lambda host, port, user, pw, days=60, limit=200, folder="INBOX": [
+        {"from_email": "priya@newco.test", "to_email": "rep@ascendly.one",
+         "participants": ["priya@newco.test", "rep@ascendly.one"], "subject": "from last month",
+         "rfc_message_id": "<backfill-1@newco.test>", "in_reply_to": "", "references": "",
+         "body_text": "Great chatting a few weeks ago."},
+        {"from_email": "stranger@nobody.test", "to_email": "rep@ascendly.one",
+         "participants": ["stranger@nobody.test", "rep@ascendly.one"], "subject": "cold pitch",
+         "rfc_message_id": "<backfill-2@nobody.test>", "in_reply_to": "", "references": "",
+         "body_text": "buy my thing"}]
+    with session() as db:
+        summary = service.backfill(db, ids["w1"], days=60)
+        check("backfill surfaces known contact, skips stranger",
+              summary["candidates"] == 1 and summary["scanned"] == 2, str(summary))
+    inbox2 = client.get("/api/revenue-inbox", params={"workspace_id": ids["w1"]}, headers=auth(tok)).json()
+    check("backfilled candidate is in the Revenue Inbox",
+          any(it["from_email"] == "priya@newco.test" for it in inbox2))
+
     # ---- workspace isolation ----
     r = client.get(f"/api/deals/{ids['deal']}/conversation", headers=auth(ctok))
     check("client in another workspace cannot read the conversation", r.status_code == 404)

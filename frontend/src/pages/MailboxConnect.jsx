@@ -2,7 +2,8 @@
 // Deal Conversation can send from your real address in the same thread. OAuth for
 // Google/Microsoft is a later drop-in behind the same API.
 import { useEffect, useState } from "react";
-import { Mail, CheckCircle2, AlertCircle, Plug } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Mail, CheckCircle2, AlertCircle, Plug, Sparkles, ArrowRight } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { Badge, Button, PageHeader, Spinner, useApi, useToast } from "../components";
@@ -23,10 +24,12 @@ export default function MailboxConnect() {
   const { wsParam, me } = useAuth();
   const wsId = wsParam || (!me?.is_master ? me?.workspaces?.[0]?.id : null);
   const toast = useToast();
+  const nav = useNavigate();
   const { data: existing, loading, reload } = useApi("/api/mailbox", { workspace_id: wsParam });
   const [form, setForm] = useState({ provider: "gmail", email: "", app_password: "", from_name: "",
     username: "", smtp_host: "", smtp_port: "", imap_host: "", imap_port: "" });
   const [busy, setBusy] = useState(false);
+  const [importing, setImporting] = useState(false);   // "wow" backfill state
 
   useEffect(() => { if (existing) setForm((f) => ({ ...f, provider: existing.provider, email: existing.email, from_name: existing.from_name || "" })); }, [existing]);
 
@@ -35,12 +38,14 @@ export default function MailboxConnect() {
     if (!form.email || !form.app_password) { toast("Email and app password are required", "bad"); return; }
     setBusy(true);
     try {
-      await api("/api/mailbox/connect", { method: "POST", body: {
+      const r = await api("/api/mailbox/connect", { method: "POST", body: {
         workspace_id: Number(wsId), provider: form.provider, email: form.email,
         app_password: form.app_password, from_name: form.from_name, username: form.username,
         smtp_host: form.smtp_host, smtp_port: form.smtp_port ? Number(form.smtp_port) : null,
         imap_host: form.imap_host, imap_port: form.imap_port ? Number(form.imap_port) : null } });
-      toast("Mailbox connected"); setForm((f) => ({ ...f, app_password: "" })); reload();
+      toast("Mailbox connected — importing your recent conversations…");
+      setForm((f) => ({ ...f, app_password: "" })); reload();
+      if (r.backfill_job_id) setImporting(true);   // the last ~60 days are importing in the background
     } catch (e) { toast(e.message, "bad"); }
     setBusy(false);
   };
@@ -67,6 +72,19 @@ export default function MailboxConnect() {
     <div style={{ maxWidth: 640 }}>
       <PageHeader title="Email" desc="Connect one mailbox. RevCadence sends from your real address and keeps every reply in the same thread on the Deal." />
       {loading && <Spinner />}
+
+      {importing && (
+        <div className="card" style={{ padding: 16, marginBottom: 14, display: "flex", alignItems: "center", gap: 12,
+             background: "linear-gradient(180deg,#f6f5ff,#fff)", borderColor: "#d6d3ff" }}>
+          <Sparkles size={20} style={{ color: "var(--accent,#635BFF)" }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600 }}>Importing your last 60 days of conversations…</div>
+            <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
+              We're matching them to your contacts and deals. Known threads appear in the Revenue Inbox in a minute or two.</div>
+          </div>
+          <Button icon={ArrowRight} onClick={() => nav("/revenue-inbox")}>Open Revenue Inbox</Button>
+        </div>
+      )}
 
       {existing && (
         <div className="card" style={{ padding: 16, marginBottom: 14, display: "flex", alignItems: "center", gap: 12 }}>

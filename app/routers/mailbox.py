@@ -56,7 +56,20 @@ def connect(body: MailboxIn, ctx: AuthContext = Depends(get_ctx)):
         smtp_host=body.smtp_host, smtp_port=body.smtp_port, imap_host=body.imap_host, imap_port=body.imap_port)
     if c.status != "connected":
         raise HTTPException(400, f"Could not connect: {c.last_error}")
-    return _mbx_out(c)
+    # WOW on connect: immediately import the last ~60 days in the background and
+    # match to known contacts/deals, so the Revenue Inbox is useful within minutes.
+    job_id = None
+    try:
+        from ..models.jobs import Job
+        j = Job(kind="mailbox_backfill", workspace_id=body.workspace_id, payload={"days": 60})
+        ctx.db.add(j)
+        ctx.db.commit()
+        job_id = j.id
+    except Exception:
+        pass
+    out = _mbx_out(c)
+    out["backfill_job_id"] = job_id
+    return out
 
 
 @router.post("/mailbox/test")

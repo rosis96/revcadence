@@ -43,6 +43,14 @@ def import_legacy_leads(db, job):
     from scripts.import_legacy import run_import
     return run_import(job.payload.get("legacy_db_url", ""), dry_run=bool(job.payload.get("dry_run", True)))
 
+# ---------------------------------------------------------------- mailbox backfill
+@register("mailbox_backfill")
+def mailbox_backfill_job(db, job):
+    """payload: {workspace_id, days?} — the 'wow on connect' import of recent mail."""
+    from ..mailbox import service
+    return service.backfill(db, job.workspace_id, days=int(job.payload.get("days", 60)))
+
+
 # ---------------------------------------------------------------- enrichment
 @register("enrich_company")
 def enrich_company_job(db, job):
