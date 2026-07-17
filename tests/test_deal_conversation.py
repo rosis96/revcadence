@@ -132,6 +132,23 @@ def main():
     b = client.get(f"/api/deals/{ids['deal']}/conversation/briefing", headers=auth(tok)).json()
     check("briefing returns decision context", b["stage"] == "Meeting Completed" and "recommendation" in b
           and b["next_action"] and b["awaiting_us"] is True, str(b)[:200])
+    check("briefing has deal workspace fields (health, contact, summary)",
+          b.get("health") in ("healthy", "cooling", "ghosted", "unknown") and b.get("contact")
+          and "summary" in b, str(b)[:200])
+
+    # ---- Deal Workspace: tasks + notes ----
+    t = client.post(f"/api/deals/{ids['deal']}/tasks", json={"title": "Send recap"}, headers=auth(tok)).json()
+    check("task created", t["id"] and t["done"] is False)
+    client.patch(f"/api/deals/{ids['deal']}/tasks/{t['id']}", json={"done": True}, headers=auth(tok))
+    tasks = client.get(f"/api/deals/{ids['deal']}/tasks", headers=auth(tok)).json()
+    check("task toggled done", any(x["id"] == t["id"] and x["done"] for x in tasks))
+    n = client.post(f"/api/deals/{ids['deal']}/notes", json={"body": "Champion is the COO."}, headers=auth(tok)).json()
+    check("note created", bool(n["id"]))
+    notes = client.get(f"/api/deals/{ids['deal']}/notes", headers=auth(tok)).json()
+    check("note lists back", any("COO" in x["body"] for x in notes))
+    # isolation on the deal workspace
+    r = client.get(f"/api/deals/{ids['deal']}/tasks", headers=auth(ctok))
+    check("cross-workspace deal tasks refused", r.status_code == 404)
 
     # ---- parse a raw MIME (threading fields) ----
     raw = (b"From: Dana <dana@acme.test>\r\nTo: rep@ascendly.one\r\nSubject: Re: Acme\r\n"

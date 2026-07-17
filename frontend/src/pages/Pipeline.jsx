@@ -233,7 +233,7 @@ export default function Pipeline() {
         <DataTable
           id="deals" columns={dealColumns} data={allDeals}
           searchPlaceholder="Search deals…" getRowId={(r) => String(r.id)}
-          onRowClick={(r) => setOpenDeal(r.id)}
+          onRowClick={(r) => nav(`/deals/${r.id}`)}
           emptyIcon={Rows3} emptyTitle="No deals yet"
           emptyHint="Add a lead or promote one from reply management."
         />
@@ -253,7 +253,7 @@ export default function Pipeline() {
             {col.deals.map((d) => (
               <div key={d.id} className="dealcard" draggable
                    onDragStart={(e) => e.dataTransfer.setData("dealId", String(d.id))}
-                   onClick={() => setOpenDeal(d.id)}>
+                   onClick={() => nav(`/deals/${d.id}`)}>
                 <div className="nm">{d.name || d.company_name || "Untitled deal"}</div>
                 <div className="co">{d.company_name}{d.contact_name ? ` · ${d.contact_name}` : ""}</div>
                 <div className="row">
@@ -271,7 +271,7 @@ export default function Pipeline() {
       {openDeal && <DealDrawer dealId={openDeal} onClose={() => setOpenDeal(null)} onChanged={reload} />}
       {modal && (
         <NewLeadModal workspaceId={wsId} stages={stages} onClose={() => setModal(false)}
-                      onCreated={(id) => { setModal(false); reload(); setOpenDeal(id); }} />
+                      onCreated={(id) => { setModal(false); reload(); nav(`/deals/${id}`); }} />
       )}
     </>
   );

@@ -259,17 +259,39 @@ def briefing(deal_id: int, ctx: AuthContext = Depends(get_ctx)):
         rec = "On track. Follow up if you don't hear back in a few days."
         action = "Wait / schedule follow-up"
 
+    # relationship health (Healthy / Cooling / Ghosted)
+    if ghost:
+        health = "ghosted"
+    elif risk == "high":
+        health = "cooling"
+    elif risk in ("low", "medium") or awaiting_us:
+        health = "healthy" if not (days and days >= 5) else "cooling"
+    else:
+        health = "unknown"
+
+    contact = ctx.db.get(Contact, d.contact_id) if d.contact_id else None
+    nxt = (ctx.db.query(ConversationMessage)
+           .filter(ConversationMessage.conversation_id == conv.id,
+                   ConversationMessage.status == "scheduled")
+           .order_by(ConversationMessage.scheduled_at).first())
+
     return {
-        "deal": {"id": d.id, "name": d.name, "value": d.value, "company": company.name if company else ""},
+        "deal": {"id": d.id, "name": d.name, "value": d.value, "close_date": d.close_date or "",
+                 "company": company.name if company else "", "company_id": d.company_id},
+        "contact": {"name": f"{contact.first_name} {contact.last_name}".strip(), "email": contact.email,
+                    "id": contact.id} if contact else None,
         "stage": stage.name if stage else "—",
         "last_contact_days": days,
         "awaiting_us": awaiting_us,
+        "next_followup_at": nxt.scheduled_at.isoformat() if (nxt and nxt.scheduled_at) else None,
         "intent": intent,
         "risk": risk,
+        "health": health,
         "ghost": ghost,
         "blueprint": bool(bp), "blueprint_viewed": bool(bp and (bp.view_count or 0) > 0),
         "agreement_status": ag.status if ag else None,
         "invoice_status": inv.status if inv else None,
+        "summary": rec,
         "recommendation": rec,
         "next_action": action,
         "conversation_state": conv.state,

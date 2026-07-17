@@ -323,7 +323,7 @@ export default function CompanyDetail() {
             <table className="tbl"><tbody>
               {c.deals.length === 0 && <tr><td className="empty">No deals yet</td></tr>}
               {c.deals.map((d) => (
-                <tr key={d.id} className="click" onClick={() => nav(`/pipeline?open=${d.id}`)}>
+                <tr key={d.id} className="click" onClick={() => nav(`/deals/${d.id}`)}>
                   <td><b>{d.name || "Untitled"}</b>
                     <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
                       {d.stage_name || "—"}{d.lead_intent ? ` · ${d.lead_intent}` : ""}</div></td>
