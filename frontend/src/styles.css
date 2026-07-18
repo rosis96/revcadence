@@ -172,6 +172,9 @@ table.tbl { width: 100%; border-collapse: collapse; background: var(--card); bor
 .login-card label { display: block; font-size: 12.5px; font-weight: 600; margin: 12px 0 5px; }
 .login-card input { width: 100%; }
 .login-card .btn { width: 100%; margin-top: 18px; padding: 10px; }
+.login-card p { text-align: center; }
+.linkbtn { background: none; border: none; color: var(--accent); font-size: 13px; font-weight: 600; cursor: pointer; padding: 4px; }
+.linkbtn:hover { text-decoration: underline; }
 
 .field { margin-bottom: 12px; }
 .field label { display: block; font-size: 12.5px; font-weight: 600; margin-bottom: 5px; }

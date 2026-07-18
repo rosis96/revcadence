@@ -204,3 +204,19 @@ def deactivate_user(user_id: int, ctx: AuthContext = Depends(require_master)):
                         object_type="user", object_id=user_id))
     ctx.db.commit()
     return {"ok": True}
+
+
+@router.post("/users/{user_id}/reset-link")
+def reset_link(user_id: int, ctx: AuthContext = Depends(require_master)):
+    """Owner-generated password reset: returns a one-time link to hand to the user
+    (works today without email delivery). Valid 1 hour."""
+    from ..routers.auth import make_reset_token
+    m = ctx.db.query(Membership).filter(Membership.user_id == user_id, Membership.org_id == ctx.org_id).first()
+    if not m:
+        raise HTTPException(404, "User not in this organization")
+    u = ctx.db.query(User).filter(User.id == user_id).first()
+    raw = make_reset_token(ctx.db, u)
+    ctx.db.add(AuditLog(org_id=ctx.org_id, user_id=ctx.user.id, action="reset_link",
+                        object_type="user", object_id=user_id))
+    ctx.db.commit()
+    return {"ok": True, "email": u.email, "reset_path": f"/#/reset/{raw}"}

@@ -311,6 +311,28 @@ def main():
     check("lead contact shows in Contacts as Meeting Booked",
           lc and lc["status"]["key"] == "meeting_booked" and lc["company_name"] == "Referral Inc", str(lc)[:160])
 
+    # ---- password reset (forgot + owner reset-link + reset) ----
+    ru = client.post("/api/admin/users", json={"email": "reset@webaholics.com", "password": "old-password-1234",
+                     "role": "client", "workspace_ids": [w1["id"]]}, headers=auth(tok)).json()
+    check("reset test user created", bool(ru.get("id")), str(ru)[:120])
+    fg = client.post("/api/auth/forgot", json={"email": "reset@webaholics.com"})
+    check("forgot returns generic ok", fg.status_code == 200 and fg.json()["ok"])
+    fg2 = client.post("/api/auth/forgot", json={"email": "nobody@nowhere.test"})
+    check("forgot does not reveal unknown accounts", fg2.status_code == 200 and fg2.json()["ok"])
+    rl = client.post(f"/api/admin/users/{ru['id']}/reset-link", headers=auth(tok)).json()
+    token = rl["reset_path"].split("/reset/")[-1]
+    check("owner gets a reset link", "/reset/" in rl["reset_path"] and token)
+    bad = client.post("/api/auth/reset", json={"token": "not-a-real-token", "password": "brand-new-password-1"})
+    check("invalid reset token rejected", bad.status_code == 400)
+    short = client.post("/api/auth/reset", json={"token": token, "password": "short"})
+    check("short new password rejected", short.status_code == 422)
+    ok = client.post("/api/auth/reset", json={"token": token, "password": "brand-new-password-1"})
+    check("reset with valid token succeeds", ok.status_code == 200)
+    li = client.post("/api/auth/login", json={"email": "reset@webaholics.com", "password": "brand-new-password-1"})
+    check("can log in with the new password", li.status_code == 200 and li.json().get("token"))
+    reuse = client.post("/api/auth/reset", json={"token": token, "password": "another-new-password-9"})
+    check("reset token is one-time (reuse fails)", reuse.status_code == 400)
+
     print(f"\n{sum(1 for _, ok in PASS if ok)}/{len(PASS)} checks passed")
 
 

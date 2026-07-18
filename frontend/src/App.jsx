@@ -46,6 +46,7 @@ import Settings from "./pages/Settings";
 import Admin from "./pages/Admin";
 import Onboarding from "./pages/Onboarding";
 import OnboardingForm from "./pages/OnboardingForm";
+import ResetPassword from "./pages/ResetPassword";
 
 // MODES: the four sections. Pick a mode → the sidebar shows ONLY that section.
 // Master Dashboard + System are always present. Each section is self-contained.
@@ -288,7 +289,7 @@ function Protected() {
   );
 }
 
-// Public routes render OUTSIDE the auth gate (the onboarding form the client fills).
+// Public routes render OUTSIDE the auth gate (the onboarding form + password reset).
 function Root() {
   const hash = window.location.hash || "";
   if (hash.startsWith("#/onboard/")) {
@@ -296,6 +297,14 @@ function Root() {
       <Routes>
         <Route path="/onboard/:token" element={<OnboardingForm />} />
         <Route path="*" element={<OnboardingForm />} />
+      </Routes>
+    );
+  }
+  if (hash.startsWith("#/reset/")) {
+    return (
+      <Routes>
+        <Route path="/reset/:token" element={<ResetPassword />} />
+        <Route path="*" element={<ResetPassword />} />
       </Routes>
     );
   }

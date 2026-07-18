@@ -76,6 +76,9 @@ class User(Base):
     active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_login_at = Column(DateTime)
+    # password reset (token hashed at rest; expires)
+    reset_token_hash = Column(String(128), default="")
+    reset_expires_at = Column(DateTime)
 
 
 class Membership(Base):

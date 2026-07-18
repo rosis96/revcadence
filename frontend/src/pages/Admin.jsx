@@ -121,6 +121,14 @@ export default function Admin() {
     try { await api(`/api/admin/users/${id}/deactivate`, { method: "POST" }); users.reload(); }
     catch (e) { alert(e.message); }
   };
+  const resetLink = async (u) => {
+    try {
+      const r = await api(`/api/admin/users/${u.id}/reset-link`, { method: "POST" });
+      const link = `${window.location.origin}/${r.reset_path}`;
+      navigator.clipboard?.writeText(link);
+      alert(`Reset link for ${u.email} copied to clipboard (valid 1 hour). Send it to them:\n\n${link}`);
+    } catch (e) { alert(e.message); }
+  };
   const deleteAlias = async (id) => {
     if (!confirm("Delete this alias?")) return;
     try { await api(`/api/admin/aliases/${id}`, { method: "DELETE" }); aliases.reload(); }
@@ -151,7 +159,8 @@ export default function Admin() {
               <td><b>{u.email}</b></td><td>{u.name || "—"}</td>
               <td><Badge tone={["owner", "admin"].includes(u.role) ? "indigo" : u.role === "client" ? "amber" : ""}>{u.role}</Badge></td>
               <td style={{ fontSize: 12.5 }}>{["owner", "admin"].includes(u.role) ? "all" : (u.workspace_ids || []).map(wsName).join(", ") || "—"}</td>
-              <td style={{ textAlign: "right" }}>
+              <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                {u.active && <button className="btn ghost sm" onClick={() => resetLink(u)} style={{ marginRight: 6 }}>Reset link</button>}
                 {u.active ? <button className="btn danger sm" onClick={() => deactivate(u.id)}>Deactivate</button> : <Badge>deactivated</Badge>}
               </td>
             </tr>))}
