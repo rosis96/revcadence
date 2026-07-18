@@ -636,9 +636,31 @@ def push_instantly_followups(rws, lead_email: str, campaign_id: str, followups: 
     return {"ok": True, "written": len(cv), "lead_id": lead_id}
 
 
-def send_instantly_reply(rws, send_meta: dict, message: str, subject: str = "") -> dict:
-    """Replies to the PROSPECT'S inbound email (legacy fix: replying to our own
-    last sent message sent replies to ourselves) using its eaccount as sender."""
+def lookup_instantly_latest_email(api_key: str, lead_email: str) -> dict:
+    """Follow-up fallback: return {reply_to_uuid, eaccount} for the MOST RECENT
+    email in the thread with this lead (any direction). A follow-up just needs to
+    thread onto the last message; replying to our own last sent email is fine."""
+    if not (api_key and lead_email):
+        return {}
+    try:
+        r = requests.get("https://api.instantly.ai/api/v2/emails",
+                         headers={"Authorization": f"Bearer {api_key}"},
+                         params={"search": lead_email, "sort_order": "desc", "limit": 20}, timeout=20)
+        if r.status_code >= 300:
+            return {}
+        for e in (r.json().get("items", []) or []):
+            if isinstance(e, dict) and e.get("id") and e.get("eaccount"):
+                return {"reply_to_uuid": e["id"], "eaccount": e["eaccount"]}
+    except Exception:
+        return {}
+    return {}
+
+
+def send_instantly_reply(rws, send_meta: dict, message: str, subject: str = "", follow_up: bool = False) -> dict:
+    """Reply IN THE SAME THREAD. For the first reply we target the prospect's
+    inbound email (never our own, to avoid replying to ourselves). For a follow-up
+    we thread onto the latest message. Returns the resolved {reply_to_uuid,
+    eaccount} so the caller can persist them and skip the lookup next time."""
     api_key = decrypt(rws.api_key_enc)
     if not api_key:
         raise RuntimeError("No Instantly API key set on this reply space (Setup → API key).")
@@ -652,6 +674,12 @@ def send_instantly_reply(rws, send_meta: dict, message: str, subject: str = "") 
                                               send_meta.get("campaign_id"), diag=diag)
         reply_to_uuid = reply_to_uuid or found.get("reply_to_uuid")
         eaccount = eaccount or found.get("eaccount")
+    # Follow-up fallback: if there's no inbound to target, thread onto the latest
+    # email in the conversation (our own last message is a valid thread anchor).
+    if not (reply_to_uuid and eaccount) and follow_up:
+        latest = lookup_instantly_latest_email(api_key, send_meta.get("lead_email"))
+        reply_to_uuid = reply_to_uuid or latest.get("reply_to_uuid")
+        eaccount = eaccount or latest.get("eaccount")
     # If we still can't find them, report the ACTUAL reason from the lookup.
     if not (reply_to_uuid and eaccount):
         reason = diag.get("reason") or "the reply target wasn't in the webhook and couldn't be found."
@@ -675,7 +703,7 @@ def send_instantly_reply(rws, send_meta: dict, message: str, subject: str = "") 
         raise RuntimeError(f"Could not reach Instantly: {e}")
     if r.status_code >= 300:
         raise RuntimeError(f"Instantly API {r.status_code}: {(r.text or '')[:400]}")
-    return {"ok": True}
+    return {"ok": True, "reply_to_uuid": reply_to_uuid, "eaccount": eaccount}
 
 
 # ---------------------------------------------------------------- misc legacy helpers

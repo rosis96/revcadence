@@ -372,7 +372,13 @@ def process_reply_job(db, job):
             if platform == "bison":
                 E.send_bison_reply(rws, send_meta, message)
             else:
-                E.send_instantly_reply(rws, send_meta, message, lead.subject)
+                res = E.send_instantly_reply(rws, send_meta, message, lead.subject)
+                # persist the resolved reply target so later follow-ups reuse it
+                # instead of re-looking it up (which fails once the prospect's
+                # inbound email drops out of Instantly's search results).
+                if res.get("reply_to_uuid") and res.get("eaccount"):
+                    lead.send_meta = {**(send_meta or {}), "reply_to_uuid": res["reply_to_uuid"],
+                                      "eaccount": res["eaccount"]}
             # show what we sent in the chat thread (WhatsApp-style outbound bubble)
             from datetime import datetime as _dt
             lead.thread = list(lead.thread or []) + [{"direction": "out",

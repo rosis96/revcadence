@@ -616,7 +616,12 @@ def approve_and_send(lead_id: int, body: SendIn | None = None, ctx: AuthContext 
         if l.platform == "bison":
             send_bison_reply(rws, meta, message)
         else:
-            send_instantly_reply(rws, meta, message, l.subject)
+            res = send_instantly_reply(rws, meta, message, l.subject, follow_up=bool(follow_up_text))
+            # persist the resolved reply target so future follow-ups reuse it and
+            # never have to re-look it up (the bug that broke follow-up sends).
+            if res.get("reply_to_uuid") and res.get("eaccount"):
+                l.send_meta = {**(l.send_meta or {}), "reply_to_uuid": res["reply_to_uuid"],
+                               "eaccount": res["eaccount"]}
     except Exception as e:
         # 400 (not 502) so the client reliably shows this JSON detail instead of a
         # bare gateway error; record it on the lead so the reason is visible later.
