@@ -557,9 +557,12 @@ def fetch_instantly_thread(api_key: str, lead_email: str, campaign_id: str = "")
     (caller falls back to the single webhook reply) on any failure."""
     if not (api_key and lead_email):
         return []
-    params = {"lead": lead_email, "sort_order": "asc", "limit": 50}
-    if campaign_id:
-        params["campaign_id"] = campaign_id
+    # IMPORTANT: /api/v2/emails filters by `search` (across from/to), NOT `lead`.
+    # And do NOT filter by campaign_id — that excludes the prospect's RECEIVED
+    # replies (same bug the reply-target lookup hit), leaving only our sent mail or
+    # nothing, so the thread collapses to the single webhook reply. Search by the
+    # lead's email to get the WHOLE back-and-forth (both directions).
+    params = {"search": lead_email, "sort_order": "asc", "limit": 50}
     import time
     items = []
     for attempt in range(2):

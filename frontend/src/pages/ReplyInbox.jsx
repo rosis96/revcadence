@@ -172,6 +172,7 @@ function Thread({ id, pinned, onPin, aiOpen, onToggleAi, onChanged }) {
   const toast = useToast();
   const { data: l, error, loading, reload } = useApi(`/api/reply/leads/${id}`);
   const [draft, setDraft] = useState(null);
+  const [followup, setFollowup] = useState("");
   const [busy, setBusy] = useState("");
   const [menu, setMenu] = useState(false);
   const [edit, setEdit] = useState(null);
@@ -203,6 +204,12 @@ function Thread({ id, pinned, onPin, aiOpen, onToggleAi, onChanged }) {
     await api(`/api/reply/leads/${id}/action`, { method: "POST", body: { main_reply: body } });
     await api(`/api/reply/leads/${id}/send`, { method: "POST" });
   }, "send", "Reply sent");
+  // Follow up in the SAME thread after the first reply — sent via the platform (Instantly/Bison).
+  const sendFollowup = () => {
+    if (!followup.trim()) return;
+    act(async () => { await api(`/api/reply/leads/${id}/send`, { method: "POST", body: { body: followup } }); setFollowup(""); },
+      "fup", "Follow-up sent");
+  };
   const setLabel = (token) => act(() => api(`/api/reply/leads/${id}/action`,
     { method: "POST", body: { stage: token, reviewed: true } }), "label", `Marked ${LABEL_OF[token] || token}`);
   const removeLead = (block) => {
@@ -284,10 +291,26 @@ function Thread({ id, pinned, onPin, aiOpen, onToggleAi, onChanged }) {
                 onClick={() => act(() => api(`/api/reply/leads/${id}/action`, { method: "POST", body: { reviewed: true } }), "rev", "Marked reviewed")}>Mark reviewed</Button>
             </div>
           </div>
+        ) : l.replied ? (
+          <div className="ib-compose">
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--muted)", marginBottom: 2 }}>
+              <Check size={15} style={{ color: "var(--ok)" }} /> Replied — sent. Send a follow-up in the same thread:
+            </div>
+            {l.platform === "instantly" && l.can_send_instantly === false && (
+              <div className="error-box" style={{ fontSize: 12.5, background: "#FFFAEB", borderColor: "#FEDF89", color: "#B54708" }}>
+                Can't send through Instantly: the webhook didn't include the reply target.
+              </div>
+            )}
+            <textarea value={followup} onChange={(e) => setFollowup(e.target.value)} placeholder="Write a follow-up… (sent via the same thread)" />
+            <div className="row">
+              <Button icon={Send} loading={busy === "fup"} disabled={!followup.trim() || !!busy} onClick={sendFollowup}>Send follow-up</Button>
+              <span style={{ flex: 1 }} />
+              <span style={{ fontSize: 11.5, color: "var(--muted2)" }}>Sent from {l.workspace} via {l.platform}</span>
+            </div>
+          </div>
         ) : (
           <div className="ib-sent-note">
-            {l.replied ? <><Check size={16} style={{ color: "var(--ok)" }} /> Replied — sent{l.action ? ` · ${l.action}` : ""}. Use ⋯ to change status.</>
-              : <><Ban size={16} /> Stopped — no reply will be sent. Use ⋯ to change status.</>}
+            <Ban size={16} /> Stopped — no reply will be sent. Use ⋯ to change status.
           </div>
         )}
       </div>

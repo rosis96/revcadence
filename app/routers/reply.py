@@ -575,21 +575,30 @@ def put_settings(body: dict, ctx: AuthContext = Depends(require_master)):
     return {"ok": True}
 
 
+class SendIn(BaseModel):
+    body: str | None = None    # optional: send THIS text (a manual follow-up), else the draft
+
+
 @router.post("/leads/{lead_id}/send")
-def approve_and_send(lead_id: int, ctx: AuthContext = Depends(get_ctx)):
-    """Approve & Send — live send via the correct platform (legacy drawer action)."""
+def approve_and_send(lead_id: int, body: SendIn | None = None, ctx: AuthContext = Depends(get_ctx)):
+    """Approve & Send — live send via the correct platform, IN THE SAME THREAD.
+    With a `body`, sends that text as a manual follow-up (allowed even after the
+    first reply). Every sent message is appended to the conversation thread so the
+    chat shows exactly what we sent (WhatsApp-style)."""
     from ..reply.engine import add_signature, send_bison_reply, send_instantly_reply
     l = ctx.db.get(ReplyLead, lead_id)
     if not l or (l.workspace_id is not None and l.workspace_id not in ctx.allowed_workspace_ids()):
         raise HTTPException(404, "Not found")
-    if not l.main_reply:
+    follow_up_text = (body.body if body else None)
+    reply_body = (follow_up_text or l.main_reply or "").strip()
+    if not reply_body:
         raise HTTPException(422, "No draft to send")
-    if l.replied:
-        raise HTTPException(409, "Already sent")
+    if l.replied and not follow_up_text:
+        raise HTTPException(409, "Already sent")   # nothing new to send
     rws = ctx.db.query(ReplyWorkspace).filter(ReplyWorkspace.name == l.reply_workspace).first()
     if not rws:
         raise HTTPException(422, "Reply-workspace config not found")
-    message = add_signature(l.main_reply, rws.sender_name, rws.website)
+    message = add_signature(reply_body, rws.sender_name, rws.website)
     # Backfill send_meta from the lead record — leads created before send_meta
     # carried lead_email/campaign_id would otherwise skip the reply-target lookup
     # entirely (the lead always has .email and its raw payload).
@@ -615,9 +624,14 @@ def approve_and_send(lead_id: int, ctx: AuthContext = Depends(get_ctx)):
         l.send_error = str(e)[:500]
         ctx.db.commit()
         raise HTTPException(400, f"Send failed: {e}")
+    # show exactly what we sent in the chat thread (WhatsApp-style outbound bubble)
+    l.thread = list(l.thread or []) + [{"direction": "out", "text": reply_body,
+                                        "at": datetime.utcnow().isoformat()}]
     l.replied = True
     l.reviewed = True
     l.stage = "replied"
     l.send_error = ""
+    if follow_up_text:
+        l.fup_added = True
     ctx.db.commit()
-    return {"ok": True, "sent_via": l.platform}
+    return {"ok": True, "sent_via": l.platform, "follow_up": bool(follow_up_text)}

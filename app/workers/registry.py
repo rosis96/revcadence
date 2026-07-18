@@ -373,6 +373,10 @@ def process_reply_job(db, job):
                 E.send_bison_reply(rws, send_meta, message)
             else:
                 E.send_instantly_reply(rws, send_meta, message, lead.subject)
+            # show what we sent in the chat thread (WhatsApp-style outbound bubble)
+            from datetime import datetime as _dt
+            lead.thread = list(lead.thread or []) + [{"direction": "out",
+                          "text": lead.main_reply, "at": _dt.utcnow().isoformat()}]
             lead.replied = True
             lead.stage = "replied"
             lead.send_error = ""
