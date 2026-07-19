@@ -309,16 +309,21 @@ def process_reply_job(db, job):
         inbound = [m for m in thread if m.get("direction") == "in"]
         # latest inbound turn drives STOP-keyword detection + the quoted reply
         lead.reply_text = (inbound[-1]["text"] if inbound else body_text)
-        # Instantly nests the reply target under different keys/levels depending on
-        # the event — deep-search the whole payload so the reply-to UUID and the
-        # sending mailbox (eaccount) are found wherever they live.
-        reply_uuid = (data.get("reply_to_uuid") or data.get("email_id")
-                      or _deep_get(payload, {"reply_to_uuid", "email_id", "message_id", "uuid", "id"}))
-        eaccount = (data.get("eaccount")
-                    or _deep_get(payload, {"eaccount", "email_account", "from_email", "sender_email"}))
-        # Carry the lead email + campaign so we can look the reply target up later
-        # if this webhook (e.g. lead_interested) didn't include reply_to_uuid/eaccount,
-        # plus the fields needed to build the Gmail-style quoted thread.
+        # Reply target = the PROSPECT'S inbound email (never our own sent email —
+        # Instantly replies to that email's sender, so our outbound would bounce
+        # back to us). Only trust an EXPLICIT reply_to_uuid/eaccount on the webhook;
+        # the loose `id`/`from_email` deep-search grabbed the wrong email and set
+        # eaccount to the prospect's own address, which caused reply-to-self.
+        reply_uuid = data.get("reply_to_uuid") or data.get("email_id")
+        eaccount = data.get("eaccount") or data.get("email_account")
+        # Resolve authoritatively from Instantly right now (the inbound is freshest
+        # at ingest) so every later follow-up threads to the prospect, not us.
+        if not (reply_uuid and eaccount):
+            found = E.lookup_instantly_reply_target(decrypt(rws.api_key_enc), email, campaign_id)
+            reply_uuid = reply_uuid or found.get("reply_to_uuid")
+            eaccount = eaccount or found.get("eaccount")
+        # Carry the lead email + campaign so the target can be re-resolved later
+        # if it still wasn't available, plus fields for the Gmail-style quoted thread.
         send_meta = {"reply_to_uuid": reply_uuid, "eaccount": eaccount, "subject": lead.subject,
                      "lead_email": email, "to_name": lead.name, "to_email": email,
                      "reply_text_new": lead.reply_text, "reply_date": reply_date,

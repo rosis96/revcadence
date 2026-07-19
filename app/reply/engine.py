@@ -636,50 +636,37 @@ def push_instantly_followups(rws, lead_email: str, campaign_id: str, followups: 
     return {"ok": True, "written": len(cv), "lead_id": lead_id}
 
 
-def lookup_instantly_latest_email(api_key: str, lead_email: str) -> dict:
-    """Follow-up fallback: return {reply_to_uuid, eaccount} for the MOST RECENT
-    email in the thread with this lead (any direction). A follow-up just needs to
-    thread onto the last message; replying to our own last sent email is fine."""
-    if not (api_key and lead_email):
-        return {}
-    try:
-        r = requests.get("https://api.instantly.ai/api/v2/emails",
-                         headers={"Authorization": f"Bearer {api_key}"},
-                         params={"search": lead_email, "sort_order": "desc", "limit": 20}, timeout=20)
-        if r.status_code >= 300:
-            return {}
-        for e in (r.json().get("items", []) or []):
-            if isinstance(e, dict) and e.get("id") and e.get("eaccount"):
-                return {"reply_to_uuid": e["id"], "eaccount": e["eaccount"]}
-    except Exception:
-        return {}
-    return {}
-
-
 def send_instantly_reply(rws, send_meta: dict, message: str, subject: str = "", follow_up: bool = False) -> dict:
-    """Reply IN THE SAME THREAD. For the first reply we target the prospect's
-    inbound email (never our own, to avoid replying to ourselves). For a follow-up
-    we thread onto the latest message. Returns the resolved {reply_to_uuid,
-    eaccount} so the caller can persist them and skip the lookup next time."""
+    """Reply IN THE SAME THREAD by replying to the PROSPECT'S inbound email — its
+    id is reply_to_uuid, its eaccount is the mailbox that received it. We NEVER
+    reply to one of our own sent emails: Instantly addresses a reply to that
+    email's sender, so replying to our own outbound sends the message back to
+    ourselves (sender == receiver). Returns the resolved {reply_to_uuid, eaccount}
+    so the caller can persist them and skip the lookup next time."""
     api_key = decrypt(rws.api_key_enc)
     if not api_key:
         raise RuntimeError("No Instantly API key set on this reply space (Setup → API key).")
     reply_to_uuid = send_meta.get("reply_to_uuid")
     eaccount = send_meta.get("eaccount")
-    # Most Instantly webhooks (e.g. lead_interested) don't carry the reply target.
-    # Recover it by looking up the prospect's inbound email via the API.
     diag = {}
+    # For a manual follow-up, always re-resolve the prospect's inbound fresh and
+    # prefer it: a stored target could have been poisoned by an earlier bug
+    # (pointing at our OWN sent email → reply-to-self) or gone stale. The prospect
+    # has replied by definition, so the inbound exists and this is the right target.
+    if follow_up:
+        found = lookup_instantly_reply_target(api_key, send_meta.get("lead_email"),
+                                              send_meta.get("campaign_id"), diag=diag)
+        if found.get("reply_to_uuid") and found.get("eaccount"):
+            reply_to_uuid, eaccount = found["reply_to_uuid"], found["eaccount"]
+    # Most Instantly webhooks (e.g. lead_interested) don't carry the reply target.
+    # Recover it by looking up the prospect's inbound email via the API. This is
+    # the ONLY safe source — a follow-up must still target the prospect's inbound,
+    # not the latest (which may be our own sent message = reply-to-self).
     if not (reply_to_uuid and eaccount):
         found = lookup_instantly_reply_target(api_key, send_meta.get("lead_email"),
                                               send_meta.get("campaign_id"), diag=diag)
         reply_to_uuid = reply_to_uuid or found.get("reply_to_uuid")
         eaccount = eaccount or found.get("eaccount")
-    # Follow-up fallback: if there's no inbound to target, thread onto the latest
-    # email in the conversation (our own last message is a valid thread anchor).
-    if not (reply_to_uuid and eaccount) and follow_up:
-        latest = lookup_instantly_latest_email(api_key, send_meta.get("lead_email"))
-        reply_to_uuid = reply_to_uuid or latest.get("reply_to_uuid")
-        eaccount = eaccount or latest.get("eaccount")
     # If we still can't find them, report the ACTUAL reason from the lookup.
     if not (reply_to_uuid and eaccount):
         reason = diag.get("reason") or "the reply target wasn't in the webhook and couldn't be found."
