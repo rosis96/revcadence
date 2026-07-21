@@ -262,12 +262,14 @@ def diag_dns(ctx: AuthContext = Depends(get_ctx)):
     """Proves whether the free MX layer is live on this host. dns_working is
     True ONLY if a real domain resolves True AND a nonsense domain resolves
     False — otherwise the layer is failing open and rejecting nothing."""
-    from ..enrichment.verify_free import _doh_mx
+    from ..enrichment.verify_free import _doh_mx, mx_diagnostics
     good = {d: _doh_mx(d) for d in ("gmail.com", "outlook.com")}
     dead = {d: _doh_mx(d) for d in ("no-such-domain-zzqx-1928374.com",)}
     working = any(v is True for v in good.values()) and all(v is False for v in dead.values())
     return {"dns_working": working,
             "results": {**good, **dead},
+            # per-tier probe: shows EXACTLY which resolution path works on this host
+            "probe": mx_diagnostics("gmail.com"),
             "verdict": ("MX layer live — dead domains are being rejected" if working
                         else "MX layer NOT conclusive — free verifier is failing open; "
                              "only Reoon is filtering")}

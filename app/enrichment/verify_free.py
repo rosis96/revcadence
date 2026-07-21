@@ -85,11 +85,18 @@ def _dnspython_mx(domain: str):
 def _doh_mx(domain: str):
     """Resolve MX, trying direct DNS first then DNS-over-HTTPS (works where raw
     :53 is blocked). Populates _mx_hosts (for ESP detection) on success.
-    True = MX exists, False = definitively none, None = couldn't determine."""
+    True = MX exists, False = definitively none, None = couldn't determine.
+
+    DoH endpoints are LITERAL IPs (1.1.1.1 / 8.8.8.8), not hostnames: on a host
+    whose own DNS is broken, resolving 'dns.google' would itself fail — so the
+    hostname-based DoH could never connect. IPs need no DNS and ride over :443,
+    which is already proven working (the app reaches Instantly/OpenAI over HTTPS).
+    Their TLS certs include these IPs as SANs, so verification still passes."""
     direct = _dnspython_mx(domain)
     if direct is not None:
         return direct
-    for host in ("https://dns.google/resolve", "https://cloudflare-dns.com/dns-query"):
+    for host in ("https://1.1.1.1/dns-query", "https://8.8.8.8/resolve",
+                 "https://dns.google/resolve", "https://cloudflare-dns.com/dns-query"):
         try:
             r = requests.get(host, params={"name": domain, "type": "MX"},
                              headers={"accept": "application/dns-json"}, timeout=6)
@@ -112,6 +119,41 @@ def _doh_mx(domain: str):
         except Exception:
             continue
     return None  # uncertain → fail open
+
+
+def mx_diagnostics(domain: str = "gmail.com") -> dict:
+    """Probe every MX-resolution tier independently so we can see EXACTLY which
+    path works (or fails) on this host. Used by the /diag/dns endpoint."""
+    out = {"domain": domain, "tiers": {}}
+    try:
+        import dns.resolver
+        for name, configure in (("dnspython_system", True), ("dnspython_public_8.8.8.8/1.1.1.1", False)):
+            try:
+                r = dns.resolver.Resolver(configure=configure)
+                if not configure:
+                    r.nameservers = ["8.8.8.8", "1.1.1.1"]
+                r.timeout = 5
+                r.lifetime = 5
+                ans = r.resolve(domain, "MX")
+                out["tiers"][name] = {"ok": True,
+                                      "hosts": " ".join(str(x.exchange).lower() for x in ans)[:120]}
+            except Exception as e:
+                out["tiers"][name] = {"ok": False, "err": f"{type(e).__name__}: {str(e)[:80]}"}
+    except Exception as e:
+        out["tiers"]["dnspython_import"] = {"ok": False, "err": str(e)[:80]}
+    for host in ("https://1.1.1.1/dns-query", "https://8.8.8.8/resolve", "https://dns.google/resolve"):
+        try:
+            r = requests.get(host, params={"name": domain, "type": "MX"},
+                             headers={"accept": "application/dns-json"}, timeout=6)
+            ans = (r.json().get("Answer") or []) if r.status_code == 200 else []
+            out["tiers"][f"doh {host}"] = {"ok": bool(ans), "http": r.status_code, "answers": len(ans)}
+        except Exception as e:
+            out["tiers"][f"doh {host}"] = {"ok": False, "err": f"{type(e).__name__}: {str(e)[:80]}"}
+    _mx_hosts.pop(domain, None)
+    res = _doh_mx(domain)
+    out["result"] = {"resolved": res, "esp": esp_for(domain) or "Unknown",
+                     "mx_hosts": _mx_hosts.get(domain, "")[:140]}
+    return out
 
 
 def check(email: str) -> dict:

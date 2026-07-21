@@ -111,6 +111,14 @@ export default function EnrichListDetail() {
     } catch (e) { toast(e.message, "bad"); }
   };
   const stop = async () => { if (job) { try { await api(`/api/jobs/${job}/cancel`, { method: "POST" }); } catch (e) { toast(e.message, "bad"); } } };
+  const diagnoseDns = async () => {
+    try {
+      const r = await api(`/api/enrich-lists/diag/dns`);
+      const working = Object.entries(r.probe?.tiers || {}).filter(([, v]) => v.ok).map(([k]) => k);
+      // eslint-disable-next-line no-alert
+      alert(`DNS working: ${r.dns_working}\nESP for gmail.com: ${r.probe?.result?.esp}\n\nWorking tiers:\n${working.length ? working.join("\n") : "NONE — all resolution paths are blocked on this host"}\n\nFull:\n${JSON.stringify(r.probe, null, 2)}`);
+    } catch (e) { toast(e.message, "bad"); }
+  };
   const findCompetitors = async () => {
     const body = allInView || selIds.length === 0 ? { view } : { lead_ids: selIds };
     try {
@@ -280,6 +288,7 @@ export default function EnrichListDetail() {
                 <button className="dt-tool" disabled={!!job} onClick={splitByIndustry}>Split by industry</button>
                 <button className="dt-tool" onClick={() => clearAction("clear-results")}>Clear results</button>
                 <button className="dt-tool" onClick={() => clearAction("clear-verification")}>Clear verification</button>
+                <button className="dt-tool" onClick={diagnoseDns}>Diagnose DNS</button>
               </>
             }
             onRowClick={(r) => setOpenLead(r)}
