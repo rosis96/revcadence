@@ -45,7 +45,7 @@ def _view_filter(q, view: str):
     if view == "esp_other":
         return q.filter(L.esp == "Other")
     if view == "esp_unknown":
-        return q.filter((L.esp == "") | (L.esp.is_(None)))
+        return q.filter((L.esp == "") | (L.esp.is_(None)) | (L.esp == "Unknown"))
     return q
 
 

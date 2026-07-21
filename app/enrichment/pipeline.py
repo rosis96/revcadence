@@ -150,12 +150,18 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
     # standalone first step — it NEVER charges Reoon and NEVER changes the funnel
     # status, so it can run on any lead (even already-verified ones) up front.
     if steps == "esp":
-        if lead.email and "@" in lead.email:
+        email = lead.email or ""
+        if "@" in email:
             from .verify_free import _doh_mx, _mx_hosts, esp_for
-            domain = lead.email.split("@", 1)[1].lower()
-            if domain and domain not in _mx_hosts:
-                _doh_mx(domain)          # populates _mx_hosts as a side effect
-            lead.esp = esp_for(domain) or lead.esp or ""
+            domain = email.split("@", 1)[1].lower()
+            # True if MX host already cached, else resolve now (populates _mx_hosts).
+            res = True if domain in _mx_hosts else _doh_mx(domain)
+            label = esp_for(domain)          # Microsoft | Google | Other | ""
+            if label:
+                lead.esp = label
+            elif res is False:               # resolved but no mail server (parity: Unknown)
+                lead.esp = "Unknown"
+            # res is None → couldn't determine (transient); leave blank so a re-run retries
         db.commit()
         return lead.status or "esp"
 

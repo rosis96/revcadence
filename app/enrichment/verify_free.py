@@ -47,30 +47,39 @@ def esp_for(domain: str) -> str:
 
 
 def _dnspython_mx(domain: str):
-    """Direct DNS MX lookup via dnspython (UDP/TCP :53). Fast and reliable where
-    outbound DNS is allowed. True = MX exists, False = definitively none,
-    None = couldn't determine (timeout/servfail → let DoH try)."""
+    """Direct DNS MX lookup via dnspython (UDP/TCP :53). Tries the system resolver
+    first, then PUBLIC resolvers (8.8.8.8 / 1.1.1.1) — the container often has no
+    resolver configured (this is the fallback the legacy esp.py relied on, and why
+    ESP populated before). True = MX exists, False = definitively none,
+    None = couldn't determine (→ let DoH try)."""
     try:
         import dns.resolver
     except Exception:
         return None
-    try:
-        ans = dns.resolver.resolve(domain, "MX", lifetime=6)
-        hosts = " ".join(str(r.exchange).lower().rstrip(".") for r in ans).strip()
-        if hosts:
-            _mx_hosts[domain] = hosts
-            return True
-        return None
-    except dns.resolver.NXDOMAIN:
-        return False
-    except dns.resolver.NoAnswer:
-        try:  # no MX → implicit MX (A record) per RFC 5321
-            dns.resolver.resolve(domain, "A", lifetime=6)
-            return True
-        except Exception:
+    for configure in (True, False):
+        try:
+            r = dns.resolver.Resolver(configure=configure)
+            if not configure:
+                r.nameservers = ["8.8.8.8", "1.1.1.1"]
+            r.timeout = 5
+            r.lifetime = 5
+            ans = r.resolve(domain, "MX")
+            hosts = " ".join(str(rec.exchange).lower().rstrip(".") for rec in ans).strip()
+            if hosts:
+                _mx_hosts[domain] = hosts
+                return True
+            return None
+        except dns.resolver.NXDOMAIN:
             return False
-    except Exception:
-        return None
+        except dns.resolver.NoAnswer:
+            try:  # no MX → implicit MX (A record) per RFC 5321
+                r.resolve(domain, "A")
+                return True
+            except Exception:
+                return False
+        except Exception:
+            continue  # broken/misconfigured resolver → try public, then DoH
+    return None
 
 
 def _doh_mx(domain: str):
