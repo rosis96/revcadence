@@ -113,10 +113,20 @@ export default function EnrichListDetail() {
   const stop = async () => { if (job) { try { await api(`/api/jobs/${job}/cancel`, { method: "POST" }); } catch (e) { toast(e.message, "bad"); } } };
   const diagnoseDns = async () => {
     try {
-      const r = await api(`/api/enrich-lists/diag/dns`);
+      const [r, le] = await Promise.all([
+        api(`/api/enrich-lists/diag/dns`),
+        api(`/api/enrich-lists/${id}/diag-esp`),
+      ]);
       const working = Object.entries(r.probe?.tiers || {}).filter(([, v]) => v.ok).map(([k]) => k);
+      const sample = (le.samples || []).map((s) => `  ${s.email} → ${s.esp_live} (stored: ${s.esp_stored || "—"})`).join("\n");
       // eslint-disable-next-line no-alert
-      alert(`DNS working: ${r.dns_working}\nESP for gmail.com: ${r.probe?.result?.esp}\n\nWorking tiers:\n${working.length ? working.join("\n") : "NONE — all resolution paths are blocked on this host"}\n\nFull:\n${JSON.stringify(r.probe, null, 2)}`);
+      alert(
+        `DNS working: ${r.dns_working}   ·   ESP for gmail.com: ${r.probe?.result?.esp}\n` +
+        `Working tiers: ${working.length ? working.join(", ") : "NONE"}\n\n` +
+        `THIS LIST (${le.list}):\n` +
+        `  leads: ${le.total}   with email: ${le.with_email}   without email: ${le.without_email}\n\n` +
+        `Sample leads (live lookup → stored):\n${sample || "  (no leads with an email in this list)"}`,
+      );
     } catch (e) { toast(e.message, "bad"); }
   };
   const findCompetitors = async () => {

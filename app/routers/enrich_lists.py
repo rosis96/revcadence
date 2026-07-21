@@ -281,6 +281,26 @@ def diag_email(e: str, ctx: AuthContext = Depends(get_ctx)):
     return {"email": e, **check(e)}
 
 
+@router.get("/{list_id}/diag-esp")
+def diag_esp(list_id: int, ctx: AuthContext = Depends(get_ctx)):
+    """Per-list ESP reality check: how many leads actually have an email, and for
+    a few real leads — does their domain resolve and classify? Pinpoints whether
+    'all Unknown' is a no-email problem vs a resolution/persistence problem."""
+    from ..enrichment.verify_free import _doh_mx, esp_for
+    lst = _get_list(ctx, list_id)
+    q = ctx.db.query(EnrichLead).filter(EnrichLead.list_id == lst.id)
+    total = q.count()
+    with_email = q.filter(EnrichLead.email != "", EnrichLead.email.isnot(None)).count()
+    samples = []
+    for l in q.filter(EnrichLead.email != "", EnrichLead.email.isnot(None)).limit(8).all():
+        dom = l.email.split("@", 1)[1].lower() if "@" in (l.email or "") else ""
+        res = _doh_mx(dom) if dom else None
+        samples.append({"email": l.email, "domain": dom, "resolved": res,
+                        "esp_live": esp_for(dom) or "Unknown", "esp_stored": l.esp or ""})
+    return {"list": lst.name, "total": total, "with_email": with_email,
+            "without_email": total - with_email, "samples": samples}
+
+
 # ---------------------------------------------------------------- clear actions (mirror pair)
 @router.post("/{list_id}/clear-results")
 def clear_results(list_id: int, view: str = "all", ctx: AuthContext = Depends(get_ctx)):
