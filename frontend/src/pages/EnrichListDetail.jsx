@@ -15,6 +15,10 @@ const VIEWS = [["all", "All"], ["processed", "Processed"], ["verified", "Verifie
   ["enriched", "Enriched"], ["nonicp", "Non-ICP"], ["no_website", "No website"],
   ["invalid", "Invalid"], ["unsafe", "Unsafe"], ["notrun", "Not run"],
   ["title_rejected", "Title-rejected"]];
+// Mailbox provider (MX-based) — segment for provider-aware sending / deliverability.
+const ESP_VIEWS = [["esp_microsoft", "Microsoft"], ["esp_google", "Google"],
+  ["esp_other", "Other"], ["esp_unknown", "Unknown"]];
+const espTone = (e) => ({ Microsoft: "blue", Google: "green", Other: "gray" }[e] || "gray");
 
 const stTone = { done: "green", invalid: "red", unsafe: "red", skipped: "amber", error: "red" };
 const vTone = (v) => v === "ok" || v === "safe" || v === "valid" ? "green"
@@ -162,6 +166,9 @@ export default function EnrichListDetail() {
       cell: ({ getValue }) => <Badge tone={vTone(getValue())}>{getValue() || "—"}</Badge> },
     { accessorKey: "email_status", header: "Reoon", size: 110,
       cell: ({ getValue }) => <Badge tone={vTone(getValue())}>{getValue() || "—"}</Badge> },
+    { accessorKey: "esp", header: "ESP", size: 110,
+      cell: ({ getValue }) => (getValue()
+        ? <Badge tone={espTone(getValue())}>{getValue()}</Badge> : "—") },
     { accessorKey: "title_status", header: "Title gate", size: 100,
       cell: ({ getValue }) => (getValue()
         ? <Badge tone={getValue() === "pass" ? "green" : "red"}>{getValue()}</Badge> : "—") },
@@ -180,18 +187,24 @@ export default function EnrichListDetail() {
   if (loading && !data) return <Spinner />;
   if (error) return <ErrorBox msg={error} retry={reload} />;
 
+  const espActive = ESP_VIEWS.some(([v]) => v === view);
   const filterGroups = [
     { key: "view", label: "View",
       options: VIEWS.map(([v, label]) => ({ value: v, label, count: data.chips[v] ?? 0 })) },
+    { key: "esp", label: "Provider (ESP)",
+      options: ESP_VIEWS.map(([v, label]) => ({ value: v, label, count: data.chips[v] ?? 0 })) },
     ...(cfg.data?.formats?.length ? [{
       key: "outputs", label: "Output variables",
       options: cfg.data.formats.map((f) => ({ value: f.name, label: f.label })),
     }] : []),
   ];
-  const filterValues = { view: [view], outputs: outputs || [] };
+  // View and ESP both drive the single `view` param (server-side filter) — so
+  // selecting a provider deselects the View chip and vice-versa (single-select).
+  const filterValues = { view: espActive ? [] : [view], esp: espActive ? [view] : [], outputs: outputs || [] };
   const onFilter = (key, vals) => {
-    if (key === "view") {
-      const next = vals.filter((v) => v !== view)[0] || "all";   // single-select behavior
+    if (key === "view" || key === "esp") {
+      const cur = key === "esp" ? (espActive ? view : "") : (espActive ? "" : view);
+      const next = vals.filter((v) => v !== cur)[0] || "all";   // single-select behavior
       setView(next); setSelIds([]); setAllInView(false);
     } else if (key === "outputs") setOutputs(vals.length ? vals : null);
   };

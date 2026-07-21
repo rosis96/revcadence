@@ -121,6 +121,8 @@ table.tbl { width: 100%; border-collapse: collapse; background: var(--card); bor
 .badge.green { background: #dcfce7; color: #15803d; }
 .badge.amber { background: #fef3c7; color: #b45309; }
 .badge.red { background: #fee2e2; color: #b91c1c; }
+.badge.blue { background: #dbeafe; color: #1d4ed8; }
+.badge.gray { background: #eef0f3; color: #55606e; }
 
 .btn { background: var(--primary); color: #fff; border: none; border-radius: 8px; padding: 8px 14px; font-weight: 600; }
 .btn:hover { filter: brightness(1.08); }

@@ -13,7 +13,8 @@ from ..models.jobs import Job
 router = APIRouter(prefix="/api/enrich-lists", tags=["enrichment-lists"])
 
 VIEWS = ("all", "processed", "verified", "enriched", "nonicp", "no_website",
-         "invalid", "unsafe", "notrun", "title_rejected")
+         "invalid", "unsafe", "notrun", "title_rejected",
+         "esp_microsoft", "esp_google", "esp_other", "esp_unknown")
 
 
 def _view_filter(q, view: str):
@@ -36,6 +37,15 @@ def _view_filter(q, view: str):
         return q.filter(L.status.notin_(TERMINAL_STATUSES))
     if view == "title_rejected":
         return q.filter(L.title_status == "rejected")
+    # ESP (mailbox provider, MX-based) — segment for provider-aware sending.
+    if view == "esp_microsoft":
+        return q.filter(L.esp == "Microsoft")
+    if view == "esp_google":
+        return q.filter(L.esp == "Google")
+    if view == "esp_other":
+        return q.filter(L.esp == "Other")
+    if view == "esp_unknown":
+        return q.filter((L.esp == "") | (L.esp.is_(None)))
     return q
 
 
@@ -405,7 +415,7 @@ def export(list_id: int, view: str = "enriched", ctx: AuthContext = Depends(get_
     w = csv.writer(buf)
     w.writerow(["first_name", "last_name", "title", "company", "website", "email"]
                + orig_cols + [vh(v) for v in var_names]
-               + ["system_check", "reoon", "icp", "icp_score", "industry", "enrich_status", "Top Competitors"])
+               + ["system_check", "reoon", "esp", "icp", "icp_score", "industry", "enrich_status", "Top Competitors"])
     for l in rows:
         d = l.data or {}
         res = l.result or {}
@@ -416,7 +426,7 @@ def export(list_id: int, view: str = "enriched", ctx: AuthContext = Depends(get_
                     ([l.first_name, l.last_name, l.title, l.company, l.website, l.email]
                      + [d.get(c, "") for c in orig_cols]
                      + [res.get(v, "") for v in var_names]
-                     + [l.free_status, l.email_status, l.icp_decision, l.icp_score or "",
+                     + [l.free_status, l.email_status, l.esp, l.icp_decision, l.icp_score or "",
                         l.industry, l.status, comps])])
     return PlainTextResponse(buf.getvalue(), media_type="text/csv",
                              headers={"Content-Disposition":
