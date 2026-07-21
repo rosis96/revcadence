@@ -4,7 +4,7 @@
 // All engine behavior (jobs, runs, clears, select-all-in-view) is unchanged.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Download, Play, ShieldCheck, Square, Upload, Users } from "lucide-react";
+import { AtSign, Download, Play, ShieldCheck, Square, Upload, Users } from "lucide-react";
 import { api, getToken } from "../api";
 import {
   Badge, Breadcrumbs, Button, DataTable, Drawer, ErrorBox, FilterPanel,
@@ -92,15 +92,19 @@ export default function EnrichListDetail() {
 
   const selectedCount = allInView ? (data?.total_in_view || 0) : selIds.length;
 
-  const run = async (steps) => {
+  const run = async (steps, opts = {}) => {
     const explicit = allInView || selIds.length > 0;
     const body = { steps, limit: explicit ? 0 : Number(limit) || 0,
                    workers: Math.max(1, Math.min(Number(workers) || 1, 25)) };
     if (outputs) body.enrichments = outputs;
-    if (allInView || selIds.length === 0) body.view = view === "all" ? "notrun" : view;
+    // ESP is independent of run status, so an unfiltered "Check ESP" runs the
+    // whole list (fullView), not just the not-run leads.
+    if (allInView || selIds.length === 0)
+      body.view = view === "all" ? (opts.fullView ? "all" : "notrun") : view;
     else body.lead_ids = selIds;
-    const n = selectedCount || data.chips.notrun;
-    if (n > 50 && !confirm(`Run ${steps} on ${n.toLocaleString()} leads${body.limit ? ` (capped at ${body.limit})` : ""}?`)) return;
+    const n = selectedCount || (opts.fullView ? data.chips.all : data.chips.notrun);
+    const label = { esp: "ESP check", verify: "Verify", pipeline: "Verify → Enrich" }[steps] || steps;
+    if (n > 50 && !confirm(`Run ${label} on ${n.toLocaleString()} leads${body.limit ? ` (capped at ${body.limit})` : ""}?`)) return;
     try {
       const r = await api(`/api/enrich-lists/${id}/run`, { method: "POST", body });
       setJob(r.job_id); setSelIds([]); setAllInView(false);
@@ -227,6 +231,7 @@ export default function EnrichListDetail() {
                 Test first <input type="number" min="0" value={limit} onChange={(e) => setLimit(e.target.value)} style={{ width: 64 }} />
               </span>
             )}
+            <Button variant="secondary" icon={AtSign} disabled={!!job} onClick={() => run("esp", { fullView: true })}>Check ESP</Button>
             <Button variant="secondary" icon={ShieldCheck} disabled={!!job} onClick={() => run("verify")}>Verify</Button>
             <Button icon={Play} disabled={!!job} onClick={() => run("pipeline")}>Verify → Enrich</Button>
             {job && <Button variant="danger" icon={Square} onClick={stop}>Stop</Button>}

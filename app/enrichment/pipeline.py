@@ -144,8 +144,21 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
 
 def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline",
                  enrichments=None) -> str:
-    """Run one lead through the funnel. steps: 'verify' (stop after Reoon) or
-    'pipeline' (full). Returns the resulting status."""
+    """Run one lead through the funnel. steps: 'esp' (provider detection only),
+    'verify' (stop after Reoon) or 'pipeline' (full). Returns the resulting status."""
+    # ESP-only: fast, FREE, MX-based mailbox-provider detection. This is a
+    # standalone first step — it NEVER charges Reoon and NEVER changes the funnel
+    # status, so it can run on any lead (even already-verified ones) up front.
+    if steps == "esp":
+        if lead.email and "@" in lead.email:
+            from .verify_free import _doh_mx, _mx_hosts, esp_for
+            domain = lead.email.split("@", 1)[1].lower()
+            if domain and domain not in _mx_hosts:
+                _doh_mx(domain)          # populates _mx_hosts as a side effect
+            lead.esp = esp_for(domain) or lead.esp or ""
+        db.commit()
+        return lead.status or "esp"
+
     if lead.status in TERMINAL_STATUSES:
         return lead.status  # resume semantics — never re-charge finished work
 
