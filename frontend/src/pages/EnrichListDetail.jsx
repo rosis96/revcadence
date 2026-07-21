@@ -124,8 +124,9 @@ export default function EnrichListDetail() {
         `DNS working: ${r.dns_working}   ·   ESP for gmail.com: ${r.probe?.result?.esp}\n` +
         `Working tiers: ${working.length ? working.join(", ") : "NONE"}\n\n` +
         `THIS LIST (${le.list}):\n` +
-        `  leads: ${le.total}   with email: ${le.with_email}   without email: ${le.without_email}\n\n` +
-        `Sample leads (live lookup → stored):\n${sample || "  (no leads with an email in this list)"}`,
+        `  leads: ${le.total}   ·   in standard email field: ${le.email_in_standard_field}\n` +
+        `  recoverable emails (sample): ${le.sample_recoverable}\n  ${le.note}\n\n` +
+        `Sample leads (live lookup → stored):\n${sample || "  (none)"}`,
       );
     } catch (e) { toast(e.message, "bad"); }
   };

@@ -286,19 +286,28 @@ def diag_esp(list_id: int, ctx: AuthContext = Depends(get_ctx)):
     """Per-list ESP reality check: how many leads actually have an email, and for
     a few real leads — does their domain resolve and classify? Pinpoints whether
     'all Unknown' is a no-email problem vs a resolution/persistence problem."""
+    from ..enrichment.pipeline import email_from_row
     from ..enrichment.verify_free import _doh_mx, esp_for
     lst = _get_list(ctx, list_id)
     q = ctx.db.query(EnrichLead).filter(EnrichLead.list_id == lst.id)
     total = q.count()
-    with_email = q.filter(EnrichLead.email != "", EnrichLead.email.isnot(None)).count()
+    std_email = q.filter(EnrichLead.email != "", EnrichLead.email.isnot(None)).count()
     samples = []
-    for l in q.filter(EnrichLead.email != "", EnrichLead.email.isnot(None)).limit(8).all():
-        dom = l.email.split("@", 1)[1].lower() if "@" in (l.email or "") else ""
+    recoverable = 0
+    for l in q.order_by(EnrichLead.id).limit(8).all():
+        eml = (l.email or "").strip() or email_from_row(l.data or {})
+        if eml:
+            recoverable += 1
+        dom = eml.split("@", 1)[1].lower() if "@" in eml else ""
         res = _doh_mx(dom) if dom else None
-        samples.append({"email": l.email, "domain": dom, "resolved": res,
-                        "esp_live": esp_for(dom) or "Unknown", "esp_stored": l.esp or ""})
-    return {"list": lst.name, "total": total, "with_email": with_email,
-            "without_email": total - with_email, "samples": samples}
+        samples.append({"email": eml or "(none)", "std_field": bool(l.email),
+                        "domain": dom, "resolved": res,
+                        "esp_live": (esp_for(dom) or "Unknown") if dom else "no email",
+                        "esp_stored": l.esp or ""})
+    return {"list": lst.name, "total": total, "email_in_standard_field": std_email,
+            "note": ("emails are in the uploaded row but NOT the standard field — "
+                     "the run now self-heals this" if std_email == 0 else "ok"),
+            "sample_recoverable": f"{recoverable}/8", "samples": samples}
 
 
 # ---------------------------------------------------------------- clear actions (mirror pair)

@@ -9,6 +9,7 @@ _pipeline_one. Cheapest-first funnel — ORDER IS DELIBERATE, DO NOT REORDER:
 Resume semantics: leads already in a TERMINAL status are never re-processed.
 """
 import json
+import re
 import unicodedata
 from datetime import datetime
 
@@ -142,10 +143,40 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
                      for i, f in enumerate(formats)}, "source": "demo"}
 
 
+_EMAIL_RE = re.compile(r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
+_EMAIL_KEYS = {"email", "email address", "e-mail", "e mail", "work email",
+               "primary email", "email_address", "emailaddress", "mail"}
+
+
+def email_from_row(data) -> str:
+    """Recover an email from the raw uploaded row when the standard lead.email is
+    empty (import didn't map the CSV's email column). Prefers a column that looks
+    like an email header, else the first value that looks like an email address."""
+    if not isinstance(data, dict):
+        return ""
+    for k, v in data.items():
+        if str(k).strip().lower().rstrip(".") in _EMAIL_KEYS and v:
+            m = _EMAIL_RE.search(str(v))
+            if m:
+                return m.group(0).lower()
+    for v in data.values():
+        if isinstance(v, str) and "@" in v:
+            m = _EMAIL_RE.search(v)
+            if m:
+                return m.group(0).lower()
+    return ""
+
+
 def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline",
                  enrichments=None) -> str:
     """Run one lead through the funnel. steps: 'esp' (provider detection only),
     'verify' (stop after Reoon) or 'pipeline' (full). Returns the resulting status."""
+    # Self-heal: if the import left lead.email empty but the uploaded row carries
+    # an email (mapping miss), backfill it now so ESP, Verify and export all work.
+    if not (lead.email or "").strip():
+        recovered = email_from_row(lead.data or {})
+        if recovered:
+            lead.email = recovered
     # ESP-only: fast, FREE, MX-based mailbox-provider detection. This is a
     # standalone first step — it NEVER charges Reoon and NEVER changes the funnel
     # status, so it can run on any lead (even already-verified ones) up front.
