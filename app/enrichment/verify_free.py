@@ -46,9 +46,40 @@ def esp_for(domain: str) -> str:
     return "Other"
 
 
+def _dnspython_mx(domain: str):
+    """Direct DNS MX lookup via dnspython (UDP/TCP :53). Fast and reliable where
+    outbound DNS is allowed. True = MX exists, False = definitively none,
+    None = couldn't determine (timeout/servfail → let DoH try)."""
+    try:
+        import dns.resolver
+    except Exception:
+        return None
+    try:
+        ans = dns.resolver.resolve(domain, "MX", lifetime=6)
+        hosts = " ".join(str(r.exchange).lower().rstrip(".") for r in ans).strip()
+        if hosts:
+            _mx_hosts[domain] = hosts
+            return True
+        return None
+    except dns.resolver.NXDOMAIN:
+        return False
+    except dns.resolver.NoAnswer:
+        try:  # no MX → implicit MX (A record) per RFC 5321
+            dns.resolver.resolve(domain, "A", lifetime=6)
+            return True
+        except Exception:
+            return False
+    except Exception:
+        return None
+
+
 def _doh_mx(domain: str):
-    """DNS-over-HTTPS MX lookup (port 443 works where raw :53 is blocked).
+    """Resolve MX, trying direct DNS first then DNS-over-HTTPS (works where raw
+    :53 is blocked). Populates _mx_hosts (for ESP detection) on success.
     True = MX exists, False = definitively none, None = couldn't determine."""
+    direct = _dnspython_mx(domain)
+    if direct is not None:
+        return direct
     for host in ("https://dns.google/resolve", "https://cloudflare-dns.com/dns-query"):
         try:
             r = requests.get(host, params={"name": domain, "type": "MX"},
