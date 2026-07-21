@@ -49,6 +49,29 @@ def _view_filter(q, view: str):
     return q
 
 
+def _esp_filter(q, esp):
+    """Multi-select provider facet: keep leads whose ESP is ANY of the chosen
+    providers (Microsoft/Google/Other/Unknown). ANDs with the funnel view.
+    Accepts a list or a comma-separated string; empty = no ESP filter."""
+    from sqlalchemy import or_
+    if isinstance(esp, str):
+        esp = [e.strip() for e in esp.split(",") if e.strip()]
+    if not esp:
+        return q
+    L = EnrichLead
+    conds = []
+    for e in esp:
+        if e == "Microsoft":
+            conds.append(L.esp == "Microsoft")
+        elif e == "Google":
+            conds.append(L.esp == "Google")
+        elif e == "Other":
+            conds.append(L.esp == "Other")
+        elif e == "Unknown":
+            conds.append((L.esp == "") | (L.esp.is_(None)) | (L.esp == "Unknown"))
+    return q.filter(or_(*conds)) if conds else q
+
+
 def _get_list(ctx, list_id) -> EnrichList:
     lst = ctx.db.get(EnrichList, list_id)
     if lst is None:
@@ -118,14 +141,14 @@ def import_rows(list_id: int, body: ImportRowsIn, ctx: AuthContext = Depends(get
 # ---------------------------------------------------------------- grid: leads + chips
 @router.get("/{list_id}/leads")
 def list_leads(list_id: int, view: str = "all", page: int = 1, page_size: int = 50,
-               q: str = "", ctx: AuthContext = Depends(get_ctx)):
+               q: str = "", esp: str = "", ctx: AuthContext = Depends(get_ctx)):
     lst = _get_list(ctx, list_id)
     base = ctx.db.query(EnrichLead).filter(EnrichLead.list_id == lst.id)
     if q:
         like = f"%{q}%"
         base = base.filter((EnrichLead.email.ilike(like)) | (EnrichLead.company.ilike(like))
                            | (EnrichLead.first_name.ilike(like)) | (EnrichLead.last_name.ilike(like)))
-    filtered = _view_filter(base, view)
+    filtered = _esp_filter(_view_filter(base, view), esp)
     total = filtered.count()
     page_size = min(max(page_size, 10), 200)
     rows = (filtered.order_by(EnrichLead.id)
@@ -154,6 +177,7 @@ class RunIn(BaseModel):
     steps: str = "pipeline"       # 'verify' or 'pipeline' (Verify → Enrich)
     lead_ids: list[int] = []      # empty = whole view
     view: str = "notrun"          # used when lead_ids empty ('select all N in view')
+    esp: list[str] = []           # optional provider facet (ANDs with view)
     limit: int = 0                # test-first-N safety cap (0 = no cap)
     enrichments: list[str] = []   # output variables to write (empty = all configured)
     workers: int = 1              # concurrent leads to process at once (1–25)
@@ -181,6 +205,7 @@ def active_job(list_id: int, ctx: AuthContext = Depends(get_ctx)):
 class DeleteLeadsIn(BaseModel):
     lead_ids: list[int] = []
     view: str = "all"
+    esp: list[str] = []
 
 
 @router.post("/{list_id}/delete-leads")
@@ -189,7 +214,7 @@ def delete_leads(list_id: int, body: DeleteLeadsIn, ctx: AuthContext = Depends(g
     lst = _get_list(ctx, list_id)
     base = ctx.db.query(EnrichLead).filter(EnrichLead.list_id == lst.id)
     q = base.filter(EnrichLead.id.in_([int(i) for i in body.lead_ids])) if body.lead_ids \
-        else _view_filter(base, body.view)
+        else _esp_filter(_view_filter(base, body.view), body.esp)
     n = q.count()
     q.delete(synchronize_session=False)
     ctx.db.commit()
@@ -220,7 +245,7 @@ def run(list_id: int, body: RunIn, ctx: AuthContext = Depends(get_ctx)):
     lead_ids = body.lead_ids
     if not lead_ids:
         base = ctx.db.query(EnrichLead.id).filter(EnrichLead.list_id == lst.id)
-        lead_ids = [r[0] for r in _view_filter(base, body.view).all()]
+        lead_ids = [r[0] for r in _esp_filter(_view_filter(base, body.view), body.esp).all()]
     if not lead_ids:
         raise HTTPException(422, "Nothing to run in this selection")
     workers = max(1, min(int(body.workers or 1), 25))
@@ -236,6 +261,7 @@ def run(list_id: int, body: RunIn, ctx: AuthContext = Depends(get_ctx)):
 class CompetitorsIn(BaseModel):
     lead_ids: list[int] = []
     view: str = "enriched"   # used when lead_ids empty (select-all-in-view semantics)
+    esp: list[str] = []
 
 
 @router.post("/{list_id}/find-competitors")
@@ -246,7 +272,7 @@ def find_competitors_ep(list_id: int, body: CompetitorsIn, ctx: AuthContext = De
     lead_ids = body.lead_ids
     if not lead_ids:
         base = ctx.db.query(EnrichLead.id).filter(EnrichLead.list_id == lst.id)
-        lead_ids = [r[0] for r in _view_filter(base, body.view).all()]
+        lead_ids = [r[0] for r in _esp_filter(_view_filter(base, body.view), body.esp).all()]
     if not lead_ids:
         raise HTTPException(422, "Nothing selected")
     j = Job(kind="find_competitors", workspace_id=lst.workspace_id,
@@ -312,12 +338,12 @@ def diag_esp(list_id: int, ctx: AuthContext = Depends(get_ctx)):
 
 # ---------------------------------------------------------------- clear actions (mirror pair)
 @router.post("/{list_id}/clear-results")
-def clear_results(list_id: int, view: str = "all", ctx: AuthContext = Depends(get_ctx)):
+def clear_results(list_id: int, view: str = "all", esp: str = "", ctx: AuthContext = Depends(get_ctx)):
     """Wipes enrichment, keeps verification."""
     lst = _get_list(ctx, list_id)
     base = ctx.db.query(EnrichLead).filter(EnrichLead.list_id == lst.id)
     n = 0
-    for l in _view_filter(base, view).all():
+    for l in _esp_filter(_view_filter(base, view), esp).all():
         l.result = {}
         l.icp_decision = ""
         l.icp_score = None
@@ -331,13 +357,13 @@ def clear_results(list_id: int, view: str = "all", ctx: AuthContext = Depends(ge
 
 
 @router.post("/{list_id}/clear-verification")
-def clear_verification(list_id: int, view: str = "all", ctx: AuthContext = Depends(get_ctx)):
+def clear_verification(list_id: int, view: str = "all", esp: str = "", ctx: AuthContext = Depends(get_ctx)):
     """Wipes free + Reoon verification (so leads re-verify), keeps enrichment;
     resets invalid/unsafe so the funnel re-runs them."""
     lst = _get_list(ctx, list_id)
     base = ctx.db.query(EnrichLead).filter(EnrichLead.list_id == lst.id)
     n = 0
-    for l in _view_filter(base, view).all():
+    for l in _esp_filter(_view_filter(base, view), esp).all():
         l.free_status = ""
         l.email_status = ""
         l.verify_source = ""
@@ -410,7 +436,7 @@ STD_ALIASES = {
 
 
 @router.get("/{list_id}/export")
-def export(list_id: int, view: str = "enriched", ctx: AuthContext = Depends(get_ctx)):
+def export(list_id: int, view: str = "enriched", esp: str = "", ctx: AuthContext = Depends(get_ctx)):
     """Export = every ORIGINAL uploaded column (preserved on import) + our
     enrichment outputs. Nothing the client uploaded is dropped."""
     import csv
@@ -422,7 +448,7 @@ def export(list_id: int, view: str = "enriched", ctx: AuthContext = Depends(get_
 
     lst = _get_list(ctx, list_id)
     base = ctx.db.query(EnrichLead).filter(EnrichLead.list_id == lst.id)
-    rows = _view_filter(base, view).order_by(EnrichLead.id).all()
+    rows = _esp_filter(_view_filter(base, view), esp).order_by(EnrichLead.id).all()
 
     # original uploaded columns (first-seen order), minus standard + internal keys
     orig_cols = []

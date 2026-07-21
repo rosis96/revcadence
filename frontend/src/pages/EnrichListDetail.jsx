@@ -52,6 +52,7 @@ export default function EnrichListDetail() {
   const toast = useToast();
   const fileRef = useRef(null);
   const [view, setView] = useState("all");
+  const [espSel, setEspSel] = useState([]);   // multi-select provider facet
   const [page, setPage] = useState(1);
   const [qRaw, setQRaw] = useState("");
   const q = useDebounced(qRaw, 250);
@@ -63,12 +64,13 @@ export default function EnrichListDetail() {
   const [jobStatus, setJobStatus] = useState(null);
   const [openLead, setOpenLead] = useState(null);
   const [outputs, setOutputs] = useState(null);
+  const espParam = espSel.join(",");
   const { data, error, loading, reload } = useApi(`/api/enrich-lists/${id}/leads`,
-    { view, page, q, page_size: 50 });
+    { view, page, q, page_size: 50, esp: espParam });
   const { data: reoon } = useApi("/api/enrich-lists/reoon/balance");
   const cfg = useApi(data ? `/api/enrich-lists/config/${data.list.workspace_id}` : null);
 
-  useEffect(() => { setPage(1); }, [q, view]);
+  useEffect(() => { setPage(1); }, [q, view, espParam]);
 
   // reconnect to a run already in progress
   useEffect(() => {
@@ -99,10 +101,11 @@ export default function EnrichListDetail() {
     if (outputs) body.enrichments = outputs;
     // ESP is independent of run status, so an unfiltered "Check ESP" runs the
     // whole list (fullView), not just the not-run leads.
-    if (allInView || selIds.length === 0)
+    if (allInView || selIds.length === 0) {
       body.view = view === "all" ? (opts.fullView ? "all" : "notrun") : view;
-    else body.lead_ids = selIds;
-    const n = selectedCount || (opts.fullView ? data.chips.all : data.chips.notrun);
+      if (espSel.length) body.esp = espSel;   // respect the provider facet
+    } else body.lead_ids = selIds;
+    const n = selectedCount || (opts.fullView ? data.chips.all : data.total_in_view);
     const label = { esp: "ESP check", verify: "Verify", pipeline: "Verify → Enrich" }[steps] || steps;
     if (n > 50 && !confirm(`Run ${label} on ${n.toLocaleString()} leads${body.limit ? ` (capped at ${body.limit})` : ""}?`)) return;
     try {
@@ -145,13 +148,14 @@ export default function EnrichListDetail() {
       reload();
     } catch (e) { toast(e.message, "bad"); }
   };
+  const espQs = espParam ? `&esp=${encodeURIComponent(espParam)}` : "";
   const clearAction = async (what) => {
     if (!confirm(`${what === "clear-results" ? "Clear enrichment results" : "Clear verification"} for view "${view}"?`)) return;
-    try { await api(`/api/enrich-lists/${id}/${what}?view=${view}`, { method: "POST" }); reload(); }
+    try { await api(`/api/enrich-lists/${id}/${what}?view=${view}${espQs}`, { method: "POST" }); reload(); }
     catch (e) { toast(e.message, "bad"); }
   };
   const deleteSelected = async (rows) => {
-    const body = allInView || (!rows?.length && selIds.length === 0) ? { view }
+    const body = allInView || (!rows?.length && selIds.length === 0) ? { view, esp: espSel }
       : { lead_ids: rows?.length ? rows.map((r) => r.id) : selIds };
     const n = body.lead_ids?.length || selectedCount || data.chips[view] || 0;
     if (!confirm(`Delete ${n.toLocaleString()} lead(s)? This cannot be undone.`)) return;
@@ -161,7 +165,7 @@ export default function EnrichListDetail() {
     } catch (e) { toast(e.message, "bad"); }
   };
   const exportCsv = async () => {
-    const res = await fetch(`/api/enrich-lists/${id}/export?view=${view}`,
+    const res = await fetch(`/api/enrich-lists/${id}/export?view=${view}${espQs}`,
       { headers: { Authorization: `Bearer ${getToken()}` } });
     const blob = await res.blob();
     const a = document.createElement("a");
@@ -210,25 +214,26 @@ export default function EnrichListDetail() {
   if (loading && !data) return <Spinner />;
   if (error) return <ErrorBox msg={error} retry={reload} />;
 
-  const espActive = ESP_VIEWS.some(([v]) => v === view);
   const filterGroups = [
     { key: "view", label: "View",
       options: VIEWS.map(([v, label]) => ({ value: v, label, count: data.chips[v] ?? 0 })) },
     { key: "esp", label: "Provider (ESP)",
-      options: ESP_VIEWS.map(([v, label]) => ({ value: v, label, count: data.chips[v] ?? 0 })) },
+      // option value is the provider LABEL (backend facet); count from the chip key
+      options: ESP_VIEWS.map(([chip, label]) => ({ value: label, label, count: data.chips[chip] ?? 0 })) },
     ...(cfg.data?.formats?.length ? [{
       key: "outputs", label: "Output variables",
       options: cfg.data.formats.map((f) => ({ value: f.name, label: f.label })),
     }] : []),
   ];
-  // View and ESP both drive the single `view` param (server-side filter) — so
-  // selecting a provider deselects the View chip and vice-versa (single-select).
-  const filterValues = { view: espActive ? [] : [view], esp: espActive ? [view] : [], outputs: outputs || [] };
+  // View is single-select (one funnel status); ESP is MULTI-select (combine
+  // providers, e.g. Google + Other) and ANDs with the view on the server.
+  const filterValues = { view: [view], esp: espSel, outputs: outputs || [] };
   const onFilter = (key, vals) => {
-    if (key === "view" || key === "esp") {
-      const cur = key === "esp" ? (espActive ? view : "") : (espActive ? "" : view);
-      const next = vals.filter((v) => v !== cur)[0] || "all";   // single-select behavior
+    if (key === "view") {
+      const next = vals.filter((v) => v !== view)[0] || "all";   // single-select behavior
       setView(next); setSelIds([]); setAllInView(false);
+    } else if (key === "esp") {
+      setEspSel(vals); setSelIds([]); setAllInView(false);       // multi-select
     } else if (key === "outputs") setOutputs(vals.length ? vals : null);
   };
 
@@ -267,7 +272,7 @@ export default function EnrichListDetail() {
 
       <div className="rail-layout">
         <FilterPanel groups={filterGroups} values={filterValues} onChange={onFilter}
-          onClear={() => { setView("all"); setOutputs(null); }} />
+          onClear={() => { setView("all"); setEspSel([]); setOutputs(null); }} />
 
         <div className="rail-main">
           {(selectedCount > 0 || (data.total_in_view > data.leads.length)) && (
