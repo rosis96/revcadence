@@ -8,7 +8,7 @@ import { AtSign, Download, Play, ShieldCheck, Square, Upload, Users } from "luci
 import { api, getToken } from "../api";
 import {
   Badge, Breadcrumbs, Button, DataTable, Drawer, ErrorBox, FilterPanel,
-  PageHeader, Spinner, useApi, useDebounced, useToast,
+  Modal, PageHeader, Spinner, useApi, useDebounced, useToast,
 } from "../components";
 
 const VIEWS = [["all", "All"], ["processed", "Processed"], ["verified", "Verified"],
@@ -64,6 +64,12 @@ export default function EnrichListDetail() {
   const [jobStatus, setJobStatus] = useState(null);
   const [openLead, setOpenLead] = useState(null);
   const [outputs, setOutputs] = useState(null);
+  const [dedupeOpen, setDedupeOpen] = useState(false);
+  const [dedupeLists, setDedupeLists] = useState([]);
+  const [dedupeOther, setDedupeOther] = useState("");
+  const [dedupeTarget, setDedupeTarget] = useState("this");
+  const [dedupePreview, setDedupePreview] = useState(null);
+  const [dedupeBusy, setDedupeBusy] = useState(false);
   const espParam = espSel.join(",");
   const { data, error, loading, reload } = useApi(`/api/enrich-lists/${id}/leads`,
     { view, page, q, page_size: 50, esp: espParam });
@@ -168,6 +174,33 @@ export default function EnrichListDetail() {
       const r = await api(`/api/enrich-lists/${id}/delete-leads`, { method: "POST", body });
       toast(`Deleted ${r.deleted} lead(s).`); setSelIds([]); setAllInView(false); reload();
     } catch (e) { toast(e.message, "bad"); }
+  };
+  const openDedupe = async () => {
+    setDedupePreview(null); setDedupeOther(""); setDedupeTarget("this");
+    try {
+      const ls = await api(`/api/enrich-lists?workspace_id=${data.list.workspace_id}`);
+      setDedupeLists((ls || []).filter((l) => l.id !== data.list.id));
+      setDedupeOpen(true);
+    } catch (e) { toast(e.message, "bad"); }
+  };
+  const dedupeCall = async (dry) =>
+    api(`/api/enrich-lists/${id}/dedupe`, { method: "POST",
+      body: { other_list_id: Number(dedupeOther), target: dedupeTarget, dry_run: dry } });
+  const previewDedupe = async () => {
+    if (!dedupeOther) return;
+    setDedupeBusy(true);
+    try { setDedupePreview(await dedupeCall(true)); }
+    catch (e) { toast(e.message, "bad"); } finally { setDedupeBusy(false); }
+  };
+  const runDedupe = async () => {
+    if (!dedupePreview?.matches) return;
+    if (!confirm(`Delete ${dedupePreview.matches.toLocaleString()} duplicate lead(s) from "${dedupePreview.target_list}"? This cannot be undone.`)) return;
+    setDedupeBusy(true);
+    try {
+      const r = await dedupeCall(false);
+      toast(`Deleted ${r.deleted.toLocaleString()} duplicate(s) from ${r.target_list}.`);
+      setDedupeOpen(false); reload();
+    } catch (e) { toast(e.message, "bad"); } finally { setDedupeBusy(false); }
   };
   const exportCsv = async () => {
     const res = await fetch(`/api/enrich-lists/${id}/export?view=${view}${espQs}`,
@@ -320,6 +353,7 @@ export default function EnrichListDetail() {
                 <button className="dt-tool" onClick={exportCsv}><Download size={15} /> Export view</button>
                 <button className="dt-tool" disabled={!!job} onClick={findCompetitors}>Find competitors</button>
                 <button className="dt-tool" disabled={!!job} onClick={splitByIndustry}>Split by industry</button>
+                <button className="dt-tool" onClick={openDedupe}>Dedupe</button>
                 <button className="dt-tool" onClick={() => clearAction("clear-results")}>Clear results</button>
                 <button className="dt-tool" onClick={() => clearAction("clear-verification")}>Clear verification</button>
                 <button className="dt-tool" onClick={diagnoseDns}>Diagnose DNS</button>
@@ -367,6 +401,48 @@ export default function EnrichListDetail() {
             </>
           )}
         </Drawer>
+      )}
+
+      {dedupeOpen && (
+        <Modal title="Remove duplicates by email" onClose={() => setDedupeOpen(false)}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 440 }}>
+            <label style={{ fontSize: 13 }}>
+              Compare against list
+              <select value={dedupeOther} style={{ width: "100%", marginTop: 4 }}
+                onChange={(e) => { setDedupeOther(e.target.value); setDedupePreview(null); }}>
+                <option value="">Select a list…</option>
+                {dedupeLists.map((l) => (
+                  <option key={l.id} value={l.id}>{l.name} ({(l.leads || 0).toLocaleString()} leads)</option>
+                ))}
+              </select>
+            </label>
+            <div style={{ fontSize: 13 }}>
+              <div style={{ marginBottom: 6, color: "var(--muted)" }}>When an email appears in both lists, delete it from:</div>
+              <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <input type="radio" checked={dedupeTarget === "this"}
+                  onChange={() => { setDedupeTarget("this"); setDedupePreview(null); }} />
+                <span><b>This list</b> ({data.list.name}) — keep the other as the reference</span>
+              </label>
+              <label style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 5 }}>
+                <input type="radio" checked={dedupeTarget === "other"}
+                  onChange={() => { setDedupeTarget("other"); setDedupePreview(null); }} />
+                <span>The other list</span>
+              </label>
+            </div>
+            {dedupePreview && (
+              <div className="card" style={{ padding: 12, background: "#f5f8fc", fontSize: 13 }}>
+                <b>{dedupePreview.matches.toLocaleString()}</b> duplicate{dedupePreview.matches === 1 ? "" : "s"} found —
+                would be deleted from <b>{dedupePreview.target_list}</b> (of {dedupePreview.target_total.toLocaleString()} leads).
+                {dedupePreview.matches === 0 && " Nothing to remove."}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <Button variant="secondary" disabled={!dedupeOther || dedupeBusy} onClick={previewDedupe}>Preview</Button>
+              <Button variant="danger" disabled={!dedupePreview?.matches || dedupeBusy} onClick={runDedupe}>
+                Delete duplicates</Button>
+            </div>
+          </div>
+        </Modal>
       )}
     </>
   );

@@ -221,6 +221,50 @@ def delete_leads(list_id: int, body: DeleteLeadsIn, ctx: AuthContext = Depends(g
     return {"deleted": n}
 
 
+class DedupeIn(BaseModel):
+    other_list_id: int
+    target: str = "this"    # 'this' = delete dupes from the current list; 'other' = from the other list
+    dry_run: bool = True     # preview count only
+
+
+@router.post("/{list_id}/dedupe")
+def dedupe(list_id: int, body: DedupeIn, ctx: AuthContext = Depends(get_ctx)):
+    """Cross-list dedupe by EMAIL. A lead is a duplicate when its email also
+    appears in the other list. Deletes the duplicates from the chosen target
+    (default: this list — keep the other list as the reference/master). Emails
+    are recovered from the raw uploaded row when the standard field is empty."""
+    from ..enrichment.pipeline import email_from_row
+    lst = _get_list(ctx, list_id)
+    other = _get_list(ctx, body.other_list_id)
+    if other.id == lst.id:
+        raise HTTPException(422, "Pick a different list to compare against")
+    keep, target = (other, lst) if body.target == "this" else (lst, other)
+
+    def emails_of(l):
+        m = {}
+        for lid, email, data in (ctx.db.query(EnrichLead.id, EnrichLead.email, EnrichLead.data)
+                                 .filter(EnrichLead.list_id == l.id).all()):
+            e = (email or "").strip().lower() or email_from_row(data or {})
+            if e:
+                m.setdefault(e, []).append(lid)
+        return m
+
+    keep_emails = set(emails_of(keep).keys())
+    target_map = emails_of(target)
+    dup_ids = [lid for e, ids in target_map.items() if e in keep_emails for lid in ids]
+    result = {"target_list": target.name, "keep_list": keep.name,
+              "matches": len(dup_ids),
+              "target_total": sum(len(v) for v in target_map.values())}
+    if body.dry_run:
+        return result
+    if dup_ids:
+        (ctx.db.query(EnrichLead).filter(EnrichLead.id.in_(dup_ids))
+         .delete(synchronize_session=False))
+        ctx.db.commit()
+    result["deleted"] = len(dup_ids)
+    return result
+
+
 @router.get("/reoon/balance")
 def reoon_balance(workspace_id: int | None = None, ctx: AuthContext = Depends(get_ctx)):
     """Reoon credit balance chip. Uses the workspace's saved key, else env.
