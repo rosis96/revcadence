@@ -268,7 +268,9 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
     lead.icp_score = icp.get("icp_score")
     lead.icp_reason = icp.get("icp_reason", "")
     lead.industry = icp.get("industry", "")
-    if lead.icp_decision == "Non-ICP":
+    # ICP filtering: reject Non-ICP unless the workspace turned it off (then the
+    # ICP is still recorded for reference, but every verified lead is enriched).
+    if lead.icp_decision == "Non-ICP" and not getattr(cfg, "skip_icp", 0):
         lead.status = "skipped"
         db.commit()
         return lead.status

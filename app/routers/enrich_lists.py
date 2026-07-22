@@ -508,6 +508,7 @@ class ConfigIn(BaseModel):
     formats: list | None = None
     rules: str | None = None
     skip_title_gate: bool | None = None
+    skip_icp: bool | None = None
     only_safe: bool | None = None
     reoon_api_key: str | None = None
 
@@ -522,7 +523,8 @@ def get_config(workspace_id: int, ctx: AuthContext = Depends(get_ctx)):
     ctx.db.commit()
     return {"profile": cfg.profile or {}, "icp_definition": cfg.icp_definition or "",
             "formats": cfg.formats or [], "rules": cfg.rules or "",
-            "skip_title_gate": bool(cfg.skip_title_gate), "only_safe": bool(cfg.only_safe),
+            "skip_title_gate": bool(cfg.skip_title_gate), "skip_icp": bool(cfg.skip_icp),
+            "only_safe": bool(cfg.only_safe),
             # never return the secret — only whether one is set, and from where
             "reoon_api_key_set": bool((cfg.reoon_api_key_enc or "") or os.getenv("REOON_API_KEY", "")),
             "reoon_key_source": ("workspace" if (cfg.reoon_api_key_enc or "")
@@ -544,6 +546,8 @@ def put_config(workspace_id: int, body: ConfigIn, ctx: AuthContext = Depends(get
         cfg.rules = body.rules
     if body.skip_title_gate is not None:
         cfg.skip_title_gate = 1 if body.skip_title_gate else 0
+    if body.skip_icp is not None:
+        cfg.skip_icp = 1 if body.skip_icp else 0
     if body.only_safe is not None:
         cfg.only_safe = 1 if body.only_safe else 0
     if body.reoon_api_key is not None:
