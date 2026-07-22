@@ -365,8 +365,12 @@ def clear_results(list_id: int, view: str = "all", esp: str = "", ctx: AuthConte
 
 @router.post("/{list_id}/clear-verification")
 def clear_verification(list_id: int, view: str = "all", esp: str = "", ctx: AuthContext = Depends(get_ctx)):
-    """Wipes free + Reoon verification (so leads re-verify), keeps enrichment;
-    resets invalid/unsafe so the funnel re-runs them."""
+    """Wipes free + Reoon verification (so leads re-verify), keeps enrichment.
+    Resets the funnel status for EVERY already-processed lead (done/skipped/
+    invalid/unsafe/error) back to unprocessed — otherwise the resume guard
+    (`status in TERMINAL_STATUSES → return`) would skip them and re-verification
+    silently does nothing. Verification is the FIRST gate, so clearing it must
+    re-open the whole funnel."""
     lst = _get_list(ctx, list_id)
     base = ctx.db.query(EnrichLead).filter(EnrichLead.list_id == lst.id)
     n = 0
@@ -374,7 +378,7 @@ def clear_verification(list_id: int, view: str = "all", esp: str = "", ctx: Auth
         l.free_status = ""
         l.email_status = ""
         l.verify_source = ""
-        if l.status in ("invalid", "unsafe"):
+        if l.status in TERMINAL_STATUSES:   # done/skipped/invalid/unsafe/error → re-flow
             l.status = ""
         n += 1
     ctx.db.commit()
