@@ -151,7 +151,11 @@ export default function EnrichListDetail() {
   };
   const espQs = espParam ? `&esp=${encodeURIComponent(espParam)}` : "";
   const clearAction = async (what) => {
-    if (!confirm(`${what === "clear-results" ? "Clear enrichment results" : "Clear verification"} for view "${view}"?`)) return;
+    const label = what === "clear-results" ? "Clear enrichment results" : "Clear verification";
+    const filterNote = (view !== "all" || espSel.length)
+      ? `the CURRENT FILTER only — view "${view}"${espSel.length ? `, ESP: ${espSel.join("/")}` : ""}`
+      : "the WHOLE list";
+    if (!confirm(`${label} for ${(data?.total_in_view ?? 0).toLocaleString()} lead(s) — ${filterNote}.\n\nTo affect every lead, clear all filters first (View = All, no ESP).\n\nContinue?`)) return;
     try { await api(`/api/enrich-lists/${id}/${what}?view=${view}${espQs}`, { method: "POST" }); reload(); }
     catch (e) { toast(e.message, "bad"); }
   };
