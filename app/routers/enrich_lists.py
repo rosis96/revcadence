@@ -222,11 +222,18 @@ def delete_leads(list_id: int, body: DeleteLeadsIn, ctx: AuthContext = Depends(g
 
 
 @router.get("/reoon/balance")
-def reoon_balance(ctx: AuthContext = Depends(get_ctx)):
-    """Reoon credit balance chip. Demo when no key set."""
+def reoon_balance(workspace_id: int | None = None, ctx: AuthContext = Depends(get_ctx)):
+    """Reoon credit balance chip. Uses the workspace's saved key, else env.
+    demo=True means NO key at all → emails are not being verified."""
     import os
     import requests
     key = os.getenv("REOON_API_KEY", "")
+    if workspace_id:
+        from ..crypto import decrypt
+        from ..enrichment.pipeline import _config
+        cfg = _config(ctx.db, workspace_id)
+        if cfg.reoon_api_key_enc:
+            key = decrypt(cfg.reoon_api_key_enc) or key
     if not key:
         return {"demo": True, "credits": None}
     try:
@@ -498,17 +505,24 @@ class ConfigIn(BaseModel):
     rules: str | None = None
     skip_title_gate: bool | None = None
     only_safe: bool | None = None
+    reoon_api_key: str | None = None
 
 
 @router.get("/config/{workspace_id}")
 def get_config(workspace_id: int, ctx: AuthContext = Depends(get_ctx)):
     ctx.require_workspace(workspace_id)
+    import os
+
     from ..enrichment.pipeline import _config
     cfg = _config(ctx.db, workspace_id)
     ctx.db.commit()
     return {"profile": cfg.profile or {}, "icp_definition": cfg.icp_definition or "",
             "formats": cfg.formats or [], "rules": cfg.rules or "",
-            "skip_title_gate": bool(cfg.skip_title_gate), "only_safe": bool(cfg.only_safe)}
+            "skip_title_gate": bool(cfg.skip_title_gate), "only_safe": bool(cfg.only_safe),
+            # never return the secret — only whether one is set, and from where
+            "reoon_api_key_set": bool((cfg.reoon_api_key_enc or "") or os.getenv("REOON_API_KEY", "")),
+            "reoon_key_source": ("workspace" if (cfg.reoon_api_key_enc or "")
+                                 else ("env" if os.getenv("REOON_API_KEY", "") else "none"))}
 
 
 @router.put("/config/{workspace_id}")
@@ -528,5 +542,9 @@ def put_config(workspace_id: int, body: ConfigIn, ctx: AuthContext = Depends(get
         cfg.skip_title_gate = 1 if body.skip_title_gate else 0
     if body.only_safe is not None:
         cfg.only_safe = 1 if body.only_safe else 0
+    if body.reoon_api_key is not None:
+        from ..crypto import encrypt
+        key = body.reoon_api_key.strip()
+        cfg.reoon_api_key_enc = encrypt(key) if key else ""   # blank clears it
     ctx.db.commit()
     return {"ok": True}

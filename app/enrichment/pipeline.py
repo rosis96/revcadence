@@ -148,6 +148,16 @@ _EMAIL_KEYS = {"email", "email address", "e-mail", "e mail", "work email",
                "primary email", "email_address", "emailaddress", "mail"}
 
 
+def _reoon_key(cfg) -> str:
+    """The Reoon API key to verify with: the workspace's saved key (encrypted in
+    config) first, else the REOON_API_KEY env var. Empty = no verification."""
+    import os
+
+    from ..crypto import decrypt
+    enc = getattr(cfg, "reoon_api_key_enc", "") or ""
+    return (decrypt(enc) if enc else "") or os.getenv("REOON_API_KEY", "")
+
+
 def email_from_row(data) -> str:
     """Recover an email from the raw uploaded row when the standard lead.email is
     empty (import didn't map the CSV's email column). Prefers a column that looks
@@ -218,7 +228,7 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
     #    catch_all/unknown     → proceed ONLY if the workspace's Only Safe is off
     #    anything else         → unsafe, stop (no ICP, no writer tokens)
     if not lead.email_status or lead.email_status == "skipped":
-        r = verify_one(lead.email)
+        r = verify_one(lead.email, key=_reoon_key(cfg))
         lead.email_status = r["status"]
         lead.verify_source = "reoon"
         lead.result = {**(lead.result or {}), "_reoon": r["raw"]}

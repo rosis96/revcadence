@@ -24,6 +24,7 @@ export default function EnrichConfigPage({ tab }) {
   const [busy, setBusy] = useState(false);
   const [formatJson, setFormatJson] = useState("");
   const [profileJson, setProfileJson] = useState("");
+  const [reoonKey, setReoonKey] = useState("");
 
   // Paste Client Profile JSON → fills the boxes. Accepts the training-file
   // schema incl. aliases (value_prop → what_we_are_pitching) and keeps extra
@@ -173,6 +174,37 @@ export default function EnrichConfigPage({ tab }) {
                      onChange={(e) => setCfg({ ...cfg, only_safe: e.target.checked })} />
               Only Safe — catch-all / unknown emails stop as unsafe (recommended; saves writer spend)
             </label>
+          </div>
+
+          <div className="card" style={{ padding: 18, marginTop: 14 }}>
+            <h2 style={{ fontSize: 15, marginBottom: 4 }}>Reoon email verification key</h2>
+            <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 10 }}>
+              Required for real mailbox verification. <b>Without a key, emails are NOT verified</b> and
+              every lead stops as unsafe (they are never falsely marked safe). Paste your Reoon API key
+              (Reoon → API &amp; Integrations).
+            </p>
+            <div style={{
+              display: "inline-block", fontSize: 12, fontWeight: 600, marginBottom: 10,
+              color: cfg.reoon_api_key_set ? "#15803d" : "#b91c1c",
+            }}>
+              {cfg.reoon_api_key_set
+                ? `● Key active (${cfg.reoon_key_source === "env" ? "server env" : "workspace"})`
+                : "● No key — verification is OFF"}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input type="password" value={reoonKey} placeholder="Paste Reoon API key…"
+                     onChange={(e) => setReoonKey(e.target.value)} style={{ flex: 1 }} />
+              <button className="btn" disabled={busy || !reoonKey.trim()}
+                      onClick={async () => { await save({ reoon_api_key: reoonKey.trim() });
+                        setReoonKey(""); api(`/api/enrich-lists/config/${wsId}`).then(setCfg); }}>
+                Save key</button>
+              {cfg.reoon_api_key_set && cfg.reoon_key_source === "workspace" && (
+                <button className="btn secondary" disabled={busy}
+                        onClick={async () => { await save({ reoon_api_key: "" });
+                          api(`/api/enrich-lists/config/${wsId}`).then(setCfg); }}>
+                  Remove</button>
+              )}
+            </div>
           </div>
           <div className="toolbar" style={{ marginTop: 14 }}>
             <button className="btn" disabled={busy}

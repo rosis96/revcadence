@@ -9,11 +9,19 @@ SAFE_STATUSES = {"safe", "valid"}
 API = "https://emailverifier.reoon.com/api/v1/verify"
 
 
-def verify_one(email: str) -> dict:
-    """Returns {"status": "safe"|"invalid"|"catch_all"|"unknown"|..., "raw": {...}, "demo": bool}"""
-    key = os.getenv("REOON_API_KEY", "")
+def verify_one(email: str, key: str = "") -> dict:
+    """Returns {"status": "safe"|"invalid"|"catch_all"|"unknown"|..., "raw": {...}, "demo": bool}.
+
+    NO KEY = fail SAFE, never fake 'safe'. Returning 'safe' with no verification
+    (the old demo behaviour) silently passed invalid/catch-all/spam-trap emails
+    through the gate and enriched them — a real deliverability hazard. With no key
+    we return 'unverified', which is NOT deliverable, so the lead stops as unsafe
+    and the operator is prompted to add a Reoon key."""
+    key = key or os.getenv("REOON_API_KEY", "")
     if not key:
-        return {"status": "safe", "raw": {"note": "demo mode — REOON_API_KEY not set"}, "demo": True}
+        return {"status": "unverified",
+                "raw": {"note": "No Reoon API key set — email was NOT verified. Add your key in Enrichment settings."},
+                "demo": True}
     try:
         r = requests.get(API, params={"email": email, "key": key, "mode": "power"}, timeout=45)
         r.raise_for_status()

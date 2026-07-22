@@ -69,4 +69,5 @@ class EnrichConfig(Base):
     rules = Column(Text, default="")            # one correction rule per line, injected into the writer
     skip_title_gate = Column(Integer, default=0)
     only_safe = Column(Integer, default=1)      # 1: catch_all/unknown stop as unsafe (default on)
+    reoon_api_key_enc = Column(Text, default="")  # per-workspace Reoon key (encrypted); env fallback
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

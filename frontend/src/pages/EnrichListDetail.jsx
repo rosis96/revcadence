@@ -67,7 +67,8 @@ export default function EnrichListDetail() {
   const espParam = espSel.join(",");
   const { data, error, loading, reload } = useApi(`/api/enrich-lists/${id}/leads`,
     { view, page, q, page_size: 50, esp: espParam });
-  const { data: reoon } = useApi("/api/enrich-lists/reoon/balance");
+  const { data: reoon } = useApi(data
+    ? `/api/enrich-lists/reoon/balance?workspace_id=${data.list.workspace_id}` : null);
   const cfg = useApi(data ? `/api/enrich-lists/config/${data.list.workspace_id}` : null);
 
   useEffect(() => { setPage(1); }, [q, view, espParam]);
@@ -261,6 +262,19 @@ export default function EnrichListDetail() {
             {job && <Button variant="danger" icon={Square} onClick={stop}>Stop</Button>}
           </>
         } />
+
+      {reoon?.demo && (
+        <div className="card" style={{
+          background: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b",
+          padding: "12px 16px", marginBottom: 12, fontSize: 13, display: "flex",
+          alignItems: "center", gap: 10,
+        }}>
+          <span style={{ fontSize: 16 }}>⚠️</span>
+          <span><b>No Reoon API key — emails are NOT being verified.</b> Every lead will stop as
+            “unsafe” until you add a key (they’re never falsely marked safe). Add it in{" "}
+            <b>Client Profile → Reoon email verification key</b>.</span>
+        </div>
+      )}
 
       {job && jobStatus && (
         <div className="card jobbar">
