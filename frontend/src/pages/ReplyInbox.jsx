@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Ban, Check, Download, MoreHorizontal, PanelRightOpen, Pencil, Pin, PinOff,
   RefreshCw, Send, Tag, Trash2, X } from "lucide-react";
-import { api, timeAgo } from "../api";
+import { api, getToken, timeAgo } from "../api";
 import { useAuth } from "../auth";
 import {
   Avatar, Badge, Button, ErrorBox, Modal, PageHeader, Skeleton, StatusPill, Tabs,
@@ -36,20 +36,6 @@ const INTENT_TONE = (i) =>
 const PINS_KEY = "rc_reply_pins";
 const getPins = () => { try { return new Set(JSON.parse(localStorage.getItem(PINS_KEY)) || []); } catch { return new Set(); } };
 
-function csvCell(v) { const s = String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
-function exportLeadsCsv(rows) {
-  const head = ["first_name", "last_name", "email", "company", "intent", "decision", "stage", "workspace"];
-  const lines = [head.join(",")].concat(rows.map((l) => {
-    const [fn, ...rest] = (l.name || "").split(" ");
-    return [fn || "", rest.join(" ") || "", l.email || "", l.company || "", l.intent || "",
-            l.action || "", l.stage || "", l.workspace || ""].map(csvCell).join(",");
-  }));
-  const blob = new Blob([lines.join("\n")], { type: "text/csv" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob); a.download = `reply-leads-${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
-}
-
 export default function ReplyInbox() {
   const params = new URLSearchParams(window.location.hash.split("?")[1] || "");
   const { wsParam } = useAuth();
@@ -57,7 +43,7 @@ export default function ReplyInbox() {
   const [q, setQ] = useState("");
   const [openId, setOpenId] = useState(params.get("open") ? Number(params.get("open")) : null);
   const [pins, setPins] = useState(getPins);
-  const [intent, setIntent] = useState("");
+  const [bucket, setBucket] = useState("");
   const [sel, setSel] = useState({});
   const [aiOpen, setAiOpen] = useState(localStorage.getItem("rc_ai_panel") === "1");
   const toggleAi = () => setAiOpen((v) => { localStorage.setItem("rc_ai_panel", v ? "0" : "1"); return !v; });
@@ -67,17 +53,31 @@ export default function ReplyInbox() {
 
   const leads = data?.leads || [];
   const counts = data?.counts || {};
-  const intents = useMemo(() => [...new Set(leads.map((l) => l.intent).filter(Boolean))].sort(), [leads]);
+  const buckets = useMemo(() => [...new Set(leads.map((l) => l.intent_bucket).filter(Boolean))].sort(), [leads]);
   const shown = useMemo(() => {
     let s = tab === "pinned" ? leads.filter((l) => pins.has(l.id)) : leads;
-    if (intent) s = s.filter((l) => l.intent === intent);
+    if (bucket) s = s.filter((l) => l.intent_bucket === bucket);
     return s;
-  }, [leads, tab, pins, intent]);
+  }, [leads, tab, pins, bucket]);
   const selIds = Object.keys(sel).filter((k) => sel[k]);
-  const exportSel = () => {
-    const rows = leads.filter((l) => sel[l.id]);
-    if (!rows.length) { toast("Select some leads first (checkboxes)", "bad"); return; }
-    exportLeadsCsv(rows);
+  // Full-info CSV: selected leads, or (nothing selected) the whole current filter.
+  const doExport = async () => {
+    const p = new URLSearchParams();
+    if (status) p.set("status", status);
+    if (wsParam) p.set("workspace_id", wsParam);
+    if (bucket) p.set("bucket", bucket);
+    if (q) p.set("q", q);
+    if (selIds.length) p.set("ids", selIds.join(","));
+    try {
+      const res = await fetch(`/api/reply/leads/export?${p.toString()}`,
+        { headers: { Authorization: `Bearer ${getToken()}` } });
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `reply-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+    } catch (e) { toast(e.message, "bad"); }
   };
 
   useEffect(() => {
@@ -99,22 +99,22 @@ export default function ReplyInbox() {
     <>
       <PageHeader title="Inbox" desc="Every conversation, with the AI's read and your one-click actions."
         actions={<>
-          {intents.length > 0 && (
-            <select value={intent} onChange={(e) => setIntent(e.target.value)}
-              style={{ padding: "7px 10px", borderRadius: 8, fontSize: 13, maxWidth: 200 }}>
+          {buckets.length > 0 && (
+            <select value={bucket} onChange={(e) => setBucket(e.target.value)}
+              style={{ padding: "7px 10px", borderRadius: 8, fontSize: 13, maxWidth: 220 }}>
               <option value="">All intents</option>
-              {intents.map((i) => <option key={i} value={i}>{i.replaceAll("_", " ")}</option>)}
+              {buckets.map((b) => <option key={b} value={b}>{b}</option>)}
             </select>
           )}
-          <Button variant="secondary" icon={Download} disabled={!selIds.length} onClick={exportSel}>
-            Export{selIds.length ? ` (${selIds.length})` : ""}</Button>
+          <Button variant="secondary" icon={Download} onClick={doExport}>
+            {selIds.length ? `Export (${selIds.length})` : "Export list"}</Button>
           <Button variant="secondary" icon={RefreshCw} onClick={reload}>Refresh</Button>
         </>} />
 
       <div style={{ marginBottom: 14 }}>
         <Tabs value={tab} onChange={(t) => { setTab(t); setOpenId(null); }} tabs={[
           { key: "needs_review", label: "Needs Review", count: counts.needs_review ?? 0 },
-          { key: "replied", label: "Replied", count: counts.replied ?? 0 },
+          { key: "replied", label: "Interested · not booked", count: counts.replied ?? 0 },
           { key: "booked", label: "Meeting Booked", count: counts.booked ?? 0 },
           { key: "stopped", label: "Stopped", count: counts.stopped ?? 0 },
           { key: "pinned", label: "Pinned", count: pins.size },

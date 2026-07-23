@@ -13,6 +13,33 @@ from ..models.reply import ReplyLead, ReplyWorkspace
 
 router = APIRouter(prefix="/api/reply", tags=["reply-management"])
 
+# Clean, human intent buckets (5–7) over the engine's granular intent labels.
+# Order matters: most specific first (a "not interested" reply also contains
+# "interest"). Used for filtering, display, and export.
+INTENT_BUCKETS = [
+    ("Not interested", ("not interested", "no thanks", "no thank", "decline", "unsubscribe",
+                        "stop", "remove", "opt out", "opt-out", "do not")),
+    ("Out of office", ("out of office", "ooo", "vacation", "away", "on leave", "auto")),
+    ("Referral / wrong contact", ("referral", "refer", "wrong person", "wrong contact",
+                                  "someone else", "forward", "colleague", "not the right")),
+    ("Price-based interest", ("pric", "cost", "budget", "quote", "ballpark", "rate", "fee", "how much")),
+    ("Wants a call/meeting", ("call", "meeting", "book", "schedul", "demo", "zoom", "calendar", "chat")),
+    ("Not ready / skeptical", ("skeptic", "later", "not now", "busy", "timing", "conditional",
+                               "complex", "hesitant", "unsure", "maybe")),
+    ("Basic interest", ("positive", "interest", "more info", "share", "tell me", "learn more",
+                        "yes", "simple", "keen", "curious")),
+]
+
+
+def intent_bucket(intent: str) -> str:
+    s = (intent or "").lower().replace("_", " ").strip()
+    if not s:
+        return "Needs review"
+    for label, keys in INTENT_BUCKETS:
+        if any(k in s for k in keys):
+            return label
+    return "Other"
+
 
 # ================================================================ webhooks (no auth — platform-called)
 def _enqueue(db, rws_name: str, workspace_id, platform: str, payload: dict, flow: str):
@@ -253,12 +280,17 @@ def reply_leads(status: str = "", q: str = "", page: int = 1, workspace_id: int 
         like = f"%{q}%"
         base = base.filter((ReplyLead.email.ilike(like)) | (ReplyLead.name.ilike(like))
                            | (ReplyLead.company.ilike(like)))
+    BOOKED_STAGES = ["booked", "meeting_completed", "won"]
+    # "Interested / not booked" = we replied, prospect is engaged, but NO meeting yet.
+    interested = base.filter(ReplyLead.replied == True,                       # noqa: E712
+                             ReplyLead.stage.notin_(BOOKED_STAGES + ["lost"]),
+                             ReplyLead.action != "stop")
     counts = {
         "all": base.count(),
         "needs_review": base.filter(ReplyLead.action.in_(["skip_enrich", "would_send"]),
                                     ReplyLead.reviewed == False).count(),  # noqa: E712
-        "replied": base.filter(ReplyLead.replied == True).count(),          # noqa: E712
-        "booked": base.filter(ReplyLead.stage == "booked").count(),
+        "replied": interested.count(),
+        "booked": base.filter(ReplyLead.stage.in_(BOOKED_STAGES)).count(),
         "stopped": base.filter(ReplyLead.action == "stop").count(),
         "draft": base.filter(ReplyLead.main_reply != "", ReplyLead.replied == False,  # noqa: E712
                              ReplyLead.action != "stop").count(),
@@ -270,20 +302,92 @@ def reply_leads(status: str = "", q: str = "", page: int = 1, workspace_id: int 
     elif status == "needs_review":
         q2 = base.filter(ReplyLead.action.in_(["skip_enrich", "would_send"]),
                          ReplyLead.reviewed == False)  # noqa: E712
-    elif status == "replied":
-        q2 = base.filter(ReplyLead.replied == True)   # noqa: E712
+    elif status in ("replied", "interested"):
+        q2 = interested                                # interested but NOT booked
     elif status == "booked":
-        q2 = base.filter(ReplyLead.stage == "booked")
+        q2 = base.filter(ReplyLead.stage.in_(BOOKED_STAGES))
     elif status == "stopped":
         q2 = base.filter(ReplyLead.action == "stop")
     rows = q2.order_by(ReplyLead.id.desc()).offset((max(page, 1) - 1) * 50).limit(50).all()
+
+    from ..reply.sync import _deep_get
+
+    def _website(l):
+        return str(_deep_get(l.lead_data or {}, {"website", "company_website", "domain", "url"}) or "")
+
     return {"counts": counts, "leads": [{
         "id": l.id, "name": l.name, "email": l.email, "company": l.company,
-        "workspace": l.reply_workspace, "platform": l.platform, "intent": l.intent,
+        "website": _website(l), "workspace": l.reply_workspace, "platform": l.platform,
+        "intent": l.intent, "intent_bucket": intent_bucket(l.intent),
         "confidence": l.confidence, "action": l.action, "stage": l.stage,
         "replied": l.replied, "reviewed": l.reviewed,
         "reply_text": (l.reply_text or "")[:200],
         "at": l.created_at.isoformat() if l.created_at else None} for l in rows]}
+
+
+@router.get("/leads/export")
+def export_reply_leads(status: str = "", q: str = "", intent: str = "", bucket: str = "",
+                       ids: str = "", workspace_id: int | None = None,
+                       ctx: AuthContext = Depends(get_ctx)):
+    """Full-info CSV export. Exports the SELECTED leads (ids=1,2,3) or, when no ids
+    are given, the entire current filter (status + intent + bucket + search) — not
+    just the visible page. Includes website, title, intents, stage and the last
+    replies so the file is actually useful for handoff/CRM import."""
+    import csv
+    import io
+
+    from fastapi.responses import PlainTextResponse
+
+    from ..reply.sync import _deep_get
+    ws_ids = ctx.workspace_ids_for_query(workspace_id)
+    show_unrouted = ctx.is_master and workspace_id is None
+    base = ctx.db.query(ReplyLead).filter(
+        (ReplyLead.workspace_id.in_(ws_ids)) |
+        (ReplyLead.workspace_id.is_(None) if show_unrouted else False))
+    if q:
+        like = f"%{q}%"
+        base = base.filter((ReplyLead.email.ilike(like)) | (ReplyLead.name.ilike(like))
+                           | (ReplyLead.company.ilike(like)))
+    id_list = [int(i) for i in ids.split(",") if i.strip().isdigit()]
+    if id_list:
+        base = base.filter(ReplyLead.id.in_(id_list))
+    else:
+        BOOKED_STAGES = ["booked", "meeting_completed", "won"]
+        if status == "needs_review":
+            base = base.filter(ReplyLead.action.in_(["skip_enrich", "would_send"]), ReplyLead.reviewed == False)  # noqa: E712
+        elif status in ("replied", "interested"):
+            base = base.filter(ReplyLead.replied == True, ReplyLead.stage.notin_(BOOKED_STAGES + ["lost"]), ReplyLead.action != "stop")  # noqa: E712
+        elif status == "booked":
+            base = base.filter(ReplyLead.stage.in_(BOOKED_STAGES))
+        elif status == "stopped":
+            base = base.filter(ReplyLead.action == "stop")
+        elif status == "draft":
+            base = base.filter(ReplyLead.main_reply != "", ReplyLead.replied == False, ReplyLead.action != "stop")  # noqa: E712
+
+    rows = base.order_by(ReplyLead.id.desc()).all()
+    if intent:
+        rows = [l for l in rows if l.intent == intent]
+    if bucket:
+        rows = [l for l in rows if intent_bucket(l.intent) == bucket]
+
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["first_name", "last_name", "email", "company", "website", "title", "campaign",
+                "subject", "intent", "intent_bucket", "confidence", "stage", "action",
+                "replied", "prospect_last_reply", "our_last_reply", "date", "workspace"])
+    for l in rows:
+        nm = (l.name or "").split(" ", 1)
+        d = l.lead_data or {}
+        site = str(_deep_get(d, {"website", "company_website", "domain", "url"}) or "")
+        title = str(_deep_get(d, {"title", "job_title", "position", "headline"}) or "")
+        w.writerow([nm[0] if nm else "", nm[1] if len(nm) > 1 else "", l.email or "", l.company or "",
+                    site, title, l.campaign or "", l.subject or "", l.intent or "",
+                    intent_bucket(l.intent), l.confidence or "", l.stage or "", l.action or "",
+                    "yes" if l.replied else "no", (l.reply_text or "").replace("\n", " ")[:500],
+                    (l.main_reply or "").replace("\n", " ")[:500],
+                    l.created_at.isoformat() if l.created_at else "", l.reply_workspace or ""])
+    return PlainTextResponse(buf.getvalue(), media_type="text/csv",
+                             headers={"Content-Disposition": "attachment; filename=reply-leads.csv"})
 
 
 @router.get("/processing")
