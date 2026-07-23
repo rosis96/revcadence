@@ -55,7 +55,7 @@ def _upsert_company_contact(db, workspace_id, payload):
     company = None
     if cname:
         company = (db.query(Company).filter(Company.workspace_id == workspace_id,
-                                            Company.name == cname).first())
+                                            Company.name.ilike(cname)).first())  # case-insensitive, no dup
         if company is None:
             company = Company(workspace_id=workspace_id, name=cname, website=website)
             db.add(company); db.flush()
@@ -101,13 +101,25 @@ async def form_capture(request: Request, key: str = ""):
         company, contact = _upsert_company_contact(db, wid, payload)
         who = (f"{contact.first_name} {contact.last_name}".strip() if contact else "") \
             or (company.name if company else "") or str(payload.get("email") or "unknown")
-        deal = Deal(workspace_id=wid, name=f"Inbound — {who}",
-                    company_id=company.id if company else None,
-                    contact_id=contact.id if contact else None,
-                    stage_id=_first_stage_id(db, wid), value=0.0,
-                    source="inbound_form", lead_intent="inbound",
-                    next_step="Respond within 10 minutes")
-        db.add(deal); db.flush()
+        # Dedupe: reuse this contact's existing OPEN deal (repeat form-fills must not
+        # spawn duplicate deals) — otherwise create a fresh Opportunity.
+        deal = None
+        if contact is not None:
+            closed = {s.id for s in db.query(Stage).filter(
+                Stage.workspace_id == wid, (Stage.is_won == True) | (Stage.is_lost == True)).all()}  # noqa: E712
+            dq = db.query(Deal).filter(Deal.workspace_id == wid, Deal.contact_id == contact.id)
+            if closed:
+                dq = dq.filter(Deal.stage_id.notin_(closed))
+            deal = dq.order_by(Deal.id.desc()).first()
+        existed = deal is not None
+        if deal is None:
+            deal = Deal(workspace_id=wid, name=f"Inbound — {who}",
+                        company_id=company.id if company else None,
+                        contact_id=contact.id if contact else None,
+                        stage_id=_first_stage_id(db, wid), value=0.0,
+                        source="inbound_form", lead_intent="inbound",
+                        next_step="Respond within 10 minutes")
+            db.add(deal); db.flush()
         db.add(Task(workspace_id=wid, deal_id=deal.id, contact_id=contact.id if contact else None,
                     title="Respond to inbound lead within 10 minutes",
                     due_at=datetime.utcnow() + timedelta(minutes=10)))
@@ -120,7 +132,7 @@ async def form_capture(request: Request, key: str = ""):
                         data={"page": payload.get("page", ""), "source": "form", "raw": payload}))
         _queue_enrich(db, wid, company, contact)
         db.commit()
-        return {"ok": True, "deal_id": deal.id,
+        return {"ok": True, "deal_id": deal.id, "existed": existed,
                 "company_id": company.id if company else None,
                 "contact_id": contact.id if contact else None}
     finally:
