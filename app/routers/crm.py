@@ -587,6 +587,64 @@ def reports_summary(workspace_id: int | None = None, days: int = 90,
     }
 
 
+@router.get("/setup/checklist")
+def setup_checklist(workspace_id: int | None = None, ctx: AuthContext = Depends(get_ctx)):
+    """First-run guidance: real setup progress for the workspace so a new client
+    lands on a guided checklist, not a blank app. Every step reflects live data."""
+    ws_ids = ctx.workspace_ids_for_query(workspace_id)
+
+    def count(model):
+        try:
+            return ctx.db.query(model).filter(model.workspace_id.in_(ws_ids)).count()
+        except Exception:
+            return 0
+
+    # profile filled
+    from ..models.enrich import EnrichConfig, EnrichLead
+    profile_done = False
+    for cfg in ctx.db.query(EnrichConfig).filter(EnrichConfig.workspace_id.in_(ws_ids)).all():
+        if (cfg.profile or {}) or (cfg.icp_definition or ""):
+            profile_done = True
+            break
+    # reply engine connected (a reply space with an API key)
+    from ..models.reply import ReplyLead, ReplyWorkspace
+    reply_connected = ctx.db.query(ReplyWorkspace).filter(
+        ReplyWorkspace.workspace_id.in_(ws_ids), ReplyWorkspace.api_key_enc != "").count() > 0
+    # mailbox connected
+    mailbox_done = False
+    try:
+        from ..models.onboarding import MailboxConnection
+        mailbox_done = count(MailboxConnection) > 0
+    except Exception:
+        pass
+
+    leads = count(EnrichLead)
+    replies = count(ReplyLead)
+    deals = scoped(ctx.db.query(Deal), Deal, ctx, workspace_id).all()
+    booked_names = {"Meeting Booked", "Meeting Completed", "Won"}
+    stage_name = {s.id: s.name for s in ctx.db.query(Stage).filter(Stage.workspace_id.in_(ws_ids)).all()}
+    booked = any(stage_name.get(d.stage_id, "") in booked_names for d in deals)
+
+    steps = [
+        {"key": "profile", "label": "Set up the client profile", "done": profile_done,
+         "hint": "Who they are, their offer, and ICP — this grounds all the AI.", "href": "/enrichment/profile"},
+        {"key": "reply", "label": "Connect the reply engine", "done": reply_connected,
+         "hint": "Add the Instantly/Bison API key so replies flow in.", "href": "/reply/setup"},
+        {"key": "mailbox", "label": "Connect a mailbox", "done": mailbox_done,
+         "hint": "Send + track conversations from a real inbox.", "href": "/settings/email"},
+        {"key": "leads", "label": "Import & enrich your first leads", "done": leads > 0,
+         "hint": "Upload a list, then Verify → Enrich.", "href": "/enrichment"},
+        {"key": "replies", "label": "Handle your first reply", "done": replies > 0,
+         "hint": "The AI drafts, you approve and send.", "href": "/reply/inbox"},
+        {"key": "deal", "label": "First deal in the pipeline", "done": len(deals) > 0,
+         "hint": "Interested replies become deals automatically.", "href": "/pipeline"},
+        {"key": "meeting", "label": "First meeting booked", "done": booked,
+         "hint": "The goal — a qualified meeting on the calendar.", "href": "/pipeline"},
+    ]
+    done_n = sum(1 for s in steps if s["done"])
+    return {"steps": steps, "done": done_n, "total": len(steps), "complete": done_n == len(steps)}
+
+
 @router.get("/companies/{company_id}/revenue-timeline")
 def revenue_timeline(company_id: int, ctx: AuthContext = Depends(get_ctx)):
     """The Revenue Timeline: one chronological journey for a company, from the

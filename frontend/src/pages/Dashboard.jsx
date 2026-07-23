@@ -1,9 +1,11 @@
 // Master Dashboard — the command center (DESIGN_SYSTEM.md Part 4, step 2).
 // Not widgets: flat, scannable lists of everything that needs attention today,
 // built ONLY from the shared component library.
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Calendar, CheckSquare, FileText, Inbox as InboxIcon, Receipt, ScrollText,
+  CheckCircle2, Circle,
 } from "lucide-react";
 import { useAuth } from "../auth";
 import { money, timeAgo } from "../api";
@@ -25,6 +27,46 @@ const fmtTime = (iso) => (iso ? new Date(iso + (iso.endsWith("Z") ? "" : "Z"))
   .toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "");
 const fmtDue = (iso) => (iso ? new Date(iso + (iso.endsWith("Z") ? "" : "Z"))
   .toLocaleDateString([], { month: "short", day: "numeric" }) : "no due date");
+
+function GettingStarted({ wsParam, nav }) {
+  const { data } = useApi("/api/setup/checklist", { workspace_id: wsParam });
+  const key = `rc_setup_dismissed_${wsParam || "all"}`;
+  const [dismissed, setDismissed] = useState(() => localStorage.getItem(key) === "1");
+  if (!data || data.complete || dismissed) return null;
+  return (
+    <div className="card" style={{ padding: 18, marginBottom: 16, borderColor: "#bfdcf6",
+      background: "linear-gradient(180deg,#fff,#f4f9ff)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <div>
+          <h2 style={{ fontSize: 16, margin: 0 }}>Getting started</h2>
+          <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
+            {data.done} of {data.total} steps done — finish setup to get the engine running.</div>
+        </div>
+        <button className="btn ghost sm" onClick={() => { localStorage.setItem(key, "1"); setDismissed(true); }}>Dismiss</button>
+      </div>
+      <div style={{ height: 8, background: "#e6eef8", borderRadius: 6, overflow: "hidden", marginBottom: 14 }}>
+        <div style={{ height: "100%", width: `${100 * data.done / data.total}%`, background: "#1f8fe6" }} />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
+        {data.steps.map((s) => (
+          <div key={s.key} onClick={() => !s.done && nav(s.href)}
+            style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 10px", borderRadius: 8,
+              cursor: s.done ? "default" : "pointer", background: s.done ? "transparent" : "#fff",
+              border: `1px solid ${s.done ? "transparent" : "#e6edf5"}` }}>
+            {s.done
+              ? <CheckCircle2 size={18} style={{ color: "#22a06b", flexShrink: 0, marginTop: 1 }} />
+              : <Circle size={18} style={{ color: "#9fb0c0", flexShrink: 0, marginTop: 1 }} />}
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: s.done ? "var(--muted)" : "inherit",
+                textDecoration: s.done ? "line-through" : "none" }}>{s.label}</div>
+              {!s.done && <div style={{ fontSize: 11.5, color: "var(--muted)" }}>{s.hint}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const { wsParam } = useAuth();
@@ -55,6 +97,8 @@ export default function Dashboard() {
   return (
     <>
       <PageHeader title="Dashboard" desc="Everything that needs your attention today. Press ⌘K to find anything." />
+
+      <GettingStarted wsParam={wsParam} nav={nav} />
 
       <div className="metrics">
         <StatCard label="Open pipeline" value={money(data.open_value)} sub={`${t.active_deals ?? 0} active deals`} />
