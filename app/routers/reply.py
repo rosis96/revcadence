@@ -318,11 +318,55 @@ def reply_leads(status: str = "", q: str = "", page: int = 1, workspace_id: int 
     return {"counts": counts, "leads": [{
         "id": l.id, "name": l.name, "email": l.email, "company": l.company,
         "website": _website(l), "workspace": l.reply_workspace, "platform": l.platform,
-        "intent": l.intent, "intent_bucket": intent_bucket(l.intent),
+        "intent": l.intent, "intent_bucket": l.intent_bucket or intent_bucket(l.intent),
+        "intent_reason": l.intent_reason or "",
         "confidence": l.confidence, "action": l.action, "stage": l.stage,
         "replied": l.replied, "reviewed": l.reviewed,
         "reply_text": (l.reply_text or "")[:200],
         "at": l.created_at.isoformat() if l.created_at else None} for l in rows]}
+
+
+class ClassifyIn(BaseModel):
+    lead_ids: list[int] = []
+    status: str = ""
+    q: str = ""
+    workspace_id: int | None = None
+
+
+@router.post("/classify-intents")
+def classify_intents(body: ClassifyIn, ctx: AuthContext = Depends(get_ctx)):
+    """AI-read the whole conversation and bucket each lead. Runs as a background
+    job over the selected leads (or the current filter). Returns the job id."""
+    ws_ids = ctx.workspace_ids_for_query(body.workspace_id)
+    show_unrouted = ctx.is_master and body.workspace_id is None
+    base = ctx.db.query(ReplyLead).filter(
+        (ReplyLead.workspace_id.in_(ws_ids)) |
+        (ReplyLead.workspace_id.is_(None) if show_unrouted else False))
+    if body.lead_ids:
+        base = base.filter(ReplyLead.id.in_([int(i) for i in body.lead_ids]))
+    else:
+        if body.q:
+            like = f"%{body.q}%"
+            base = base.filter((ReplyLead.email.ilike(like)) | (ReplyLead.name.ilike(like))
+                               | (ReplyLead.company.ilike(like)))
+        BOOKED_STAGES = ["booked", "meeting_completed", "won"]
+        if body.status == "needs_review":
+            base = base.filter(ReplyLead.action.in_(["skip_enrich", "would_send"]), ReplyLead.reviewed == False)  # noqa: E712
+        elif body.status in ("replied", "interested"):
+            base = base.filter(ReplyLead.replied == True, ReplyLead.stage.notin_(BOOKED_STAGES + ["lost"]), ReplyLead.action != "stop")  # noqa: E712
+        elif body.status == "booked":
+            base = base.filter(ReplyLead.stage.in_(BOOKED_STAGES))
+        elif body.status == "stopped":
+            base = base.filter(ReplyLead.action == "stop")
+    ids = [r[0] for r in base.order_by(ReplyLead.id.desc()).limit(300).with_entities(ReplyLead.id).all()]
+    if not ids:
+        raise HTTPException(422, "No conversations to classify in this selection")
+    j = Job(kind="classify_reply_intents",
+            workspace_id=(ws_ids[0] if (body.workspace_id and ws_ids) else None),
+            payload={"lead_ids": ids})
+    ctx.db.add(j)
+    ctx.db.commit()
+    return {"job_id": j.id, "count": len(ids)}
 
 
 @router.get("/leads/export")
@@ -382,7 +426,7 @@ def export_reply_leads(status: str = "", q: str = "", intent: str = "", bucket: 
         title = str(_deep_get(d, {"title", "job_title", "position", "headline"}) or "")
         w.writerow([nm[0] if nm else "", nm[1] if len(nm) > 1 else "", l.email or "", l.company or "",
                     site, title, l.campaign or "", l.subject or "", l.intent or "",
-                    intent_bucket(l.intent), l.confidence or "", l.stage or "", l.action or "",
+                    l.intent_bucket or intent_bucket(l.intent), l.confidence or "", l.stage or "", l.action or "",
                     "yes" if l.replied else "no", (l.reply_text or "").replace("\n", " ")[:500],
                     (l.main_reply or "").replace("\n", " ")[:500],
                     l.created_at.isoformat() if l.created_at else "", l.reply_workspace or ""])

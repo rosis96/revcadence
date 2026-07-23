@@ -89,6 +89,8 @@ class ReplyLead(Base):
     subject = Column(String(512), default="")
 
     intent = Column(String(120), default="")
+    intent_bucket = Column(String(60), default="")   # AI-classified bucket (whole-thread read)
+    intent_reason = Column(Text, default="")         # one-line why, from the AI
     confidence = Column(String(40), default="")
     conf_num = Column(Float, default=0.0)
     action = Column(String(40), default="")     # send / would_send / skip_enrich / stop / error

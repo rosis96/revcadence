@@ -296,6 +296,51 @@ def call_llm(prompt: str, system: str, cfg: dict) -> dict:
     return dict(_FALLBACK)  # detectable sentinel — never silently sent
 
 
+# ---------------------------------------------------------------- intent classification
+BUCKET_LABELS = ["Not interested", "Out of office", "Referral / wrong contact",
+                 "Price-based interest", "Wants a call/meeting", "Not ready / skeptical",
+                 "Basic interest"]
+
+
+def build_thread_text(lead) -> str:
+    """The full back-and-forth as plain text for the classifier."""
+    parts = []
+    for m in (lead.thread or []):
+        who = "PROSPECT" if m.get("direction") == "in" else "US"
+        t = (m.get("text") or "").strip()
+        if t:
+            parts.append(f"{who}: {t}")
+    if not parts:
+        if lead.reply_text:
+            parts.append("PROSPECT: " + lead.reply_text)
+        if lead.main_reply:
+            parts.append("US: " + lead.main_reply)
+    return "\n".join(parts)[:6000]
+
+
+def classify_intent_bucket(rws, lead) -> dict:
+    """AI reads the WHOLE conversation and returns {bucket, reason}. Empty on
+    failure/no-AI (caller keeps the existing keyword bucket). Never fabricates."""
+    text = build_thread_text(lead)
+    if not text.strip():
+        return {}
+    cfg = build_ai_cfg(rws)
+    system = ("Classify the PROSPECT's stance in this cold-outreach conversation into EXACTLY one "
+              "bucket. Return JSON {\"bucket\": <one label>, \"reason\": <one short sentence>}. "
+              "Buckets: " + "; ".join(BUCKET_LABELS) + ". "
+              "'Wants a call/meeting' only if they ask for or agree to a call/meeting/demo. "
+              "'Price-based interest' if they ask about cost/pricing/budget. "
+              "'Not interested' for declines/unsubscribes. Judge ONLY from the conversation.")
+    out = call_llm(text, system, cfg)
+    if not out or out.get("_fallback"):
+        return {}
+    b = str(out.get("bucket", "")).strip()
+    if b not in BUCKET_LABELS:
+        low = b.lower()
+        b = next((L for L in BUCKET_LABELS if L.lower() in low or low in L.lower()), "")
+    return {"bucket": b, "reason": str(out.get("reason", ""))[:300]} if b else {}
+
+
 # ---------------------------------------------------------------- prompt (legacy shape)
 def build_reply_prompt(rws, thread: list, scheduling_context: str = "", prospect: dict = None) -> tuple:
     fmt = rws.reply_format or {}

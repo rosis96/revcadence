@@ -91,6 +91,39 @@ def generate_blueprint_job(db, job):
     doc = generate_blueprint(db, job.workspace_id, company, contact, job.payload.get("deal_id"))
     return {"document_id": doc.id, "slug": doc.slug, "title": doc.title}
 
+@register("classify_reply_intents")
+def classify_reply_intents_job(db, job):
+    """Read each conversation with AI and store a clean intent bucket. payload:
+    {lead_ids: [..]}. Cancel-aware; keeps existing bucket on any failure."""
+    from ..models.jobs import Job as JobModel
+    from ..models.reply import ReplyLead, ReplyWorkspace
+    from ..reply.engine import classify_intent_bucket
+    ids = [int(i) for i in (job.payload.get("lead_ids") or [])]
+    rws_cache, n = {}, 0
+    for i, lid in enumerate(ids):
+        db.expire(job)
+        if db.get(JobModel, job.id).status == "cancelled":
+            job.status = "cancelled"
+            break
+        l = db.get(ReplyLead, lid)
+        if l is None:
+            continue
+        rws = rws_cache.get(l.reply_workspace)
+        if rws is None:
+            rws = db.query(ReplyWorkspace).filter(ReplyWorkspace.name == l.reply_workspace).first()
+            rws_cache[l.reply_workspace] = rws
+        if rws is not None:
+            res = classify_intent_bucket(rws, l)
+            if res.get("bucket"):
+                l.intent_bucket = res["bucket"]
+                l.intent_reason = res.get("reason", "")
+                n += 1
+        job.progress = int(100 * (i + 1) / max(len(ids), 1))
+        job.progress_note = f"{i + 1}/{len(ids)} classified"[:200]
+        db.commit()
+    return {"classified": n, "total": len(ids)}
+
+
 @register("run_enrich_list")
 def run_enrich_list(db, job):
     """List pipeline runner. payload: {list_id, lead_ids?: [..], steps: 'verify'|'pipeline',

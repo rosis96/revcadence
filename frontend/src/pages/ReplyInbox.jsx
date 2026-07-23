@@ -3,7 +3,7 @@
 // Same backend as before; pinning is a local flag (no engine changes).
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Ban, Check, Download, MoreHorizontal, PanelRightOpen, Pencil, Pin, PinOff,
-  RefreshCw, Send, Tag, Trash2, X } from "lucide-react";
+  RefreshCw, Send, Sparkles, Tag, Trash2, X } from "lucide-react";
 import { api, getToken, timeAgo } from "../api";
 import { useAuth } from "../auth";
 import {
@@ -60,6 +60,25 @@ export default function ReplyInbox() {
     return s;
   }, [leads, tab, pins, bucket]);
   const selIds = Object.keys(sel).filter((k) => sel[k]);
+  const [classifying, setClassifying] = useState(false);
+  // AI reads each whole conversation and assigns a clean intent bucket.
+  const classifyAI = async () => {
+    const body = selIds.length ? { lead_ids: selIds.map(Number) } : { status, workspace_id: wsParam };
+    setClassifying(true);
+    try {
+      const r = await api("/api/reply/classify-intents", { method: "POST", body });
+      toast(`Reading ${r.count} conversation(s) with AI…`);
+      const poll = setInterval(async () => {
+        try {
+          const s = await api(`/api/jobs/${r.job_id}/status`);
+          if (["done", "failed", "cancelled"].includes(s.status)) {
+            clearInterval(poll); setClassifying(false); reload();
+            if (s.status === "done") toast("Intents updated");
+          }
+        } catch { clearInterval(poll); setClassifying(false); }
+      }, 3000);
+    } catch (e) { setClassifying(false); toast(e.message, "bad"); }
+  };
   // Full-info CSV: selected leads, or (nothing selected) the whole current filter.
   const doExport = async () => {
     const p = new URLSearchParams();
@@ -106,6 +125,8 @@ export default function ReplyInbox() {
               {buckets.map((b) => <option key={b} value={b}>{b}</option>)}
             </select>
           )}
+          <Button variant="secondary" icon={Sparkles} disabled={classifying} onClick={classifyAI}>
+            {classifying ? "Classifying…" : (selIds.length ? `Classify (${selIds.length})` : "Classify intents")}</Button>
           <Button variant="secondary" icon={Download} onClick={doExport}>
             {selIds.length ? `Export (${selIds.length})` : "Export list"}</Button>
           <Button variant="secondary" icon={RefreshCw} onClick={reload}>Refresh</Button>
