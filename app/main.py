@@ -8,7 +8,7 @@ from fastapi import FastAPI
 
 from . import config
 from .db import engine, init_db
-from .routers import (admin, agreements, auth, client, crm, deal_workspace, devapi, enrich,
+from .routers import (admin, agreements, auth, billing, client, crm, deal_workspace, devapi, enrich,
                       enrich_lists, inbound, invoices, jobs, mailbox, onboarding, public, reply, search)
 
 app = FastAPI(title=config.APP_NAME, version=config.VERSION)
@@ -68,6 +68,7 @@ app.include_router(auth.router)
 app.include_router(search.router)
 app.include_router(devapi.router)
 app.include_router(admin.router)
+app.include_router(billing.router)
 app.include_router(crm.router)
 app.include_router(jobs.router)
 app.include_router(enrich.router)

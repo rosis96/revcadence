@@ -14,6 +14,7 @@ import CrmSync from "./pages/CrmSync";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Reports from "./pages/Reports";
+import Billing from "./pages/Billing";
 import Pipeline from "./pages/Pipeline";
 import Companies from "./pages/Companies";
 import CompanyDetail from "./pages/CompanyDetail";
@@ -134,6 +135,7 @@ function Sidebar() {
         {SYSTEM_NAV.map(([to, label, ic]) => (
           <NavLink key={to} to={to}><NavIcon ic={ic} /><span>{label}</span></NavLink>
         ))}
+        {me.is_master && <NavLink to="/billing"><NavIcon ic={BarChart3} /><span>Billing</span></NavLink>}
         {me.is_master && <NavLink to="/admin"><NavIcon ic={ShieldCheck} /><span>Admin</span></NavLink>}
       </nav>
       <div className="foot">
@@ -285,6 +287,7 @@ function Protected() {
         <Route path="/settings/developers" element={<Developers />} />
         <Route path="/settings/crm" element={<CrmSync />} />
         <Route path="/admin" element={<Admin />} />
+        <Route path="/billing" element={<Billing />} />
         <Route path="/dev/kitchen-sink" element={<KitchenSink />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
