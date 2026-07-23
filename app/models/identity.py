@@ -40,6 +40,8 @@ class Workspace(Base):
     domain = Column(String(255), default="")
     # Legacy linkage: the workspace_name string used in the old reply-manager DB
     legacy_name = Column(String(255), default="", index=True)
+    # Per-workspace public inbound capture key (form + visitor webhooks route by it)
+    inbound_key = Column(String(64), default="", index=True)
     settings = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)
 
