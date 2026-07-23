@@ -555,6 +555,9 @@ class ConfigIn(BaseModel):
     skip_icp: bool | None = None
     only_safe: bool | None = None
     reoon_api_key: str | None = None
+    reading_level: str | None = None
+    writer_model: str | None = None
+    research_depth: str | None = None
 
 
 @router.get("/config/{workspace_id}")
@@ -562,6 +565,7 @@ def get_config(workspace_id: int, ctx: AuthContext = Depends(get_ctx)):
     ctx.require_workspace(workspace_id)
     import os
 
+    from ..enrichment import ai
     from ..enrichment.pipeline import _config
     cfg = _config(ctx.db, workspace_id)
     ctx.db.commit()
@@ -569,6 +573,13 @@ def get_config(workspace_id: int, ctx: AuthContext = Depends(get_ctx)):
             "formats": cfg.formats or [], "rules": cfg.rules or "",
             "skip_title_gate": bool(cfg.skip_title_gate), "skip_icp": bool(cfg.skip_icp),
             "only_safe": bool(cfg.only_safe),
+            "reading_level": cfg.reading_level or "",
+            "writer_model": cfg.writer_model or "",
+            "research_depth": cfg.research_depth or "standard",
+            # which models are actually used (writer override else env default)
+            "writer_model_effective": (cfg.writer_model or ai.writer_model()),
+            "icp_model_effective": ai.extract_model(),
+            "ai_enabled": ai.has_ai(),
             # never return the secret — only whether one is set, and from where
             "reoon_api_key_set": bool((cfg.reoon_api_key_enc or "") or os.getenv("REOON_API_KEY", "")),
             "reoon_key_source": ("workspace" if (cfg.reoon_api_key_enc or "")
@@ -598,5 +609,11 @@ def put_config(workspace_id: int, body: ConfigIn, ctx: AuthContext = Depends(get
         from ..crypto import encrypt
         key = body.reoon_api_key.strip()
         cfg.reoon_api_key_enc = encrypt(key) if key else ""   # blank clears it
+    if body.reading_level is not None:
+        cfg.reading_level = body.reading_level.strip()
+    if body.writer_model is not None:
+        cfg.writer_model = body.writer_model.strip()
+    if body.research_depth is not None:
+        cfg.research_depth = body.research_depth if body.research_depth in ("standard", "deep") else "standard"
     ctx.db.commit()
     return {"ok": True}

@@ -65,7 +65,9 @@ def _title_gate(title: str) -> bool:
 
 def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
     """One scrape + one extraction; returns ctx reused by the writer."""
-    crawl = crawl_site(lead.website, html_override=(lead.data or {}).get("html_override", ""))
+    deep = getattr(cfg, "research_depth", "") == "deep"
+    crawl = crawl_site(lead.website, html_override=(lead.data or {}).get("html_override", ""),
+                       max_pages=8 if deep else 0, max_chars=20000 if deep else 0)
     if crawl.get("error") or not crawl.get("text"):
         return {"error": crawl.get("error") or "no website content", "crawl": crawl}
     if ai.has_ai():
@@ -112,9 +114,14 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
     """Writes the configured variables, reusing ctx (no second scrape).
     `enrichments`: selected output variable names (legacy 'choose enrichments
     to output') — empty/None = all configured."""
-    formats = cfg.formats or []
+    # Variable selection: honour each variable's on/off flag (default on), then an
+    # optional per-run narrowing. This is what lets you choose which variables get
+    # written instead of always writing every one.
+    formats = [f for f in (cfg.formats or []) if f.get("enabled", True)]
     if enrichments:
-        formats = [f for f in formats if f.get("name") in enrichments] or formats
+        sel = [f for f in formats if f.get("name") in enrichments]
+        if sel:
+            formats = sel
     if not formats:
         formats = [{"label": "Personalized First Line", "name": "personalized_first_line",
                     "guidance": "One specific sentence proving we researched THIS company, "
@@ -122,18 +129,28 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
                     "min_words": 12, "max_words": 25}]
     rules = [ln.strip() for ln in (cfg.rules or "").splitlines() if ln.strip()]
     if ai.has_ai():
+        reading = (getattr(cfg, "reading_level", "") or "").strip()
+        level_line = (f"\nREADING LEVEL: write so a {reading} reader understands it easily — "
+                      "short sentences, everyday words, no jargon." if reading else "")
         # Static prefix FIRST (prompt caching), per-lead content LAST — preserve ordering.
         system = ("You write personalized cold-email copy grounded ONLY in verified facts. "
-                  "Never fabricate. Match each variable's guidance and word range exactly.\n"
-                  "CLIENT PROFILE:\n" + json.dumps(cfg.profile or {}) +
+                  "Never fabricate. Match each variable's guidance and word range exactly. "
+                  "If a variable's primary info is missing from the facts/site, use its "
+                  "'fallback' instruction when one is provided; if there is no fallback and the "
+                  "info is missing, return an empty string for that variable (never invent)."
+                  + level_line +
+                  "\nCLIENT PROFILE:\n" + json.dumps(cfg.profile or {}) +
                   "\nGLOBAL RULES (obey every line):\n" + "\n".join(rules) +
                   "\nVARIABLES (return JSON keyed by 'name'):\n" + json.dumps(formats))
+        deep = getattr(cfg, "research_depth", "") == "deep"
+        wc = 14000 if deep else ai.writer_content_chars()
         user = ("LEAD: " + json.dumps({"first_name": lead.first_name, "company": lead.company,
                                        "title": lead.title}) +
                 "\nVERIFIED FACTS: " + json.dumps(ctx.get("facts", {})) +
-                "\nSITE EXCERPT:\n" + (ctx.get("crawl", {}).get("text", "")[:ai.writer_content_chars()]))
+                "\nSITE EXCERPT:\n" + (ctx.get("crawl", {}).get("text", "")[:wc]))
         try:
-            out = ai._call_openai(system, user, model=ai.writer_model())
+            out = ai._call_openai(system, user,
+                                  model=(getattr(cfg, "writer_model", "") or ai.writer_model()))
             return {"vars": {f["name"]: out.get(f["name"], "") for f in formats}, "source": "openai"}
         except Exception:
             pass

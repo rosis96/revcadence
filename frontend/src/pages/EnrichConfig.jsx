@@ -211,9 +211,57 @@ export default function EnrichConfigPage({ tab }) {
               )}
             </div>
           </div>
+          <div className="card" style={{ padding: 18, marginTop: 14 }}>
+            <h2 style={{ fontSize: 15, marginBottom: 4 }}>Writing controls</h2>
+            <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 12 }}>
+              How the AI writes your personalization, and how deeply it researches each site.
+            </p>
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+              <div className="field" style={{ margin: 0, minWidth: 190 }}>
+                <label>Reading level</label>
+                <select style={{ width: "100%" }} value={cfg.reading_level || ""}
+                        onChange={(e) => setCfg({ ...cfg, reading_level: e.target.value })}>
+                  <option value="">Natural (default)</option>
+                  <option value="5th grade">5th grade — very simple</option>
+                  <option value="6th grade">6th grade</option>
+                  <option value="7th grade">7th grade</option>
+                  <option value="8th grade">8th grade</option>
+                  <option value="10th grade">10th grade</option>
+                  <option value="plain professional">Plain professional</option>
+                </select>
+              </div>
+              <div className="field" style={{ margin: 0, minWidth: 190 }}>
+                <label>Research depth</label>
+                <select style={{ width: "100%" }} value={cfg.research_depth || "standard"}
+                        onChange={(e) => setCfg({ ...cfg, research_depth: e.target.value })}>
+                  <option value="standard">Standard (faster, cheaper)</option>
+                  <option value="deep">Deep (more pages + more content)</option>
+                </select>
+              </div>
+              <div className="field" style={{ margin: 0, minWidth: 200 }}>
+                <label>Writer model</label>
+                <select style={{ width: "100%" }} value={cfg.writer_model || ""}
+                        onChange={(e) => setCfg({ ...cfg, writer_model: e.target.value })}>
+                  <option value="">Default ({cfg.writer_model_effective || "server default"})</option>
+                  <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+                  <option value="gpt-4o-mini">gpt-4o-mini</option>
+                  <option value="gpt-4o">gpt-4o (higher quality)</option>
+                  <option value="gpt-4.1">gpt-4.1 (highest)</option>
+                </select>
+              </div>
+            </div>
+            <div style={{ marginTop: 10, fontSize: 12, color: cfg.ai_enabled ? "var(--muted)" : "#b91c1c" }}>
+              {cfg.ai_enabled
+                ? `● AI on — writing with ${cfg.writer_model_effective}, ICP/extraction with ${cfg.icp_model_effective}.`
+                : "● AI is OFF (no OpenAI key) — enrichment would fall back to templated demo copy. Set OPENAI_API_KEY."}
+            </div>
+          </div>
+
           <div className="toolbar" style={{ marginTop: 14 }}>
             <button className="btn" disabled={busy}
-                    onClick={() => save({ profile: cfg.profile, skip_title_gate: cfg.skip_title_gate, skip_icp: cfg.skip_icp, only_safe: cfg.only_safe })}>
+                    onClick={() => save({ profile: cfg.profile, skip_title_gate: cfg.skip_title_gate,
+                      skip_icp: cfg.skip_icp, only_safe: cfg.only_safe, reading_level: cfg.reading_level,
+                      writer_model: cfg.writer_model, research_depth: cfg.research_depth })}>
               Save profile</button>
           </div>
         </>
@@ -273,6 +321,11 @@ export default function EnrichConfigPage({ tab }) {
                   <input style={{ width: "100%", fontFamily: "monospace", fontSize: 12.5 }} value={f.name || ""}
                          onChange={(e) => setFmt(i, { name: e.target.value })} placeholder="personalized_first_line" />
                 </div>
+                <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5, whiteSpace: "nowrap" }}>
+                  <input type="checkbox" checked={f.enabled !== false}
+                         onChange={(e) => setFmt(i, { enabled: e.target.checked })} />
+                  Write this
+                </label>
                 <button className="btn ghost sm" onClick={() => duplicateVariable(i)}>Duplicate</button>
                 <button className="btn danger sm"
                         onClick={() => setCfg({ ...cfg, formats: cfg.formats.filter((_, j) => j !== i) })}>Remove</button>
@@ -282,6 +335,11 @@ export default function EnrichConfigPage({ tab }) {
                 <textarea rows={3} style={{ width: "100%" }} value={f.guidance}
                           onChange={(e) => setFmt(i, { guidance: e.target.value })}
                           placeholder="Explain in plain words how this should be written. e.g. One sentence on a specific, real detail from the prospect's site. No pitch. No greeting." /></div>
+
+              <div className="field"><label>Fallback <span style={{ color: "var(--muted)", fontWeight: 400 }}>(optional — if the info for this variable isn't available, write this instead. Leave blank to skip the variable when there's nothing to say)</span></label>
+                <textarea rows={2} style={{ width: "100%" }} value={f.fallback || ""}
+                          onChange={(e) => setFmt(i, { fallback: e.target.value })}
+                          placeholder="e.g. If no specific site detail, reference their industry and one common goal for that industry." /></div>
 
               <div className="field"><label>Rules for this variable <span style={{ color: "var(--muted)", fontWeight: 400 }}>(one rule per line — obeyed while writing THIS variable)</span></label>
                 <textarea rows={3} style={{ width: "100%" }} value={(f.rules || []).join("\n")}

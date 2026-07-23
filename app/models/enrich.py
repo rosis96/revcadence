@@ -71,4 +71,7 @@ class EnrichConfig(Base):
     skip_icp = Column(Integer, default=0)       # 1: don't reject Non-ICP — enrich all verified leads
     only_safe = Column(Integer, default=1)      # 1: catch_all/unknown stop as unsafe (default on)
     reoon_api_key_enc = Column(Text, default="")  # per-workspace Reoon key (encrypted); env fallback
+    reading_level = Column(String(40), default="")   # e.g. "6th grade" — controls writer simplicity
+    writer_model = Column(String(60), default="")    # override the OpenAI writer model (else env default)
+    research_depth = Column(String(20), default="standard")  # standard | deep (crawl pages + content budget)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

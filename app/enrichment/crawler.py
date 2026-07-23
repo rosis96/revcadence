@@ -44,9 +44,13 @@ def normalize_url(website: str) -> str:
     return website
 
 
-def crawl_site(website: str, html_override: str = "", on_progress=None) -> dict:
+def crawl_site(website: str, html_override: str = "", on_progress=None,
+               max_pages: int = 0, max_chars: int = 0) -> dict:
     """Returns {"url", "title", "meta_description", "text", "pages": [urls]}.
-    html_override lets callers (tests, cached HTML) skip the network entirely."""
+    html_override lets callers (tests, cached HTML) skip the network entirely.
+    max_pages/max_chars (>0) override the env budgets — used for 'deep' research."""
+    max_pages = max_pages or _max_pages()
+    max_chars = max_chars or _max_chars()
     url = normalize_url(website)
     result = {"url": url, "title": "", "meta_description": "", "text": "", "pages": []}
 
@@ -59,7 +63,7 @@ def crawl_site(website: str, html_override: str = "", on_progress=None) -> dict:
         result["title"] = soup.title.get_text(strip=True) if soup.title else ""
         md = soup.find("meta", attrs={"name": "description"})
         result["meta_description"] = (md.get("content") or "").strip() if md else ""
-        result["text"] = _clean(soup)[:_max_chars()]
+        result["text"] = _clean(soup)[:max_chars]
         result["pages"] = [url or "override"]
         return result
 
@@ -91,7 +95,7 @@ def crawl_site(website: str, html_override: str = "", on_progress=None) -> dict:
         if any(k in full.lower() for k in INTERESTING):
             queue.append(full)
             seen.add(full)
-    for link in queue[:_max_pages() - 1]:
+    for link in queue[:max_pages - 1]:
         note(f"fetching {link}")
         try:
             r = requests.get(link, headers=HEADERS, timeout=TIMEOUT)
@@ -101,5 +105,5 @@ def crawl_site(website: str, html_override: str = "", on_progress=None) -> dict:
         except Exception:
             continue
 
-    result["text"] = " ".join(texts)[:_max_chars()]
+    result["text"] = " ".join(texts)[:max_chars]
     return result
