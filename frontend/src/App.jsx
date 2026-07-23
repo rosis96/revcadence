@@ -4,7 +4,7 @@ import {
   LayoutGrid, ListChecks, Database, CircleUser, Target, AlignLeft, CheckCheck, FileText,
   Mail, Inbox, FlaskConical, Settings2, SlidersHorizontal, Flag, Globe, Rows3, Building2,
   Contact, Activity as ActivityIcon, Cog, Wrench, ShieldCheck, ChevronDown, MoreHorizontal,
-  LogOut, Search, ClipboardList, Radar, Briefcase, Bell, KeyRound, Plug,
+  LogOut, Search, ClipboardList, Radar, Briefcase, Bell, KeyRound, Plug, BarChart3,
 } from "lucide-react";
 import { AuthProvider, useAuth } from "./auth";
 import { CommandPalette, ToastProvider, useApi, useClickOutside } from "./components";
@@ -13,6 +13,7 @@ import Developers from "./pages/Developers";
 import CrmSync from "./pages/CrmSync";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
+import Reports from "./pages/Reports";
 import Pipeline from "./pages/Pipeline";
 import Companies from "./pages/Companies";
 import CompanyDetail from "./pages/CompanyDetail";
@@ -84,6 +85,7 @@ const MODES = {
     label: "CRM",
     nav: [
       ["/pipeline", "Pipeline", Rows3],
+      ["/reports", "Reports", BarChart3],
       ["/revenue-inbox", "Revenue Inbox", Inbox],
       ["/blueprints", "Blueprints & Agreements", FileText],
       ["/invoices", "Invoices", ClipboardList],
@@ -246,6 +248,7 @@ function Protected() {
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/pipeline" element={<Pipeline />} />
+        <Route path="/reports" element={<Reports />} />
         <Route path="/deals/:id" element={<DealRecord />} />
         <Route path="/revenue-inbox" element={<RevenueInbox />} />
         <Route path="/settings/email" element={<MailboxConnect />} />

@@ -489,6 +489,104 @@ def dashboard_summary(workspace_id: int | None = None, ctx: AuthContext = Depend
     }
 
 
+@router.get("/reports/summary")
+def reports_summary(workspace_id: int | None = None, days: int = 90,
+                    ctx: AuthContext = Depends(get_ctx)):
+    """Client-facing ROI report: headline KPIs, the conversion funnel, and a
+    weekly trend. Everything is scoped to the workspace (a client sees only
+    theirs). Funnel is stage-membership based so it's accurate and defensible."""
+    from datetime import timedelta
+
+    ws_ids = ctx.workspace_ids_for_query(workspace_id)
+    days = max(7, min(int(days or 90), 365))
+    now = datetime.utcnow()
+    since = now - timedelta(days=days)
+
+    stages = {s.id: s for s in ctx.db.query(Stage).filter(Stage.workspace_id.in_(ws_ids)).all()}
+    won_ids = {i for i, s in stages.items() if s.is_won}
+    lost_ids = {i for i, s in stages.items() if s.is_lost}
+    name_of = {i: s.name for i, s in stages.items()}
+    BOOKED = {"Meeting Booked", "Meeting Completed", "No Show", "Follow-up", "Won"}
+    COMPLETED = {"Meeting Completed", "Follow-up", "Won"}
+
+    deals = scoped(ctx.db.query(Deal), Deal, ctx, workspace_id).all()
+    open_deals = [d for d in deals if d.stage_id not in won_ids and d.stage_id not in lost_ids]
+    won_deals = [d for d in deals if d.stage_id in won_ids]
+    booked = [d for d in deals if name_of.get(d.stage_id, "") in BOOKED]
+    completed = [d for d in deals if name_of.get(d.stage_id, "") in COMPLETED]
+
+    def in_range(dt):
+        return dt is not None and dt >= since
+
+    opps_range = [d for d in deals if in_range(d.created_at)]
+    won_range = [d for d in won_deals if in_range(d.stage_changed_at or d.updated_at)]
+    replies = scoped(ctx.db.query(Activity), Activity, ctx, workspace_id).filter(Activity.kind == "email_in").all()
+    positive = [a for a in replies if "positive" in str((a.data or {}).get("intent", "")).lower()]
+    positive_range = [a for a in positive if in_range(a.occurred_at)]
+
+    def rate(n, d):
+        return round(100 * n / d) if d else 0
+
+    funnel = [
+        {"label": "Opportunities", "count": len(deals)},
+        {"label": "Meetings booked", "count": len(booked)},
+        {"label": "Meetings completed", "count": len(completed)},
+        {"label": "Won", "count": len(won_deals)},
+    ]
+
+    # weekly trend (most recent `weeks` buckets)
+    weeks = max(1, min((days + 6) // 7, 26))
+    start = now - timedelta(days=weeks * 7)
+    trend = [{"week": (start + timedelta(days=i * 7)).strftime("%b %d"),
+              "opportunities": 0, "meetings": 0, "won_value": 0.0} for i in range(weeks)]
+
+    def bucket(dt):
+        if dt is None or dt < start:
+            return None
+        idx = (dt - start).days // 7
+        return idx if 0 <= idx < weeks else None
+
+    for d in deals:
+        b = bucket(d.created_at)
+        if b is not None:
+            trend[b]["opportunities"] += 1
+    for d in won_deals:
+        b = bucket(d.stage_changed_at or d.updated_at)
+        if b is not None:
+            trend[b]["won_value"] += float(d.value or 0)
+    for a in scoped(ctx.db.query(Activity), Activity, ctx, workspace_id).filter(
+            Activity.kind == "stage_change").all():
+        if "meeting booked" in str(a.title or "").lower():
+            b = bucket(a.occurred_at)
+            if b is not None:
+                trend[b]["meetings"] += 1
+
+    top = sorted(open_deals, key=lambda d: (d.value or 0), reverse=True)[:8]
+    return {
+        "range_days": days,
+        "kpis": {
+            "open_pipeline_value": round(sum(d.value or 0 for d in open_deals)),
+            "won_revenue": round(sum(d.value or 0 for d in won_deals)),
+            "won_revenue_in_range": round(sum(d.value or 0 for d in won_range)),
+            "active_deals": len(open_deals),
+            "opportunities_in_range": len(opps_range),
+            "meetings_booked": len(booked),
+            "deals_won_in_range": len(won_range),
+            "positive_replies_in_range": len(positive_range),
+        },
+        "conversion": {
+            "booked_rate": rate(len(booked), len(deals)),
+            "completed_rate": rate(len(completed), len(booked)),
+            "won_rate": rate(len(won_deals), len(completed)),
+            "opp_to_won_rate": rate(len(won_deals), len(deals)),
+        },
+        "funnel": funnel,
+        "trend": trend,
+        "top_open_deals": [{"id": d.id, "name": d.name or "(unnamed)", "value": round(d.value or 0),
+                            "stage": name_of.get(d.stage_id, "")} for d in top],
+    }
+
+
 @router.get("/companies/{company_id}/revenue-timeline")
 def revenue_timeline(company_id: int, ctx: AuthContext = Depends(get_ctx)):
     """The Revenue Timeline: one chronological journey for a company, from the
