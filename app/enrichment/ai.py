@@ -26,6 +26,10 @@ def competitor_model() -> str:
     return os.getenv("COMPETITOR_MODEL", "gpt-4o-mini")
 
 
+def vision_model() -> str:
+    return os.getenv("VISION_MODEL", "gpt-4.1-mini")
+
+
 # Content budgets (env cost levers — input tokens dominate ~10:1).
 # Reference incident: EXTRACT_CONTENT_CHARS=22000 caused runaway spend. Keep modest.
 def extract_content_chars() -> int:
@@ -87,6 +91,76 @@ def _call_openai(system: str, user: str, model: str = "") -> dict:
     )
     resp.raise_for_status()
     return json.loads(resp.json()["choices"][0]["message"]["content"])
+
+
+def analyze_site_images(company: str, images: list, limit: int = 3) -> list:
+    """Read a tiny, evidence-ranked set of website images.
+
+    Image analysis is deliberately bounded and can be disabled with
+    ENRICH_IMAGE_VISION=0. It is for visible names, project labels, diagrams,
+    awards and metrics—not aesthetic guesses. Returned observations remain
+    explicitly marked as visual until the evidence normalizer validates them.
+    """
+    if not has_ai() or os.getenv("ENRICH_IMAGE_VISION", "1") != "1":
+        return []
+    selected = [x for x in (images or []) if x.get("url")][:max(0, min(limit, 5))]
+    if not selected:
+        return []
+    content = [{
+        "type": "text",
+        "text": (
+            f"Company: {company}\nInspect these images from the company's own website. "
+            "Extract ONLY text or concrete facts visibly present: named clients/projects, "
+            "methodologies, awards, services, or measurable results. Do not infer quality, "
+            "importance, intent, or business performance. Return JSON "
+            '{"observations":[{"image_url":str,"page_url":str,"type":str,'
+            '"claim":str,"visible_text":str,"confidence":0-1}]}. '
+            "Return an empty observations list if an image is decorative or ambiguous."
+        ),
+    }]
+    allowed = {}
+    for image in selected:
+        allowed[image["url"]] = image
+        content.append({"type": "text", "text": json.dumps({
+            "image_url": image["url"], "page_url": image.get("page_url", ""),
+            "alt": image.get("alt", ""), "caption": image.get("caption", ""),
+        })})
+        content.append({"type": "image_url", "image_url": {"url": image["url"], "detail": "low"}})
+    try:
+        resp = requests.post(
+            OPENAI_URL,
+            headers={"Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",
+                     "Content-Type": "application/json"},
+            json={"model": vision_model().lower(), "temperature": 0,
+                  "response_format": {"type": "json_object"},
+                  "messages": [{"role": "system", "content":
+                                "You are a conservative visual evidence extractor. Never guess."},
+                               {"role": "user", "content": content}]},
+            timeout=90,
+        )
+        resp.raise_for_status()
+        raw = json.loads(resp.json()["choices"][0]["message"]["content"])
+    except Exception:
+        return []
+    out = []
+    for obs in raw.get("observations") or []:
+        image_url = str(obs.get("image_url") or "")
+        meta = allowed.get(image_url)
+        claim = str(obs.get("claim") or "").strip()
+        visible = str(obs.get("visible_text") or "").strip()
+        try:
+            confidence = float(obs.get("confidence") or 0)
+        except (TypeError, ValueError):
+            confidence = 0
+        if not meta or not claim or confidence < 0.75:
+            continue
+        out.append({
+            "type": str(obs.get("type") or "visual").strip(),
+            "claim": claim, "supporting_quote": visible,
+            "source_url": meta.get("page_url", ""), "image_url": image_url,
+            "source_kind": "image", "confidence": min(confidence, 1.0),
+        })
+    return out[:12]
 
 
 def extract_company(crawl: dict) -> dict:

@@ -4,7 +4,8 @@ _pipeline_one. Cheapest-first funnel — ORDER IS DELIBERATE, DO NOT REORDER:
   1. FREE verify   → reject dead emails at $0        → status "invalid"
   2. Reoon verify  → mailbox real? not safe → stop   → status "unsafe"
   3. Title gate + ICP (one scrape + one extraction)  → Non-ICP → "skipped"
-  4. Write copy (reuses the ICP context — no second scrape/extraction) → "done"
+  4. Write copy (reuses the ICP context — no second scrape/extraction)
+     → "done", "needs_review", or "generation_failed"
 
 Resume semantics: leads already in a TERMINAL status are never re-processed.
 """
@@ -63,6 +64,110 @@ def _title_gate(title: str) -> bool:
     return any(s in t for s in SENIOR_TITLES)
 
 
+def _research_packet(crawl: dict, char_budget: int) -> str:
+    """Build a balanced, source-labelled packet from ranked pages.
+
+    The old implementation flattened the crawl then took the first N characters,
+    which could hide the best case study behind homepage copy. This allocates a
+    slice to every high-value page and keeps its URL attached.
+    """
+    pages = crawl.get("page_records") or []
+    if not pages:
+        return (crawl.get("text") or "")[:char_budget]
+    # Preserve the strongest proof while guaranteeing a mix of work,
+    # methodology/services and company-level context.
+    selected = list(pages[:8])
+    selected_urls = {p.get("url") for p in selected}
+    for kind in ("work", "methodology", "services", "clients", "about", "homepage"):
+        page = next((p for p in pages
+                     if p.get("page_type") == kind and p.get("url") not in selected_urls), None)
+        if page and len(selected) < 12:
+            selected.append(page)
+            selected_urls.add(page.get("url"))
+    for page in pages:
+        if len(selected) >= 12:
+            break
+        if page.get("url") not in selected_urls:
+            selected.append(page)
+            selected_urls.add(page.get("url"))
+    pages = selected
+    per_page = max(900, min(4200, char_budget // max(len(pages), 1)))
+    chunks, used = [], 0
+    for page in pages:
+        header = (f"\n[PAGE]\nURL: {page.get('url', '')}\n"
+                  f"TYPE: {page.get('page_type', 'other')}\n"
+                  f"TITLE: {page.get('title', '')}\nTEXT:\n")
+        room = min(per_page, char_budget - used - len(header))
+        if room < 250:
+            break
+        body = _research_excerpt(page.get("text") or "", room)
+        chunks.append(header + body)
+        used += len(header) + len(body)
+    return "\n".join(chunks)[:char_budget]
+
+
+def _research_excerpt(text: str, room: int) -> str:
+    """Keep both page identity and the proof-rich sentences within a small slice."""
+    if len(text) <= room:
+        return text
+    lead_room = max(350, int(room * .52))
+    lead = text[:lead_room].rstrip()
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    proof = []
+    pattern = re.compile(
+        r"[$€£]|\d+(?:[.,]\d+)?%?|\b(result|increas|grew|growth|reduc|award|"
+        r"campaign|client|launch|fund|revenue|donor|enrollment|completed|impact)\b",
+        re.I,
+    )
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if len(sentence) >= 25 and pattern.search(sentence) and sentence not in lead:
+            proof.append(sentence)
+    suffix = ""
+    for sentence in proof:
+        candidate = (suffix + " " + sentence).strip()
+        if len(lead) + 3 + len(candidate) > room:
+            continue
+        suffix = candidate
+    return f"{lead}\nPROOF HIGHLIGHTS: {suffix}"[:room] if suffix else text[:room]
+
+
+def _validate_text_evidence(crawl: dict, items: list) -> list:
+    """Keep only evidence whose supporting quote exists on its claimed page."""
+    pages = crawl.get("page_records") or []
+    by_url = {p.get("url", "").rstrip("/"): p for p in pages}
+    out, seen = [], set()
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        claim = str(item.get("claim") or "").strip()
+        quote = str(item.get("supporting_quote") or item.get("quote") or "").strip()
+        source = str(item.get("source_url") or "").strip().rstrip("/")
+        if not claim or len(quote) < 10:
+            continue
+        page = by_url.get(source)
+        # Models occasionally omit/normalize the URL. Recover it only when the
+        # quote itself identifies one unambiguous crawled page.
+        if page is None:
+            matches = [p for p in pages if _norm(quote) in _norm(p.get("text", ""))]
+            if len(matches) == 1:
+                page = matches[0]
+                source = page.get("url", "")
+        if page is None or _norm(quote) not in _norm(page.get("text", "")):
+            continue
+        kind = str(item.get("type") or "fact").strip().lower().replace(" ", "_")
+        key = (kind, _norm(claim))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({
+            "id": f"ev_{len(out) + 1}", "type": kind, "claim": claim,
+            "supporting_quote": quote, "source_url": source,
+            "source_kind": "html", "confidence": 1.0,
+        })
+    return out
+
+
 def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
     """One scrape + one extraction; returns ctx reused by the writer."""
     deep = getattr(cfg, "research_depth", "") == "deep"
@@ -73,7 +178,7 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
     # generic — the citeable facts (named projects, clients, metrics) are on inner
     # pages and behind JS.
     crawl = crawl_site(lead.website, html_override=(lead.data or {}).get("html_override", ""),
-                       max_pages=12 if deep else 6, max_chars=32000 if deep else 18000,
+                       max_pages=30 if deep else 16, max_chars=76000 if deep else 52000,
                        follow_all=True, render=True)
     if crawl.get("error") or not crawl.get("text"):
         return {"error": crawl.get("error") or "no website content", "crawl": crawl}
@@ -94,12 +199,15 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
                 icp_block += f"WHEN UNSURE, RETURN: {icp['default']}\n"
         except Exception:
             pass  # plain-text ICP definition — use as-is
-        system = ("You are an ICP classifier and EVIDENCE extractor. Read the whole site text and build an "
+        system = ("You are an ICP classifier and EVIDENCE extractor. Read the source-labelled website pages and build an "
                   "EVIDENCE BANK of concrete, company-specific signals — NOT themes. Ground everything ONLY "
-                  "in the provided site text: copy names/numbers verbatim, and LEAVE A FIELD EMPTY when the "
+                  "in the provided pages: copy names/numbers verbatim, and LEAVE A FIELD EMPTY when the "
                   "site does not support it (never invent, never generalize a category into a 'fact'). Do "
                   "NOT record vague themes like 'clarity', 'leadership', 'award-winning', 'bold brands' — "
-                  "only named, checkable specifics.\n"
+                  "only named, checkable specifics. A missing private metric (revenue, LTV, employee count, "
+                  "demand, sales-cycle complexity) is UNKNOWN, never negative evidence. Return Non-ICP only "
+                  "when a positive fact matches a hard exclusion; otherwise use Needs Review when evidence "
+                  "is incomplete.\n"
                   "ICP definition (single source of truth):\n"
                   + icp_block
                   + '\nReturn JSON: {"icp_decision": "ICP"|"Non-ICP"|"Needs Review", "icp_score": 0-100, '
@@ -118,12 +226,44 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
                     '"distinctive_projects": [str — named campaigns/projects], '
                     '"target_industries": [str — the industries/sectors of their customers], '
                     '"decision_makers": [str — the buyer roles they serve], '
-                    '"commercial_challenges": [str — the business problems their customers face]}}')
-        research_chars = 14000 if deep else 10000
-        user = (f"Company: {lead.company}\nSite: {crawl.get('url')}\nText:\n"
-                f"{crawl.get('text')[:research_chars]}")
+                    '"commercial_challenges": [str — the business problems their customers face], '
+                    '"evidence": [ {"type": "case_study"|"measurable_result"|"named_client"|'
+                    '"methodology"|"named_service"|"project"|"award"|"industry"|"buyer"|"challenge", '
+                    '"claim": str, "source_url": str (copy the PAGE URL), '
+                    '"supporting_quote": str (short exact quote copied from that page)} ]}}')
+        research_chars = 32000 if deep else 18000
+        packet = _research_packet(crawl, research_chars)
         try:
+            vision_limit = 4 if deep else 2
+            visual = ai.analyze_site_images(lead.company, crawl.get("image_candidates") or [],
+                                            limit=vision_limit)
+            visual_context = ("\n\nVALIDATED VISUAL OBSERVATIONS (keep source_kind=image):\n"
+                              + json.dumps(visual)) if visual else ""
+            user = (f"Company: {lead.company}\nSite: {crawl.get('url')}\n"
+                    f"SOURCE-LABELLED PAGES:\n{packet}{visual_context}")
             out = ai._call_openai(system, user, model=ai.extract_model())
+            facts = out.get("facts") if isinstance(out.get("facts"), dict) else {}
+            evidence = _validate_text_evidence(crawl, facts.get("evidence") or [])
+            for item in visual:
+                item = {**item, "id": f"ev_{len(evidence) + 1}"}
+                evidence.append(item)
+            facts["evidence"] = evidence
+            facts["_evidence_version"] = 2
+            out["facts"] = facts
+            reason_low = str(out.get("icp_reason") or "").lower()
+            absence_only = any(p in reason_low for p in (
+                "does not provide", "no information", "no indication", "not stated",
+                "not available", "could not find", "unclear from", "not disclosed",
+            ))
+            if out.get("icp_decision") == "Non-ICP" and absence_only:
+                out["icp_decision"] = "Needs Review"
+                out["icp_score"] = max(int(out.get("icp_score") or 0), 40)
+                out["icp_reason"] = (
+                    "Needs review: the site does not disclose enough information to confirm fit; "
+                    "missing private metrics are not treated as evidence of non-fit."
+                )
+            crawl["diagnostics"]["evidence_validated"] = len(evidence)
+            crawl["diagnostics"]["visual_evidence"] = len(visual)
             out["crawl"] = crawl
             out["source"] = "openai"
             return out
@@ -171,11 +311,43 @@ def _flatten_signals(facts: dict) -> list:
     facts = facts or {}
     sig = []
 
-    def add(kind, score, text):
+    def add(kind, score, text, *, evidence_id="", source_url="", quote="",
+            source_kind="html", confidence=1.0):
         text = (text or "").strip()
         key = _norm(text)
         if text and key:
-            sig.append({"type": kind, "score": score, "text": text, "key": key})
+            sig.append({"type": kind, "score": score, "text": text, "key": key,
+                        "evidence_id": evidence_id, "source_url": source_url,
+                        "supporting_quote": quote, "source_kind": source_kind,
+                        "confidence": confidence})
+
+    score_for = {
+        "measurable_result": 10, "result": 10, "case_study": 10,
+        "named_client": 9, "client": 9, "award": 9, "methodology": 9,
+        "framework": 9, "named_service": 8, "service": 8, "project": 8,
+        "partnership": 8, "industry": 7, "buyer": 7, "challenge": 7,
+    }
+    # Provenance-backed evidence is the canonical path. Legacy fact arrays remain
+    # as a compatibility fallback for records generated before this upgrade.
+    evidence = [x for x in (facts.get("evidence") or []) if isinstance(x, dict)]
+    for ev in evidence:
+        raw_kind = str(ev.get("type") or "fact").lower()
+        kind = {"measurable_result": "result", "named_client": "client",
+                "methodology": "framework", "named_service": "service"}.get(raw_kind, raw_kind)
+        add(kind, score_for.get(raw_kind, score_for.get(kind, 7)), ev.get("claim", ""),
+            evidence_id=ev.get("id", ""), source_url=ev.get("source_url", ""),
+            quote=ev.get("supporting_quote", ""), source_kind=ev.get("source_kind", "html"),
+            confidence=float(ev.get("confidence") or 0))
+    if evidence or facts.get("_evidence_version"):
+        best = {}
+        for s in sig:
+            # Claim-level dedupe prevents the same John Jay metric being treated
+            # as both a case study and a separate result.
+            k = s["key"]
+            if k not in best or s["score"] > best[k]["score"]:
+                best[k] = s
+        return sorted(best.values(), key=lambda x: (-x["score"], -x["confidence"]))
+
     for cs in facts.get("case_studies") or []:
         if isinstance(cs, dict):
             who = (cs.get("client") or cs.get("name") or "").strip()
@@ -200,10 +372,11 @@ def _flatten_signals(facts: dict) -> list:
         add("partnership", 8, p)
     for i in facts.get("target_industries") or []:
         add("industry", 7, i)
-    # dedupe by (type,key) keeping the highest score, then sort by score desc
+    # dedupe by claim, not (type, claim), so one fact cannot be assigned twice
+    # merely because extraction placed it in two categories.
     best = {}
     for s in sig:
-        k = (s["type"], s["key"])
+        k = s["key"]
         if k not in best or s["score"] > best[k]["score"]:
             best[k] = s
     return sorted(best.values(), key=lambda x: -x["score"])
@@ -308,6 +481,11 @@ def _assign_evidence(facts: dict, formats: list) -> dict:
             "evidence": (sig or {}).get("text", ""),
             "evidence_type": (sig or {}).get("type", ""),
             "evidence_key": (sig or {}).get("key", ""),
+            "evidence_id": (sig or {}).get("evidence_id", ""),
+            "source_url": (sig or {}).get("source_url", ""),
+            "supporting_quote": (sig or {}).get("supporting_quote", ""),
+            "source_kind": (sig or {}).get("source_kind", ""),
+            "confidence": (sig or {}).get("confidence", 0),
             "reuse_ok": role == "reference",
         }
     # pitch audience packet
@@ -329,8 +507,6 @@ def _has_concrete_detail(text: str, facts: dict) -> bool:
     low = (text or "").lower()
     if not low.strip():
         return False
-    if re.search(r"\d", low):
-        return True
     for key in ("named_clients", "named_services", "frameworks", "distinctive_projects",
                 "awards", "partnerships"):
         for v in facts.get(key) or []:
@@ -343,17 +519,62 @@ def _has_concrete_detail(text: str, facts: dict) -> bool:
                 tok = _norm(v or "")
                 if len(tok) >= 4 and tok in _norm(text):
                     return True
+    for ev in facts.get("evidence") or []:
+        if not isinstance(ev, dict):
+            continue
+        claim = _norm(ev.get("claim", ""))
+        # A meaningful named phrase from a validated claim is a concrete anchor.
+        tokens = [x for x in claim.split() if len(x) >= 4 and not x.isdigit()]
+        if any(tok in _norm(text) for tok in tokens[:8]):
+            return True
     return False
 
 
+_ANCHOR_STOPWORDS = {
+    "about", "above", "across", "after", "again", "also", "annual", "approach",
+    "brand", "business", "campaign", "clarity", "client", "clients", "college",
+    "company", "completed", "creating", "customer", "customers", "design",
+    "developing", "fund", "growth", "help", "helped", "helping", "identity",
+    "increase", "increased", "industry", "leading", "methodology", "more",
+    "organization", "program", "project", "result", "results", "revenue",
+    "service", "services", "their", "through", "using", "with", "work", "your",
+}
+
+
+def _uses_assigned_evidence(text: str, assignment: dict) -> bool:
+    """Require copy to carry a distinctive anchor from its own assigned proof.
+
+    Merely saying "revenue", "campaign" or "identity" is not grounding. A line
+    assigned to the John Jay result must retain John/Jay, its supported number,
+    or another uncommon term from that evidence.
+    """
+    evidence = " ".join([
+        str(assignment.get("evidence") or ""),
+        str(assignment.get("supporting_quote") or ""),
+    ]).strip()
+    if not evidence:
+        return True
+    normalized_text = _norm(text)
+    evidence_numbers = set(re.findall(r"\d+(?:[.,]\d+)?%?", evidence))
+    if any(number in text for number in evidence_numbers):
+        return True
+    candidates = {
+        token.lower()
+        for token in re.findall(r"[A-Za-z][A-Za-z0-9'-]{3,}", evidence)
+        if token.lower() not in _ANCHOR_STOPWORDS
+    }
+    return any(_norm(token) in normalized_text for token in candidates)
+
+
 def _qc_failures(vars_out: dict, assign: dict, facts: dict) -> dict:
-    """Return {name: reason} for variables that must be regenerated. Empty strings
-    are allowed (missing evidence → intentionally blank), so they never fail."""
+    """Return {name: reason} for variables that must be regenerated."""
     fails = {}
     primary_seen = {}   # evidence_key -> first variable that used it
     for name, text in vars_out.items():
         t = (text or "").strip()
         if not t:
+            if assign.get(name, {}).get("evidence"):
+                fails[name] = "blank despite having assigned evidence"
             continue
         low = t.lower()
         role = assign.get(name, {}).get("role", "other")
@@ -366,6 +587,22 @@ def _qc_failures(vars_out: dict, assign: dict, facts: dict) -> dict:
             if role != "pitch":
                 fails[name] = "no concrete, website-specific detail (named entity or number)"
                 continue
+        # Numbers are high-risk claims. Every number in generated copy must occur
+        # in the validated evidence assigned to that variable.
+        assignment = assign.get(name, {})
+        nums = set(re.findall(r"\d+(?:[.,]\d+)?%?", t))
+        grounding = " ".join([
+            str(assignment.get("evidence", "")),
+            str(assignment.get("supporting_quote", "")),
+        ])
+        unsupported = [n for n in nums if n not in grounding]
+        if unsupported:
+            fails[name] = f"contains unsupported number(s): {', '.join(unsupported)}"
+            continue
+        if role != "pitch" and assignment.get("evidence") \
+                and not _uses_assigned_evidence(t, assignment):
+            fails[name] = "does not use a distinctive anchor from its assigned evidence"
+            continue
         # generic value-noun compliment with no concrete anchor
         if role == "product_compliment" and any(g in low for g in _GENERIC_NOUNS) and not _has_concrete_detail(t, facts):
             fails[name] = "compliment is about a broad value, not a named piece of work"
@@ -388,7 +625,9 @@ def _augmented_formats(formats: list, assign: dict) -> list:
         aug.append({**f,
                     "_job": a.get("purpose", ""),
                     "_use_this_evidence": a.get("evidence", ""),
-                    "_evidence_type": a.get("evidence_type", "")})
+                    "_evidence_type": a.get("evidence_type", ""),
+                    "_source_url": a.get("source_url", ""),
+                    "_supporting_quote": a.get("supporting_quote", "")})
     return aug
 
 
@@ -434,54 +673,55 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
     rules = [ln.strip() for ln in (cfg.rules or "").splitlines() if ln.strip()]
     facts = ctx.get("facts", {}) or {}
 
-    if ai.has_ai():
-        reading = (getattr(cfg, "reading_level", "") or "").strip()
-        level_line = (f"\nREADING LEVEL: write so a {reading} reader understands it easily — "
-                      "short sentences, everyday words, no jargon." if reading else "")
-        assign = _assign_evidence(facts, formats)
-        aug = _augmented_formats(formats, assign)
-        system = _writer_system(cfg, rules, level_line) + \
-            "\nVARIABLES (return JSON keyed by 'name'; honour each one's _job and _use_this_evidence):\n" \
-            + json.dumps(aug)
-        deep = getattr(cfg, "research_depth", "") == "deep"
-        wc = 16000 if deep else 9000
-        user = ("LEAD: " + json.dumps({"first_name": lead.first_name, "company": lead.company,
-                                       "title": lead.title}) +
-                "\nEVIDENCE BANK: " + json.dumps(facts) +
-                "\nSITE EXCERPT:\n" + (ctx.get("crawl", {}).get("text", "")[:wc]))
+    if not ai.has_ai():
+        return {"vars": {}, "source": "failed", "assignments": {},
+                "error": "OPENAI_API_KEY is not configured; generation was refused."}
+
+    reading = (getattr(cfg, "reading_level", "") or "").strip()
+    level_line = (f"\nREADING LEVEL: write so a {reading} reader understands it easily — "
+                  "short sentences, everyday words, no jargon." if reading else "")
+    assign = _assign_evidence(facts, formats)
+    aug = _augmented_formats(formats, assign)
+    system = _writer_system(cfg, rules, level_line) + \
+        "\nVARIABLES (return JSON keyed by 'name'; honour each one's _job and _use_this_evidence):\n" \
+        + json.dumps(aug)
+    deep = getattr(cfg, "research_depth", "") == "deep"
+    wc = 24000 if deep else 14000
+    user = ("LEAD: " + json.dumps({"first_name": lead.first_name, "company": lead.company,
+                                   "title": lead.title}) +
+            "\nVALIDATED EVIDENCE BANK: " + json.dumps(facts.get("evidence") or []) +
+            "\nSOURCE-LABELLED RESEARCH:\n" + _research_packet(ctx.get("crawl", {}), wc))
+    try:
+        model = (getattr(cfg, "writer_model", "") or ai.writer_model())
+        out = ai._call_openai(system, user, model=model)
+    except Exception as exc:
+        return {"vars": {}, "source": "failed", "assignments": assign,
+                "error": f"Writer failed: {str(exc)[:240]}"}
+
+    vars_out = {f["name"]: out.get(f["name"], "") for f in formats}
+    # Regenerate only failed variables once, then quarantine every remaining
+    # failure. No fallback prose and no partially grounded result may be `done`.
+    fails = _qc_failures(vars_out, assign, facts)
+    if fails:
+        fix_formats = [f for f in aug if f["name"] in fails]
+        fix_system = (_writer_system(cfg, rules, level_line) +
+                      "\nThese variables FAILED review and MUST be rewritten to fix the stated "
+                      "problem. Use ONLY the assigned evidence and quote. If support is insufficient, "
+                      "return an empty string rather than praise.\nFAILURES:\n" +
+                      "\n".join(f"- {n}: {r}" for n, r in fails.items()) +
+                      "\nVARIABLES TO REWRITE:\n" + json.dumps(fix_formats))
         try:
-            model = (getattr(cfg, "writer_model", "") or ai.writer_model())
-            out = ai._call_openai(system, user, model=model)
-            vars_out = {f["name"]: out.get(f["name"], "") for f in formats}
-            # ---- QC pass: regenerate only the variables that fail hard checks
-            fails = _qc_failures(vars_out, assign, facts)
-            if fails:
-                fix_formats = [f for f in aug if f["name"] in fails]
-                fix_system = (_writer_system(cfg, rules, level_line) +
-                              "\nThese variables FAILED review and MUST be rewritten to fix the stated "
-                              "problem. Use ONLY the assigned _use_this_evidence; if it is empty and there is "
-                              "no other unused specific detail, return an empty string rather than praise.\n"
-                              "FAILURES (name: reason):\n" +
-                              "\n".join(f"- {n}: {r}" for n, r in fails.items()) +
-                              "\nVARIABLES TO REWRITE (return JSON keyed by 'name'):\n" + json.dumps(fix_formats))
-                try:
-                    fixed = ai._call_openai(fix_system, user, model=model)
-                    for n in fails:
-                        if isinstance(fixed, dict) and n in fixed:
-                            vars_out[n] = fixed.get(n, "")
-                except Exception:
-                    pass
-                # anything still failing a banned-phrase check → blank it rather than ship filler
-                for n, reason in _qc_failures(vars_out, assign, facts).items():
-                    if "banned filler" in reason:
-                        vars_out[n] = ""
-            return {"vars": vars_out, "source": "openai"}
+            fixed = ai._call_openai(fix_system, user, model=model)
+            for name in fails:
+                if isinstance(fixed, dict) and name in fixed:
+                    vars_out[name] = fixed.get(name, "")
         except Exception:
             pass
-    desc = (facts.get("description", "")) or f"what {lead.company} does"
-    return {"vars": {f.get("name", f"var_{i}"):
-                     f"Really like how {lead.company} focuses on {desc[:80].rstrip('.')}."
-                     for i, f in enumerate(formats)}, "source": "demo"}
+    final_fails = _qc_failures(vars_out, assign, facts)
+    for name in final_fails:
+        vars_out[name] = ""
+    return {"vars": vars_out, "source": "openai", "assignments": assign,
+            "quality_failures": final_fails}
 
 
 _EMAIL_RE = re.compile(r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
@@ -640,8 +880,16 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
     written = _write_copy(lead, cfg, icp, enrichments=enrichments)
     clean_vars = {k: sanitize_text(v) for k, v in written["vars"].items()}
     lead.result = {**(lead.result or {}), **clean_vars,
-                   "_facts": facts, "_writer": written["source"], "_research": research}
-    lead.status = "done"
+                   "_facts": facts, "_writer": written["source"], "_research": research,
+                   "_assignments": written.get("assignments") or {},
+                   "_quality_failures": written.get("quality_failures") or {}}
+    if written.get("error"):
+        lead.result = {**lead.result, "_generation_error": written["error"]}
+        lead.status = "generation_failed"
+    elif written.get("quality_failures"):
+        lead.status = "needs_review"
+    else:
+        lead.status = "done"
     lead.updated_at = datetime.utcnow()
     db.commit()
     return lead.status

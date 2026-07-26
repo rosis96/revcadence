@@ -34,7 +34,7 @@ export default function BrainChat() {
     try {
       const r = await api(`/api/enrich-lists/config/${wsId}/brain-chat`, { method: "POST", body: { messages: next } });
       setMessages((m) => [...m, { role: "assistant", content: r.reply, learned: r.learned }]);
-      if (r.learned?.length) toast(`Added to the brain: ${r.learned.join(", ")}`);
+      if (r.learned?.length) toast(`Brain updated: ${r.learned.join(", ")}`);
     } catch (e) {
       setMessages((m) => [...m, { role: "assistant", content: `⚠️ ${e.message}` }]);
     } finally { setBusy(false); }
@@ -46,8 +46,8 @@ export default function BrainChat() {
     try {
       const r = await api(`/api/enrich-lists/config/${wsId}/brain-learn`, { method: "POST", body: { messages } });
       if (r.saved?.length) {
-        toast(`Saved to brain: ${r.saved.join(", ")}`);
-        setMessages((m) => [...m, { role: "assistant", content: `✅ Saved to the brain: ${r.saved.join(", ")}. It now has ${r.counts.case_studies} case studies, ${r.counts.services} services, ${r.counts.metrics} metrics.`, learned: r.saved }]);
+        toast(`Brain updated: ${r.saved.join(", ")}`);
+        setMessages((m) => [...m, { role: "assistant", content: `✅ Updated the brain: ${r.saved.join(", ")}. New facts were added and matching saved records were enriched. It now has ${r.counts.case_studies} case studies, ${r.counts.services} services, ${r.counts.metrics} metrics.`, learned: r.saved }]);
       } else {
         toast("Nothing new to save from this conversation", "bad");
       }
@@ -107,7 +107,7 @@ export default function BrainChat() {
 
   return (
     <>
-      <PageHeader title="Ask the brain" desc="Knowledge → Save to brain · how to write a variable → Build formats · a rule for every email → Save as rule."
+      <PageHeader title="Ask the brain" desc="Teach company knowledge → update the brain · describe a variable → build that format · describe fit criteria → update ICP."
         actions={<div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
           <button className="btn ghost" disabled={busy || !messages.length} onClick={saveAsRule}
             style={{ display: "flex", alignItems: "center", gap: 6 }} title="Turn cross-variable / global instructions into global Rules (obeyed on every email)"><Sparkles size={15} /> Save as rule</button>
@@ -126,7 +126,8 @@ export default function BrainChat() {
               <div style={{ fontWeight: 600, marginTop: 8 }}>Ask anything about this client — or teach it something new.</div>
               <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 4, marginBottom: 12 }}>
                 It answers from the Client Brain. To <b>train it</b>, paste material (case studies, services, metrics)
-                and click <b>Save to brain</b> — everything gets extracted and stored permanently.</div>
+                and click <b>Save to brain</b>. New facts are added, corrections update saved fields, and extra
+                details enrich the matching case study or problem. The section buttons build only that section.</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {suggestions.map((s) => (
                   <button key={s} className="btn ghost sm" style={{ textAlign: "left" }} onClick={() => setInput(s)}>{s}</button>
@@ -141,7 +142,7 @@ export default function BrainChat() {
                 background: m.role === "user" ? "var(--primary)" : "#f2f5f9", color: m.role === "user" ? "#fff" : "#20303f",
               }}>{m.content}</div>
               {m.learned?.length ? (
-                <div style={{ fontSize: 11, color: "#15803d", marginTop: 3 }}>✓ saved to brain: {m.learned.join(", ")}</div>
+                <div style={{ fontSize: 11, color: "#15803d", marginTop: 3 }}>✓ brain updated: {m.learned.join(", ")}</div>
               ) : null}
             </div>
           ))}

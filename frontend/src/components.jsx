@@ -13,6 +13,10 @@ export function useApi(path, params, deps = []) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const reload = useCallback(() => {
+    if (!path) {
+      setData(null); setError(""); setLoading(false);
+      return;
+    }
     setLoading(true); setError("");
     api(path, { params }).then(setData).catch((e) => setError(e.message)).finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -74,7 +78,7 @@ export function SkeletonRows({ cols = 6, rows = 8 }) {
 export const fitTone = (fit) => ({ strong: "green", possible: "indigo", weak: "amber" }[fit] || "");
 export const scoreTone = (s) => (s >= 60 ? "green" : s >= 35 ? "indigo" : s > 0 ? "amber" : "");
 
-export function Drawer({ title, onClose, children }) {
+export function Drawer({ title, onClose, children, className = "" }) {
   useEffect(() => {
     const h = (e) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", h);
@@ -83,7 +87,7 @@ export function Drawer({ title, onClose, children }) {
   return (
     <>
       <div className="drawer-bg" onClick={onClose} />
-      <div className="drawer">
+      <div className={`drawer ${className}`}>
         <button className="close" onClick={onClose}>✕</button>
         <h2>{title}</h2>
         {children}

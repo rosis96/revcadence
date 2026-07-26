@@ -153,7 +153,9 @@ export default function EnrichConfigPage({ tab }) {
             <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 12 }}>
               Give the AI the client's website and/or paste their case studies & positioning. It reads
               everything and builds a structured profile — offer, ICP, <b>case studies</b>, and a
-              <b> per-industry problem library</b> — so all outreach sounds like an insider. Review, then Save.</p>
+              <b> per-industry problem library</b> — so all outreach sounds like an insider. New facts are
+              added, matching records are enriched, and explicit pasted corrections update saved fields.
+              Review, then Save.</p>
             <div className="field" style={{ margin: 0 }}><label>Client website (crawled)</label>
               <input style={{ width: "100%" }} value={brain.website}
                      onChange={(e) => setBrain({ ...brain, website: e.target.value })}
@@ -177,7 +179,7 @@ export default function EnrichConfigPage({ tab }) {
               {brain.done && <span style={{ fontSize: 12.5, color: "#15803d" }}>
                 ✓ crawled {brain.done.pages_crawled ?? "?"} pages{brain.done.js_rendered ? ` (${brain.done.js_rendered} JS-rendered)` : ""} ·
                 {" "}{brain.done.case_studies} case studies · {brain.done.services ?? 0} services · {brain.done.metrics ?? 0} metrics.
-                It <b>adds to</b> what's already saved. Review below, then <b>Save profile</b>.</span>}
+                It <b>adds to and intelligently updates</b> what's already saved. Review below, then <b>Save profile</b>.</span>}
             </div>
           </div>
 
@@ -340,7 +342,7 @@ export default function EnrichConfigPage({ tab }) {
             <div style={{ marginTop: 10, fontSize: 12, color: cfg.ai_enabled ? "var(--muted)" : "#b91c1c" }}>
               {cfg.ai_enabled
                 ? `● AI on — writing with ${cfg.writer_model_effective}, ICP/extraction with ${cfg.icp_model_effective}.`
-                : "● AI is OFF (no OpenAI key) — enrichment would fall back to templated demo copy. Set OPENAI_API_KEY."}
+                : "● AI is OFF (no OpenAI key) — generation will stop safely instead of producing generic copy. Set OPENAI_API_KEY."}
             </div>
           </div>
 

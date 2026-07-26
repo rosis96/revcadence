@@ -5,6 +5,17 @@ import react from "@vitejs/plugin-react";
 // Production: built dist/ is served by FastAPI itself — same origin, no proxy.
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "react-vendor": ["react", "react-dom", "react-router-dom"],
+          "table-vendor": ["@tanstack/react-table", "@tanstack/react-virtual"],
+          icons: ["lucide-react"],
+        },
+      },
+    },
+  },
   server: {
     proxy: {
       "/api": {

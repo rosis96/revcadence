@@ -7,13 +7,19 @@ from pydantic import BaseModel
 from sqlalchemy import func
 
 from ..auth import AuthContext, get_ctx
+from ..enrichment.brain import (
+    CLIENT_BRAIN_KEYS,
+    _BRAIN_LIST_KEYS,
+    accumulate_brain as _accumulate_brain,
+    merge_brain_list as _merge_brain_list,
+)
 from ..models.enrich import TERMINAL_STATUSES, EnrichConfig, EnrichLead, EnrichList
 from ..models.jobs import Job
 
 router = APIRouter(prefix="/api/enrich-lists", tags=["enrichment-lists"])
 
-VIEWS = ("all", "processed", "verified", "enriched", "insufficient", "nonicp", "no_website",
-         "invalid", "unsafe", "notrun", "title_rejected",
+VIEWS = ("all", "processed", "verified", "enriched", "insufficient", "needs_review",
+         "generation_failed", "nonicp", "no_website", "invalid", "unsafe", "notrun", "title_rejected",
          "esp_microsoft", "esp_google", "esp_other", "esp_unknown")
 
 
@@ -27,6 +33,10 @@ def _view_filter(q, view: str):
         return q.filter(L.status == "done")
     if view == "insufficient":
         return q.filter(L.status == "insufficient")
+    if view == "needs_review":
+        return q.filter(L.status == "needs_review")
+    if view == "generation_failed":
+        return q.filter(L.status == "generation_failed")
     if view == "nonicp":
         return q.filter(L.icp_decision == "Non-ICP")
     if view == "no_website":
@@ -170,7 +180,11 @@ def list_leads(list_id: int, view: str = "all", page: int = 1, page_size: int = 
             "vars": {k: v for k, v in (l.result or {}).items() if not k.startswith("_")},
             "research": (l.result or {}).get("_research"),
             "research_error": (l.result or {}).get("_error"),
+            "generation_error": (l.result or {}).get("_generation_error"),
             "insufficient": bool((l.result or {}).get("_insufficient")),
+            "evidence": ((l.result or {}).get("_facts") or {}).get("evidence") or [],
+            "assignments": (l.result or {}).get("_assignments") or {},
+            "quality_failures": (l.result or {}).get("_quality_failures") or {},
             "imported": {k: v for k, v in (l.data or {}).items()
                          if not k.startswith("_") and k.lower() not in STD_ALIASES},
         } for l in rows],
@@ -405,7 +419,10 @@ def clear_results(list_id: int, view: str = "all", esp: str = "", ctx: AuthConte
         l.icp_score = None
         l.icp_reason = ""
         l.title_status = ""
-        if l.status in ("done", "skipped", "error"):
+        # Keep verification-only terminal states (invalid/unsafe), but reopen
+        # every status produced by research, ICP or generation.
+        if l.status in ("done", "skipped", "error", "insufficient",
+                        "generation_failed", "needs_review"):
             l.status = ""
         n += 1
     ctx.db.commit()
@@ -630,45 +647,6 @@ class BuildProfileIn(BaseModel):
     merge: bool = True       # merge into the existing profile vs replace
 
 
-# The Client Brain schema — one rich, structured knowledge base the AI writer uses.
-CLIENT_BRAIN_KEYS = ["client_name", "one_liner", "service_brief", "main_offer", "what_we_are_pitching",
-                     "target_outcome", "icp_summary", "industries", "services", "positioning",
-                     "methodology", "results_metrics", "proof_points", "testimonials",
-                     "target_titles", "tone", "case_studies", "problem_library", "objections"]
-_BRAIN_LIST_KEYS = {"industries", "services", "positioning", "methodology", "results_metrics",
-                    "proof_points", "testimonials", "target_titles", "case_studies",
-                    "problem_library", "objections"}
-# identity field per dict-list, so re-crawls dedupe by the REAL entity (not exact text)
-_BRAIN_DICT_KEY = {
-    "case_studies": lambda x: str(x.get("client", "")).strip().lower(),
-    "problem_library": lambda x: str(x.get("industry", "")).strip().lower(),
-    "objections": lambda x: str(x.get("objection", ""))[:60].strip().lower(),
-    "testimonials": lambda x: (str(x.get("who", "")).strip().lower() + "|" + str(x.get("quote", ""))[:40].lower()),
-}
-
-
-def _merge_brain_list(k, existing, new):
-    import json as _j
-    items = list(existing or []) + list(new or [])
-    if k in _BRAIN_DICT_KEY:
-        keyf = _BRAIN_DICT_KEY[k]
-        by, keyless = {}, []
-        for x in items:
-            if not isinstance(x, dict):
-                continue
-            key = keyf(x)
-            if not key:
-                keyless.append(x)
-            elif key not in by or len(_j.dumps(x)) > len(_j.dumps(by[key])):
-                by[key] = x          # keep the richer (more detailed) version
-        return list(by.values()) + keyless
-    seen, out = set(), []             # plain string list — dedupe case-insensitively
-    for x in items:
-        key = " ".join(str(x if isinstance(x, str) else _j.dumps(x, sort_keys=True)).lower().split())
-        if key and key not in seen:
-            seen.add(key)
-            out.append(x)
-    return out
 
 
 def _extract_upload_text(raw: bytes, filename: str) -> str:
@@ -714,9 +692,16 @@ async def build_icp(workspace_id: int,
     # use the TRAINED BRAIN too — so after training in chat you can just hit Build.
     cfg = _config(ctx.db, workspace_id)
     brain = cfg.profile or {}
-    brain_ctx = _json.dumps({k: brain.get(k) for k in
-                             ("client_name", "main_offer", "icp_summary", "industries", "services",
-                              "target_titles", "problem_library", "case_studies") if brain.get(k)})
+    # ICP decisions benefit from the whole relevant commercial picture, not only
+    # the old small subset. In particular, objections and proof often contain the
+    # clearest fit/reject signals.
+    icp_brain_keys = (
+        "client_name", "one_liner", "service_brief", "main_offer", "what_we_are_pitching",
+        "target_outcome", "icp_summary", "industries", "services", "positioning",
+        "methodology", "results_metrics", "proof_points", "target_titles",
+        "problem_library", "case_studies", "objections",
+    )
+    brain_ctx = _json.dumps({k: brain.get(k) for k in icp_brain_keys if brain.get(k)})
     if not material.strip() and brain_ctx in ("", "{}"):
         raise HTTPException(422, "Nothing to learn from — train the brain (Ask the Brain), upload a PDF, paste text, or give a website.")
     full = ((f"TRAINED CLIENT BRAIN:\n{brain_ctx}\n\n" if brain_ctx not in ("", "{}") else "")
@@ -802,7 +787,12 @@ def brain_chat(workspace_id: int, body: BrainChatIn, ctx: AuthContext = Depends(
         "under SCRAPED WEBSITES; use that real content to write about a prospect/company.\n"
         "If the user TEACHES you new information about the client (a case study, a service, a metric, "
         "positioning, a problem they solve, a testimonial, an objection), capture it in 'learned' so it is "
-        "saved to the brain. Only include keys the user actually provided.\n"
+        "saved to the brain. If they ADD detail to an existing case study/problem/testimonial, return the "
+        "same identifying client/industry/person plus the new or corrected fields; storage will merge the "
+        "fields. For a scalar field, return the complete UPDATED current value: combine supported saved and "
+        "new detail when the user adds information, or return the corrected value when they replace a fact "
+        "(even if it is shorter). Only include keys the user actually added to or corrected; do not repeat "
+        "unchanged brain fields.\n"
         "Return JSON: {\"reply\": <your message to the user>, \"learned\": {<any of: service_brief (str), "
         "main_offer (str), one_liner (str), target_outcome (str), icp_summary (str), industries (list), "
         "services (list), positioning (list), methodology (list), results_metrics (list), proof_points "
@@ -829,16 +819,11 @@ def brain_chat(workspace_id: int, body: BrainChatIn, ctx: AuthContext = Depends(
 
     updated = []
     if learned:
-        merged = {**(cfg.profile or {})}
-        for k, v in learned.items():
-            if k in _BRAIN_LIST_KEYS and v:
-                merged[k] = _merge_brain_list(k, merged.get(k), v)
-                updated.append(k)
-            elif isinstance(v, str) and v.strip() and k in CLIENT_BRAIN_KEYS:
-                old = str(merged.get(k) or "")
-                if len(v.strip()) > len(old.strip()):
-                    merged[k] = v
-                    updated.append(k)
+        before = cfg.profile or {}
+        accepted = {k: v for k, v in learned.items()
+                    if k in CLIENT_BRAIN_KEYS and v not in (None, "", [], {})}
+        merged = _accumulate_brain(before, accepted, scalar_strategy="replace")
+        updated = [k for k in accepted if merged.get(k) != before.get(k)]
         if updated:
             cfg.profile = merged        # reassign so the JSON column change is detected
             ctx.db.commit()
@@ -1080,19 +1065,6 @@ def update_icp_from_chat(workspace_id: int, body: UpdateIcpIn, ctx: AuthContext 
             "counts": {"categories": len(cats), "rejects": len(rejects), "steps": len(proc)}}
 
 
-def _accumulate_brain(existing: dict, new: dict) -> dict:
-    """Merge extracted knowledge INTO the brain: lists dedupe by real entity,
-    scalars keep the fuller version. Never wipes prior data."""
-    merged = {**(existing or {})}
-    for k, v in (new or {}).items():
-        if k in _BRAIN_LIST_KEYS:
-            merged[k] = _merge_brain_list(k, merged.get(k), v)
-        elif isinstance(v, str) and v.strip():
-            old = str(merged.get(k) or "")
-            merged[k] = v if len(v.strip()) > len(old.strip()) else old
-    return merged
-
-
 class BrainLearnIn(BaseModel):
     messages: list[dict] = []
     text: str = ""
@@ -1117,11 +1089,18 @@ def brain_learn(workspace_id: int, body: BrainLearnIn, ctx: AuthContext = Depend
     if not material:
         raise HTTPException(422, "Nothing to save — share some material first.")
 
+    cfg = _config(ctx.db, workspace_id)
+    before = cfg.profile or {}
     system = (
         "You extract a COMPREHENSIVE knowledge base about a B2B company from the material the operator "
         "shares, to save into the company's brain. Be exhaustive — capture every case study, metric, "
         "service, proof and problem, preserving real detail and numbers. Ground ONLY in the material; "
-        "never invent; leave a field empty/[] if unsupported. Return JSON with these keys: "
+        "never invent; leave a field empty/[] if unsupported. Compare it with the EXISTING CLIENT BRAIN. "
+        "For scalar fields, return the complete UPDATED value: combine supported existing and new detail "
+        "when information is added. A later explicit operator correction is authoritative, even when the "
+        "corrected value is shorter. For an existing case study, problem, testimonial, or "
+        "objection, return its identifying field plus its new/corrected fields so storage can enrich it "
+        "without losing facts not re-mentioned. Do not repeat unchanged facts. Return JSON with these keys: "
         "service_brief (str), main_offer (str), one_liner (str), target_outcome (str), icp_summary (str), "
         "industries (list), services (list), positioning (list), methodology (list), results_metrics "
         "(list), proof_points (list), target_titles (list), tone (str), case_studies (list of "
@@ -1129,15 +1108,16 @@ def brain_learn(workspace_id: int, body: BrainLearnIn, ctx: AuthContext = Depend
         "{industry,pains,our_angle}), testimonials (list of {quote,who}), objections (list of "
         "{objection,response}). Include only keys the material supports.")
     try:
-        out = ai._call_openai(system, "MATERIAL:\n" + material[:40000], model=ai.extract_model())
+        prompt = ("EXISTING CLIENT BRAIN:\n" + _json.dumps(before)[:16000]
+                  + "\n\nNEW OPERATOR MATERIAL (authoritative when it corrects the brain):\n"
+                  + material[:28000])
+        out = ai._call_openai(system, prompt, model=ai.extract_model())
     except Exception as e:
         raise HTTPException(502, f"AI extraction failed: {str(e)[:200]}")
     if not isinstance(out, dict):
         raise HTTPException(502, "AI returned an unexpected format — try again.")
     new = {k: v for k, v in out.items() if k in CLIENT_BRAIN_KEYS and v not in (None, "", [])}
-    cfg = _config(ctx.db, workspace_id)
-    before = cfg.profile or {}
-    merged = _accumulate_brain(before, new)
+    merged = _accumulate_brain(before, new, scalar_strategy="replace")
     cfg.profile = merged
     ctx.db.commit()
     saved = [k for k in new if merged.get(k) != before.get(k)]
@@ -1162,7 +1142,10 @@ def build_profile(workspace_id: int, body: BuildProfileIn, ctx: AuthContext = De
     from ..enrichment.pipeline import _config
     if not ai.has_ai():
         raise HTTPException(422, "No OpenAI key set — connect AI before building the profile.")
-    text = (body.material or "").strip()
+    cfg = _config(ctx.db, workspace_id)
+    existing_brain = cfg.profile or {}
+    pasted_material = (body.material or "").strip()
+    text = pasted_material
     pages_crawled = js_rendered = 0
     if body.website:
         # crawl the WHOLE site (every same-domain page) to capture all case studies,
@@ -1182,7 +1165,9 @@ def build_profile(workspace_id: int, body: BuildProfileIn, ctx: AuthContext = De
         "capture every case study, metric, service, proof point and problem you can find. DO NOT "
         "summarize into one-liners: preserve the real detail, numbers, client names, and outcomes as "
         "written. Ground EVERYTHING only in the material — never invent; leave a field empty/[] if the "
-        "material doesn't support it. Return JSON with EXACTLY these keys:\n"
+        "material doesn't support it. Reconcile the new material with the CURRENT SAVED CLIENT BRAIN: "
+        "preserve supported existing facts, enrich matching structured records, and treat explicit pasted "
+        "operator corrections as authoritative. Return JSON with EXACTLY these keys:\n"
         'client_name (str), one_liner (str), '
         'service_brief (str — a full paragraph: who the client is and everything they sell), '
         'main_offer (str — full, detailed), '
@@ -1200,7 +1185,8 @@ def build_profile(workspace_id: int, body: BuildProfileIn, ctx: AuthContext = De
         'problem_library (list of {industry, pains: list of str, our_angle: str, proof: str} — the '
         'specific problems buyers in each industry face, how this company solves them, and the proof), '
         'objections (list of {objection, response}).')
-    user = "COMPANY MATERIAL (be exhaustive — extract everything):\n" + text
+    user = ("CURRENT SAVED CLIENT BRAIN:\n" + _json.dumps(existing_brain)[:18000]
+            + "\n\nNEW COMPANY MATERIAL (be exhaustive — extract everything):\n" + text)
     try:
         out = ai._call_openai(system, user, model=ai.extract_model())
     except Exception as e:
@@ -1210,18 +1196,10 @@ def build_profile(workspace_id: int, body: BuildProfileIn, ctx: AuthContext = De
     profile = {k: out.get(k, [] if k in _BRAIN_LIST_KEYS else "") for k in CLIENT_BRAIN_KEYS}
 
     if body.merge:
-        # ACCUMULATE — new data ADDS to what's there, never wipes it. Lists merge by
-        # the real entity (client/industry) so re-crawls don't duplicate; scalars keep
-        # the FULLER version so each crawl can enrich them.
-        cfg = _config(ctx.db, workspace_id)
-        merged = {**(cfg.profile or {})}
-        for k, v in profile.items():
-            if k in _BRAIN_LIST_KEYS:
-                merged[k] = _merge_brain_list(k, merged.get(k), v)
-            elif isinstance(v, str) and v.strip():
-                old = str(merged.get(k) or "")
-                merged[k] = v if len(v.strip()) > len(old.strip()) else old
-        profile = merged
+        # Explicit pasted material can correct a saved scalar. Website-only
+        # re-crawls stay conservative and only replace a scalar with a richer one.
+        strategy = "replace" if pasted_material else "richer"
+        profile = _accumulate_brain(existing_brain, profile, scalar_strategy=strategy)
     return {"profile": profile,
             "counts": {"case_studies": len(profile.get("case_studies") or []),
                        "problems": len(profile.get("problem_library") or []),

@@ -61,8 +61,9 @@ docs/                MIGRATION_PLAN.md and future docs
 NEXT_STEPS.md        ← the living to-do; updated every working session
 ```
 
-## Deploy (Railway) — see NEXT_STEPS.md step 1 for the full checklist
+## Deploy (Railway) — see NEXT_STEPS.md for the full checklist
 
-Web service: this repo, start command from `railway.json`. Worker service: same
-repo, start command `python -m app.workers.runner`. Both share the same Postgres
-`DATABASE_URL` and `JWT_SECRET`.
+The web service uses `railway.web.json`; the worker uses
+`railway.worker.json`. Both share the same Postgres `DATABASE_URL`,
+`JWT_SECRET`, and enrichment credentials. The neutral `railway.json`
+intentionally has no start command so it cannot override either service.

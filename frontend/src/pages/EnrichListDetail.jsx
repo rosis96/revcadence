@@ -4,7 +4,11 @@
 // All engine behavior (jobs, runs, clears, select-all-in-view) is unchanged.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { AtSign, Download, Play, ShieldCheck, Square, Upload, Users } from "lucide-react";
+import {
+  AlertTriangle, AtSign, CheckCircle2, Download, ExternalLink, Eye,
+  FileSearch, Globe2, Image as ImageIcon, Play, Quote, ShieldCheck,
+  Sparkles, Square, Upload, Users,
+} from "lucide-react";
 import { api, getToken } from "../api";
 import {
   Badge, Breadcrumbs, Button, DataTable, Drawer, ErrorBox, FilterPanel,
@@ -12,7 +16,9 @@ import {
 } from "../components";
 
 const VIEWS = [["all", "All"], ["processed", "Processed"], ["verified", "Verified"],
-  ["enriched", "Enriched"], ["nonicp", "Non-ICP"], ["no_website", "No website"],
+  ["enriched", "Enriched"], ["insufficient", "Insufficient research"],
+  ["needs_review", "Needs review"], ["generation_failed", "Generation failed"],
+  ["nonicp", "Non-ICP"], ["no_website", "No website"],
   ["invalid", "Invalid"], ["unsafe", "Unsafe"], ["notrun", "Not run"],
   ["title_rejected", "Title-rejected"]];
 // Mailbox provider (MX-based) — segment for provider-aware sending / deliverability.
@@ -20,10 +26,15 @@ const ESP_VIEWS = [["esp_microsoft", "Microsoft"], ["esp_google", "Google"],
   ["esp_other", "Other"], ["esp_unknown", "Unknown"]];
 const espTone = (e) => ({ Microsoft: "blue", Google: "green", Other: "gray" }[e] || "gray");
 
-const stTone = { done: "green", invalid: "red", unsafe: "red", skipped: "amber", error: "red" };
+const stTone = { done: "green", invalid: "red", unsafe: "red", skipped: "amber", error: "red",
+  insufficient: "amber", needs_review: "amber", generation_failed: "red" };
 const vTone = (v) => v === "ok" || v === "safe" || v === "valid" ? "green"
   : v === "role" || v === "catch_all" || v === "unknown" ? "amber"
   : v === "skipped" || !v ? "" : "red";
+const pretty = (s = "") => String(s).replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
+const hostOf = (url = "") => {
+  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
+};
 
 function parseCsv(text) {
   const rows = [];
@@ -370,63 +381,144 @@ export default function EnrichListDetail() {
       </div>
 
       {openLead && (
-        <Drawer title={openLead.name || openLead.email} onClose={() => setOpenLead(null)}>
-          <div className="kv">
-            <div className="k">Email</div><div>{openLead.email}</div>
-            <div className="k">Company</div>
-            <div>{openLead.company} {openLead.website && <a href={openLead.website.startsWith("http") ? openLead.website : `https://${openLead.website}`} target="_blank" rel="noreferrer">↗</a>}</div>
-            <div className="k">Verification</div>
-            <div><Badge tone={vTone(openLead.free_status)}>{openLead.free_status || "—"}</Badge>{" "}
-              <Badge tone={vTone(openLead.email_status)}>{openLead.email_status || "—"}</Badge></div>
-            <div className="k">ICP reason</div><div>{openLead.icp_reason || "—"}</div>
+        <Drawer title={openLead.name || openLead.email} className="research-drawer"
+          onClose={() => setOpenLead(null)}>
+          <div className="rd-hero">
+            <div>
+              <div className="rd-company">
+                {openLead.company || "Unknown company"}
+                {openLead.website && (
+                  <a href={openLead.website.startsWith("http") ? openLead.website : `https://${openLead.website}`}
+                    target="_blank" rel="noreferrer" title="Open company website"><ExternalLink size={14} /></a>)}
+              </div>
+              <div className="rd-contact">{openLead.title || "No title"} · {openLead.email}</div>
+            </div>
+            <Badge tone={stTone[openLead.status] || ""}>{pretty(openLead.status || "not run")}</Badge>
           </div>
 
-          {(openLead.status === "insufficient" || openLead.research_error) && (
-            <div className="card" style={{ padding: 12, margin: "10px 0", borderColor: "#f0c36d",
-              background: "#fff9ec" }}>
-              <div style={{ fontWeight: 700, fontSize: 13, color: "#8a5a00" }}>
-                {openLead.research_error ? "Research failed — not generated" : "Research insufficient — not generated"}</div>
-              <div style={{ fontSize: 12, color: "#8a5a00", marginTop: 3 }}>
-                {openLead.research_error
-                  ? openLead.research_error
-                  : "Fewer than 3 verifiable website signals were found, so no personalization was written (no guessing). Re-run after setting a render key or check the page below."}</div>
+          <div className="rd-verification">
+            <span><ShieldCheck size={14} /> Deliverability</span>
+            <Badge tone={vTone(openLead.free_status)}>{openLead.free_status || "not checked"}</Badge>
+            <Badge tone={vTone(openLead.email_status)}>{openLead.email_status || "not checked"}</Badge>
+            {openLead.esp && <Badge tone={espTone(openLead.esp)}>{openLead.esp}</Badge>}
+          </div>
+
+          {(openLead.research_error || openLead.generation_error ||
+            ["insufficient", "needs_review", "generation_failed"].includes(openLead.status)) && (
+            <div className={`rd-alert ${openLead.status === "generation_failed" ? "bad" : ""}`}>
+              <AlertTriangle size={17} />
+              <div>
+                <b>{openLead.research_error ? "Research failed safely"
+                  : openLead.generation_error ? "Generation failed safely"
+                  : openLead.status === "needs_review" ? "Human review required"
+                  : "Not enough verified evidence"}</b>
+                <p>{openLead.research_error || openLead.generation_error ||
+                  (openLead.status === "needs_review"
+                    ? "One or more variables failed grounding checks and were quarantined instead of shipping."
+                    : "Fewer than three source-backed signals were found. No generic copy was generated.")}</p>
+              </div>
             </div>)}
 
+          <section className="rd-section">
+            <div className="rd-section-head"><div><span>Research confidence</span><h3>Evidence at a glance</h3></div>
+              {openLead.status === "done" && <span className="rd-verified"><CheckCircle2 size={14} /> Quality passed</span>}
+            </div>
+            <div className="rd-stats">
+              <div><FileSearch size={16} /><b>{(openLead.evidence || []).length}</b><span>Verified facts</span></div>
+              <div><Globe2 size={16} /><b>{openLead.research?.pages_crawled || 0}</b><span>Pages read</span></div>
+              <div><Eye size={16} /><b>{openLead.research?.rendered_pages || 0}</b><span>JS rendered</span></div>
+              <div><ImageIcon size={16} /><b>{openLead.research?.visual_evidence || 0}</b><span>Visual facts</span></div>
+            </div>
+          </section>
+
+          <section className="rd-section">
+            <div className="rd-section-head">
+              <div><span>Qualification</span><h3>ICP assessment</h3></div>
+              {openLead.icp_decision && <Badge tone={openLead.icp_decision === "ICP" ? "green"
+                : openLead.icp_decision === "Non-ICP" ? "red" : "amber"}>
+                {openLead.icp_decision}{openLead.icp_score != null ? ` · ${openLead.icp_score}` : ""}</Badge>}
+            </div>
+            <p className="rd-reason">{openLead.icp_reason || "No assessment yet."}</p>
+          </section>
+
+          <section className="rd-section">
+            <div className="rd-section-head"><div><span>Source-backed research</span><h3>Evidence ledger</h3></div>
+              <Badge tone="indigo">{(openLead.evidence || []).length} facts</Badge>
+            </div>
+            {(openLead.evidence || []).length === 0
+              ? <div className="rd-empty"><FileSearch size={20} />No validated evidence yet</div>
+              : <div className="rd-evidence-list">
+                {openLead.evidence.map((ev, i) => (
+                  <article className="rd-evidence" key={ev.id || `${ev.claim}-${i}`}>
+                    <div className="rd-evidence-top">
+                      <span className="rd-type">{pretty(ev.type)}</span>
+                      <span className="rd-source-kind">{ev.source_kind === "image"
+                        ? <><ImageIcon size={12} /> Visual</> : <><Globe2 size={12} /> Web</>}</span>
+                    </div>
+                    <b>{ev.claim}</b>
+                    {ev.supporting_quote && <blockquote><Quote size={13} />{ev.supporting_quote}</blockquote>}
+                    {ev.source_url && <a href={ev.source_url} target="_blank" rel="noreferrer">
+                      {hostOf(ev.source_url)} <ExternalLink size={12} /></a>}
+                  </article>))}
+              </div>}
+          </section>
+
+          <section className="rd-section">
+            <div className="rd-section-head"><div><span>Ready for outreach</span><h3>Generated variables</h3></div>
+              <Sparkles size={17} className="rd-spark" /></div>
+            {Object.keys(openLead.vars || {}).length === 0
+              ? <div className="rd-empty"><Sparkles size={20} />No approved copy yet</div>
+              : <div className="rd-output-list">
+                {Object.entries(openLead.vars).map(([k, v]) => {
+                  const assignment = openLead.assignments?.[k] || {};
+                  const failure = openLead.quality_failures?.[k];
+                  return (
+                    <article key={k} className={`rd-output ${failure ? "failed" : ""}`}>
+                      <div className="rd-output-head"><b>{pretty(k)}</b>
+                        {failure ? <Badge tone="red">Held</Badge> : <Badge tone="green">Grounded</Badge>}</div>
+                      <p>{String(v) || "This variable was withheld because it did not pass quality review."}</p>
+                      {failure && <div className="rd-failure"><AlertTriangle size={13} />{failure}</div>}
+                      {assignment.evidence && (
+                        <div className="rd-used">
+                          <span>Evidence used</span><b>{assignment.evidence}</b>
+                          {assignment.source_url && <a href={assignment.source_url} target="_blank" rel="noreferrer">
+                            View source <ExternalLink size={11} /></a>}
+                        </div>)}
+                    </article>);
+                })}
+              </div>}
+          </section>
+
           {openLead.research && (
-            <>
-              <h3 style={{ fontSize: 13, margin: "12px 0 6px" }}>Research diagnostics</h3>
-              <div className="kv" style={{ margin: 0, fontSize: 12.5 }}>
+            <details className="rd-diagnostics">
+              <summary>Technical research diagnostics</summary>
+              <div className="kv">
                 {[["HTTP status", openLead.research.http_status],
                   ["Final URL", openLead.research.final_url],
-                  ["Fallback method", openLead.research.fallback_method],
-                  ["Raw HTML length", openLead.research.raw_html_len],
-                  ["Internal links found", openLead.research.internal_links_found],
+                  ["Fetch strategy", openLead.research.fallback_method],
+                  ["Internal links", openLead.research.internal_links_found],
                   ["Sitemap URLs", openLead.research.sitemap_urls],
                   ["Pages crawled", openLead.research.pages_crawled],
                   ["Pages failed", openLead.research.pages_failed],
                   ["Rendered pages", openLead.research.rendered_pages],
-                  ["Research text length", openLead.research.signals_text_len],
+                  ["Images discovered", openLead.research.images_discovered],
+                  ["Vision candidates", openLead.research.vision_candidates],
                   ["Signals collected", openLead.research.signals_collected],
-                  ["Signal types", (openLead.research.signal_types || []).join(", ")]]
-                  .filter(([, v]) => v !== undefined && v !== null)
+                  ["Evidence validated", openLead.research.evidence_validated],
+                  ["Page types", Object.entries(openLead.research.page_types || {})
+                    .map(([k, v]) => `${pretty(k)} ${v}`).join(" · ")],
+                  ["Signal types", (openLead.research.signal_types || []).map(pretty).join(", ")]]
+                  .filter(([, v]) => v !== undefined && v !== null && v !== "")
                   .map(([k, v]) => (
                     <div key={k} style={{ display: "contents" }}>
                       <div className="k">{k}</div><div>{String(v) || "—"}</div>
                     </div>))}
               </div>
-            </>)}
+            </details>)}
 
-          <h3 style={{ fontSize: 13, margin: "12px 0 8px" }}>Enrichment variables</h3>
-          {Object.keys(openLead.vars || {}).length === 0
-            ? <div className="empty" style={{ padding: 12 }}>Not enriched yet</div>
-            : Object.entries(openLead.vars).map(([k, v]) => (
-              <div key={k} style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)" }}>{k}</div>
-                <div style={{ fontSize: 13.5 }}>{String(v)}</div>
-              </div>))}
           {Object.keys(openLead.imported || {}).length > 0 && (
-            <>
-              <h3 style={{ fontSize: 13, margin: "16px 0 8px" }}>Uploaded columns</h3>
+            <details className="rd-diagnostics">
+              <summary>Original uploaded data</summary>
               <div className="kv" style={{ margin: 0 }}>
                 {Object.entries(openLead.imported).map(([k, v]) => (
                   <div key={k} style={{ display: "contents" }}>
@@ -434,7 +526,7 @@ export default function EnrichListDetail() {
                   </div>
                 ))}
               </div>
-            </>
+            </details>
           )}
         </Drawer>
       )}

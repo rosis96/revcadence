@@ -1,9 +1,10 @@
 """List-based enrichment (port of the Ascendly Enrichment Dashboard data model,
 workspace_id replaces variable_set as the tenancy key).
 
-Funnel statuses (terminal, drive counts + resume — DO NOT change semantics):
-  invalid (free-rejected) · unsafe (Reoon-rejected) · skipped (Non-ICP or
-  title-rejected) · error (no website) · done (enriched).
+Funnel statuses (terminal, drive counts + resume):
+  invalid · unsafe · skipped · error · insufficient · generation_failed ·
+  needs_review · done. Failed/held research is terminal to prevent an unattended
+  rerun from spending repeatedly; Clear results explicitly reopens it.
 Anything else ("", pending, running) = not finished; the pipeline resumes it.
 Completed work is never re-charged."""
 from datetime import datetime
@@ -12,7 +13,10 @@ from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, JSON, Strin
 
 from ..db import Base
 
-TERMINAL_STATUSES = ("invalid", "unsafe", "skipped", "error", "done")
+TERMINAL_STATUSES = (
+    "invalid", "unsafe", "skipped", "error", "insufficient",
+    "generation_failed", "needs_review", "done",
+)
 
 
 class EnrichList(Base):
