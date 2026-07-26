@@ -671,7 +671,8 @@ def test_thread(body: TestThreadIn, ctx: AuthContext = Depends(require_master)):
     # Same engine path production uses (generate_reply), so the drafted reply,
     # follow-ups, intent and decision here match what the live pipeline produces.
     # Scheduling context is omitted (no real slot reservation in a dry run).
-    gen = E.generate_reply(w, thread, prospect={"first_name": ""})
+    gen = E.generate_reply(w, thread, prospect={"first_name": ""},
+                           client_brain=E.load_client_brain(ctx.db, w.workspace_id))
     reply = E.add_signature(gen["main_reply"], w.sender_name, w.website) if gen["main_reply"] else ""
     return {
         "intent": gen["intent"], "confidence": gen["confidence"],

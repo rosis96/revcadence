@@ -13,7 +13,9 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
 }
-INTERESTING = ("about", "service", "product", "solution", "pricing", "team", "case", "industr", "who-we")
+INTERESTING = ("about", "service", "product", "solution", "pricing", "team", "case", "industr",
+               "who-we", "work", "portfolio", "result", "client", "story", "stories", "success",
+               "resource", "approach", "expertise", "capabilit", "what-we")
 TIMEOUT = 12
 
 # Env cost levers — see ai.py note on the 22000-char runaway-spend incident.

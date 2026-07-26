@@ -391,7 +391,8 @@ def process_reply_job(db, job):
     # so a paste-in test always matches what production produces here.
     first = E.first_name_of(lead.name)
     gen = E.generate_reply(rws, thread, scheduling_context=sched,
-                           prospect={"first_name": first, "company": lead.company})
+                           prospect={"first_name": first, "company": lead.company},
+                           client_brain=E.load_client_brain(db, rws.workspace_id if rws else None))
     lead.intent = gen["intent"]
     lead.confidence = gen["confidence"]
     lead.main_reply = gen["main_reply"]

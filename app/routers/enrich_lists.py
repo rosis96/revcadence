@@ -647,9 +647,10 @@ def build_profile(workspace_id: int, body: BuildProfileIn, ctx: AuthContext = De
         raise HTTPException(422, "No OpenAI key set — connect AI before building the profile.")
     text = (body.material or "").strip()
     if body.website:
-        crawl = crawl_site(body.website, max_pages=8, max_chars=20000)
+        # deliberate one-off → crawl deep to capture case studies, results, industries
+        crawl = crawl_site(body.website, max_pages=16, max_chars=45000)
         if crawl.get("text"):
-            text = (crawl["text"] + "\n\n---PASTED---\n" + text)[:24000]
+            text = (crawl["text"] + "\n\n---PASTED---\n" + text)[:45000]
     if not text.strip():
         raise HTTPException(422, "Provide a website URL or paste some material to learn from.")
 

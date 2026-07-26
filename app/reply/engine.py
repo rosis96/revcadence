@@ -342,7 +342,21 @@ def classify_intent_bucket(rws, lead) -> dict:
 
 
 # ---------------------------------------------------------------- prompt (legacy shape)
-def build_reply_prompt(rws, thread: list, scheduling_context: str = "", prospect: dict = None) -> tuple:
+def load_client_brain(db, workspace_id) -> dict:
+    """The unified Client Brain (EnrichConfig.profile) — the SAME profile the
+    outbound writer uses, so replies + follow-ups speak the client's language too."""
+    if not workspace_id:
+        return {}
+    try:
+        from ..models.enrich import EnrichConfig
+        cfg = db.query(EnrichConfig).filter(EnrichConfig.workspace_id == workspace_id).first()
+        return (cfg.profile or {}) if cfg else {}
+    except Exception:
+        return {}
+
+
+def build_reply_prompt(rws, thread: list, scheduling_context: str = "", prospect: dict = None,
+                       client_brain: dict = None) -> tuple:
     fmt = rws.reply_format or {}
     rules = [ln.strip() for ln in (rws.ai_rules or "").splitlines() if ln.strip()]
     prospect = prospect or {}
@@ -389,7 +403,10 @@ def build_reply_prompt(rws, thread: list, scheduling_context: str = "", prospect
 
         (f"PROSPECT: first name = {first}"
          + (f", company = {prospect.get('company')}" if prospect.get("company") else "")) if first else "",
-        "CLIENT PROFILE:\n" + json.dumps(rws.client_profile or {}),
+        "Use the CLIENT PROFILE as an insider would: draw on its problem_library for the prospect's "
+        "industry and reference a case_study/proof_point ONLY if it genuinely fits — never fabricate.",
+        # unified Client Brain (case studies, per-industry problems) + reply-specific config on top
+        "CLIENT PROFILE:\n" + json.dumps({**(client_brain or {}), **(rws.client_profile or {})}),
         "RESPONSE TYPES (classify into exactly one; obey its rules/template/auto_send):\n"
         + json.dumps(fmt.get("response_types", [])),
         "FOLLOW-UP SPECS:\n" + json.dumps(fmt.get("followups", [])),
@@ -406,7 +423,8 @@ def build_reply_prompt(rws, thread: list, scheduling_context: str = "", prospect
     return prompt, system
 
 
-def generate_reply(rws, thread: list, scheduling_context: str = "", prospect: dict = None) -> dict:
+def generate_reply(rws, thread: list, scheduling_context: str = "", prospect: dict = None,
+                   client_brain: dict = None) -> dict:
     """THE single reply-generation path. Both the live worker and the Test Thread
     screen call this, so a paste-in test produces the SAME intent/decision/reply/
     follow-ups the production pipeline would — they can never drift apart.
@@ -418,7 +436,7 @@ def generate_reply(rws, thread: list, scheduling_context: str = "", prospect: di
     prospect = prospect or {}
     first = (prospect.get("first_name") or "").strip()
     prompt, system = build_reply_prompt(rws, thread, scheduling_context=scheduling_context,
-                                        prospect=prospect)
+                                        prospect=prospect, client_brain=client_brain)
     ai = call_llm(prompt, system, build_ai_cfg(rws))
 
     def _clean(t):

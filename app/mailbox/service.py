@@ -373,18 +373,37 @@ def draft_followup(db, conv: DealConversation) -> dict:
         c = (bp.fields or {}).get("content") or {}
         ground = c.get("exec_summary") or c.get("target_outcome") or ""
 
+    # unified Client Brain — the SAME profile outbound + replies use, so follow-ups
+    # speak the client's language (offer, per-industry problems, real case studies).
+    brain = {}
     try:
+        from ..models.enrich import EnrichConfig
+        bc = db.query(EnrichConfig).filter(EnrichConfig.workspace_id == conv.workspace_id).first()
+        brain = (bc.profile or {}) if bc else {}
+    except Exception:
+        brain = {}
+
+    try:
+        import json as _json
+
         from ..enrichment import ai
         if ai.has_ai() and thread:
             convo = "\n\n".join(f"[{m['direction'].upper()}] {m['text']}" for m in thread)
+            brain_ctx = _json.dumps({k: brain.get(k) for k in
+                                     ("main_offer", "target_outcome", "positioning",
+                                      "problem_library", "case_studies", "proof_points")
+                                     if brain.get(k)})[:3000]
             system = (
                 "You are the salesperson continuing a REAL email thread with a prospect after a meeting. "
                 "Write the next email in the SAME thread — natural, human, brief, no salesy fluff, no "
-                "signature (the system adds it), no subject line. Reference what was actually said. If they "
-                "asked for time (e.g. 'give me two weeks'), respect it and check in lightly. Never sound "
-                "automated. Output ONLY the email body.")
+                "signature (the system adds it), no subject line. Reference what was actually said. Draw on "
+                "the CLIENT PROFILE's problem_library for the prospect's situation and reference a real "
+                "case_study/proof_point only if it genuinely fits — never fabricate. If they asked for time "
+                "(e.g. 'give me two weeks'), respect it and check in lightly. Never sound automated. Output "
+                "ONLY the email body.")
             user = (f"Prospect first name: {first}\n"
-                    f"Context (our offer): {ground}\n\n"
+                    f"Context (our offer): {ground}\n"
+                    f"CLIENT PROFILE: {brain_ctx}\n\n"
                     f"THREAD (oldest→newest):\n{convo}\n\nWrite the next follow-up email body:")
             import os
             import requests
