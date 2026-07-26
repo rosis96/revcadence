@@ -46,11 +46,17 @@ def normalize_url(website: str) -> str:
     return website
 
 
+_SKIP_EXT = (".pdf", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".zip", ".mp4",
+             ".mov", ".css", ".js", ".ico", ".woff", ".woff2", ".ttf", ".xml", ".rss")
+
+
 def crawl_site(website: str, html_override: str = "", on_progress=None,
-               max_pages: int = 0, max_chars: int = 0) -> dict:
+               max_pages: int = 0, max_chars: int = 0, follow_all: bool = False) -> dict:
     """Returns {"url", "title", "meta_description", "text", "pages": [urls]}.
     html_override lets callers (tests, cached HTML) skip the network entirely.
-    max_pages/max_chars (>0) override the env budgets — used for 'deep' research."""
+    max_pages/max_chars (>0) override the env budgets — used for 'deep' research.
+    follow_all=True crawls the WHOLE site (BFS across every same-domain page), not
+    just high-signal pages — used to build the client brain from everything."""
     max_pages = max_pages or _max_pages()
     max_chars = max_chars or _max_chars()
     url = normalize_url(website)
@@ -87,23 +93,42 @@ def crawl_site(website: str, html_override: str = "", on_progress=None,
     texts = [_clean(soup)]
     result["pages"].append(url)
 
-    # follow a few same-domain, high-signal links
+    # discover same-domain links (BFS when follow_all, else just high-signal pages)
     host = urlparse(url).netloc
-    seen, queue = {url}, []
-    for a in soup.find_all("a", href=True):
-        full = urljoin(url, a["href"].split("#")[0])
-        if urlparse(full).netloc != host or full in seen:
-            continue
-        if any(k in full.lower() for k in INTERESTING):
-            queue.append(full)
-            seen.add(full)
-    for link in queue[:max_pages - 1]:
+    seen = {url}
+    queue = []
+
+    def add_links(page_soup, base):
+        for a in page_soup.find_all("a", href=True):
+            full = urljoin(base, a["href"].split("#")[0]).split("?")[0].rstrip("/")
+            if not full:
+                continue
+            p = urlparse(full)
+            if p.scheme not in ("http", "https") or p.netloc != host or full in seen:
+                continue
+            if full.lower().endswith(_SKIP_EXT):
+                continue
+            if follow_all or any(k in full.lower() for k in INTERESTING):
+                queue.append(full)
+                seen.add(full)
+
+    add_links(soup, url)
+    # BFS: fetch pages and (when following all) discover deeper links from each,
+    # bounded by max_pages and max_chars so it always terminates.
+    total = len(texts[0])
+    while queue and len(result["pages"]) < max_pages and total < max_chars:
+        link = queue.pop(0)
         note(f"fetching {link}")
         try:
             r = requests.get(link, headers=HEADERS, timeout=TIMEOUT)
             r.raise_for_status()
-            texts.append(_clean(BeautifulSoup(r.text, "html.parser")))
+            s2 = BeautifulSoup(r.text, "html.parser")
+            t = _clean(s2)
+            texts.append(t)
+            total += len(t)
             result["pages"].append(link)
+            if follow_all:
+                add_links(s2, link)
         except Exception:
             continue
 

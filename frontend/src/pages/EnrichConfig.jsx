@@ -174,36 +174,61 @@ export default function EnrichConfigPage({ tab }) {
                 }}>
                 {brain.busy ? "Reading & building…" : "Build with AI"}</button>
               {brain.done && <span style={{ fontSize: 12.5, color: "#15803d" }}>
-                ✓ {brain.done.case_studies} case studies · {brain.done.problems} problem sets · {brain.done.industries} industries.
-                Review below, then <b>Save profile</b>.</span>}
+                ✓ crawled {brain.done.pages_crawled ?? "?"} pages · {brain.done.case_studies} case studies ·
+                {" "}{brain.done.services ?? 0} services · {brain.done.metrics ?? 0} metrics.
+                It <b>adds to</b> what's already saved. Review below, then <b>Save profile</b>.</span>}
             </div>
           </div>
 
-          {(cfg.profile?.problem_library?.length > 0 || cfg.profile?.case_studies?.length > 0) && (
-            <div className="card" style={{ padding: 18, marginBottom: 14 }}>
-              <h2 style={{ fontSize: 15, marginBottom: 8 }}>Captured knowledge</h2>
-              {(cfg.profile?.case_studies || []).length > 0 && (
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>Case studies</div>
-                  {(cfg.profile.case_studies).slice(0, 8).map((c, i) => (
-                    <div key={i} style={{ fontSize: 12.5, color: "var(--muted)", padding: "3px 0" }}>
-                      <b style={{ color: "var(--ink,#16263c)" }}>{c.client || c.industry || "—"}</b>
-                      {c.industry ? ` · ${c.industry}` : ""}{c.outcome ? ` — ${c.outcome}` : ""}</div>
-                  ))}
-                </div>
-              )}
-              {(cfg.profile?.problem_library || []).length > 0 && (
-                <div>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>Problem library (per industry)</div>
-                  {(cfg.profile.problem_library).slice(0, 10).map((p, i) => (
-                    <div key={i} style={{ fontSize: 12.5, color: "var(--muted)", padding: "3px 0" }}>
-                      <b style={{ color: "var(--ink,#16263c)" }}>{p.industry || "—"}</b>
-                      {(p.pains || []).length ? `: ${(p.pains || []).slice(0, 3).join("; ")}` : ""}</div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          {(() => {
+            const p = cfg.profile || {};
+            const has = (p.case_studies?.length || p.problem_library?.length || p.services?.length || p.results_metrics?.length);
+            if (!has) return null;
+            const Row = ({ children }) => <div style={{ fontSize: 12.5, color: "var(--muted)", padding: "4px 0", borderBottom: "1px solid #f2f5f9" }}>{children}</div>;
+            return (
+              <div className="card" style={{ padding: 18, marginBottom: 14 }}>
+                <h2 style={{ fontSize: 15, marginBottom: 8 }}>Captured knowledge</h2>
+                {(p.case_studies || []).length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 4 }}>Case studies ({p.case_studies.length})</div>
+                    {p.case_studies.map((c, i) => (
+                      <Row key={i}>
+                        <b style={{ color: "var(--ink,#16263c)" }}>{c.client || "—"}</b>{c.industry ? ` · ${c.industry}` : ""}
+                        {c.problem ? <div><b>Problem:</b> {c.problem}</div> : null}
+                        {c.solution ? <div><b>Solution:</b> {c.solution}</div> : null}
+                        {c.outcome ? <div><b>Outcome:</b> {c.outcome}</div> : null}
+                        {(c.metrics || []).length ? <div><b>Metrics:</b> {(c.metrics || []).join("; ")}</div> : null}
+                      </Row>
+                    ))}
+                  </div>
+                )}
+                {(p.services || []).length > 0 && (
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 4 }}>Services ({p.services.length})</div>
+                    <div style={{ fontSize: 12.5, color: "var(--muted)" }}>{p.services.join(" · ")}</div>
+                  </div>
+                )}
+                {(p.results_metrics || []).length > 0 && (
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 4 }}>Key metrics ({p.results_metrics.length})</div>
+                    <div style={{ fontSize: 12.5, color: "var(--muted)" }}>{p.results_metrics.join(" · ")}</div>
+                  </div>
+                )}
+                {(p.problem_library || []).length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 4 }}>Problem library — per industry ({p.problem_library.length})</div>
+                    {p.problem_library.map((pl, i) => (
+                      <Row key={i}>
+                        <b style={{ color: "var(--ink,#16263c)" }}>{pl.industry || "—"}</b>
+                        {(pl.pains || []).length ? <div><b>Pains:</b> {(pl.pains || []).join("; ")}</div> : null}
+                        {pl.our_angle ? <div><b>Our angle:</b> {pl.our_angle}</div> : null}
+                      </Row>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           <div className="card" style={{ padding: 14, marginBottom: 14 }}>
             <label style={{ fontSize: 12.5, fontWeight: 600 }}>Paste Client Profile JSON (auto-fills the boxes below)</label>

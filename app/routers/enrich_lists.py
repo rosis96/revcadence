@@ -625,10 +625,11 @@ class BuildProfileIn(BaseModel):
     merge: bool = True       # merge into the existing profile vs replace
 
 
-# The Client Brain schema — one rich, structured profile the AI writer uses.
+# The Client Brain schema — one rich, structured knowledge base the AI writer uses.
 CLIENT_BRAIN_KEYS = ["client_name", "one_liner", "main_offer", "what_we_are_pitching",
-                     "target_outcome", "icp_summary", "industries", "positioning", "tone",
-                     "case_studies", "problem_library", "proof_points", "objections"]
+                     "target_outcome", "icp_summary", "industries", "services", "positioning",
+                     "methodology", "results_metrics", "proof_points", "testimonials",
+                     "target_titles", "tone", "case_studies", "problem_library", "objections"]
 
 
 def _extract_upload_text(raw: bytes, filename: str) -> str:
@@ -709,46 +710,74 @@ def build_profile(workspace_id: int, body: BuildProfileIn, ctx: AuthContext = De
     if not ai.has_ai():
         raise HTTPException(422, "No OpenAI key set — connect AI before building the profile.")
     text = (body.material or "").strip()
+    pages_crawled = 0
     if body.website:
-        # deliberate one-off → crawl deep to capture case studies, results, industries
-        crawl = crawl_site(body.website, max_pages=16, max_chars=45000)
+        # crawl the WHOLE site (every same-domain page) to capture all case studies,
+        # results and industries — bounded so it always terminates.
+        crawl = crawl_site(body.website, max_pages=40, max_chars=140000, follow_all=True)
+        pages_crawled = len(crawl.get("pages") or [])
         if crawl.get("text"):
-            text = (crawl["text"] + "\n\n---PASTED---\n" + text)[:45000]
+            text = (crawl["text"] + "\n\n---PASTED---\n" + text)
+    text = text[:120000]    # gpt-4o-mini has a large context — send a lot, don't over-summarize
     if not text.strip():
         raise HTTPException(422, "Provide a website URL or paste some material to learn from.")
 
     system = (
-        "You build a structured CLIENT BRAND PROFILE for a B2B company from THEIR OWN material, "
-        "so an AI can write outreach and follow-ups that sound like an insider. Ground EVERYTHING "
-        "only in the material provided — never invent case studies, clients, metrics, or claims; "
-        "leave a field empty/[] if the material doesn't support it. Return JSON with EXACTLY these keys:\n"
-        'client_name (str), one_liner (str), main_offer (str), what_we_are_pitching (str), '
-        'target_outcome (str), icp_summary (str), industries (list of str), '
-        'positioning (list of str — real differentiators), tone (str), '
-        'case_studies (list of {client, industry, problem, solution, outcome}), '
-        'problem_library (list of {industry, pains: list of str, our_angle: str} — the specific '
-        'problems buyers in each industry face and how this company addresses them), '
-        'proof_points (list of str — awards, stats, notable logos), '
+        "You are building a COMPREHENSIVE knowledge base about a B2B company from THEIR OWN material, "
+        "so an AI can write outreach and follow-ups that sound like a true insider. Be EXHAUSTIVE — "
+        "capture every case study, metric, service, proof point and problem you can find. DO NOT "
+        "summarize into one-liners: preserve the real detail, numbers, client names, and outcomes as "
+        "written. Ground EVERYTHING only in the material — never invent; leave a field empty/[] if the "
+        "material doesn't support it. Return JSON with EXACTLY these keys:\n"
+        'client_name (str), one_liner (str), main_offer (str — full, detailed), '
+        'what_we_are_pitching (str), target_outcome (str), icp_summary (str), '
+        'industries (list of str), '
+        'services (list of str — every service/offering, specific), '
+        'positioning (list of str — real differentiators, detailed), '
+        'methodology (list of str — how they deliver / their process, step by step), '
+        'results_metrics (list of str — every concrete metric/number/stat, verbatim), '
+        'proof_points (list of str — awards, notable clients/logos, credentials), '
+        'testimonials (list of {quote, who}), '
+        'target_titles (list of str — the buyer roles they sell to), tone (str), '
+        'case_studies (list of {client, industry, problem, solution, outcome, metrics (list of str), quote}) '
+        "— capture the FULL story of each, not a summary; include every case study present, "
+        'problem_library (list of {industry, pains: list of str, our_angle: str, proof: str} — the '
+        'specific problems buyers in each industry face, how this company solves them, and the proof), '
         'objections (list of {objection, response}).')
-    user = "COMPANY MATERIAL:\n" + text
+    user = "COMPANY MATERIAL (be exhaustive — extract everything):\n" + text
     try:
         out = ai._call_openai(system, user, model=ai.extract_model())
     except Exception as e:
         raise HTTPException(502, f"AI extraction failed: {str(e)[:200]}")
     if not isinstance(out, dict):
         raise HTTPException(502, "AI returned an unexpected format — try again or paste cleaner material.")
-    profile = {k: out.get(k, [] if k in ("industries", "positioning", "case_studies",
-               "problem_library", "proof_points", "objections") else "") for k in CLIENT_BRAIN_KEYS}
+    LIST_KEYS = {"industries", "services", "positioning", "methodology", "results_metrics",
+                 "proof_points", "testimonials", "target_titles", "case_studies", "problem_library",
+                 "objections"}
+    profile = {k: out.get(k, [] if k in LIST_KEYS else "") for k in CLIENT_BRAIN_KEYS}
 
     if body.merge:
+        # ACCUMULATE — new data ADDS to what's there, never wipes it. Lists append
+        # (deduped); scalars fill only when empty so prior detail is preserved.
         cfg = _config(ctx.db, workspace_id)
         merged = {**(cfg.profile or {})}
         for k, v in profile.items():
-            if v not in (None, "", []):
-                merged[k] = v
+            if k in LIST_KEYS:
+                existing = list(merged.get(k) or [])
+                seen = {_json.dumps(x, sort_keys=True) if isinstance(x, dict) else str(x) for x in existing}
+                for item in (v or []):
+                    sig = _json.dumps(item, sort_keys=True) if isinstance(item, dict) else str(item)
+                    if item and sig not in seen:
+                        existing.append(item)
+                        seen.add(sig)
+                merged[k] = existing
+            elif v and not merged.get(k):
+                merged[k] = v          # keep prior scalar detail; only fill blanks
         profile = merged
     return {"profile": profile,
             "counts": {"case_studies": len(profile.get("case_studies") or []),
                        "problems": len(profile.get("problem_library") or []),
+                       "services": len(profile.get("services") or []),
+                       "metrics": len(profile.get("results_metrics") or []),
                        "industries": len(profile.get("industries") or [])},
-            "crawled": bool(body.website)}
+            "pages_crawled": pages_crawled, "crawled": bool(body.website)}
