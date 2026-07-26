@@ -947,6 +947,60 @@ def build_formats(workspace_id: int, body: BuildFormatsIn, ctx: AuthContext = De
     return {"formats": final, "count": len(final), "updated": updated, "merged": True}
 
 
+class AppendRulesIn(BaseModel):
+    text: str = ""
+    messages: list[dict] | None = None
+
+
+@router.post("/config/{workspace_id}/append-rules")
+def append_global_rules(workspace_id: int, body: AppendRulesIn, ctx: AuthContext = Depends(get_ctx)):
+    """Turn cross-variable / global instructions from the chat into GLOBAL RULES
+    (cfg.rules) — the plain-English lines the writer obeys on EVERY email (e.g.
+    'never repeat the same personalization across variables'). Appends new rules,
+    deduped; never touches the per-variable formats."""
+    ctx.require_workspace(workspace_id)
+    from ..enrichment import ai
+    from ..enrichment.pipeline import _config
+    cfg = _config(ctx.db, workspace_id)
+
+    src = (body.text or "").strip()
+    if not src and body.messages:
+        src = "\n\n".join((m.get("content") or "") for m in body.messages if m.get("role") == "user").strip()
+    if not src:
+        raise HTTPException(422, "Nothing to turn into a rule.")
+
+    existing_lines = [ln.strip() for ln in (cfg.rules or "").splitlines() if ln.strip()]
+    existing_lower = {ln.lower() for ln in existing_lines}
+
+    new_rules = []
+    if ai.has_ai():
+        system = (
+            "Extract GLOBAL writing rules from the operator's message — short imperative do/don't lines that "
+            "apply ACROSS every variable and every email (tone, things never to repeat, formatting bans, "
+            "length caps, banned words). Do NOT include instructions that define ONE variable's format/"
+            "structure — those are not global rules. Rewrite each as a concise, standalone directive. "
+            "Return JSON {\"rules\": [str, ...]} (deduplicated); {\"rules\": []} if there are none.")
+        try:
+            out = ai._call_openai(system, src[:6000], model=ai.extract_model())
+            cand = out.get("rules") if isinstance(out, dict) else None
+            if isinstance(cand, list):
+                new_rules = [str(r).strip() for r in cand if str(r).strip()]
+        except Exception:
+            new_rules = []
+    if not new_rules:   # fallback: keep the operator's own lines verbatim
+        new_rules = [ln.strip(" -•\t") for ln in src.splitlines() if ln.strip()]
+
+    added = []
+    for r in new_rules:
+        if r.lower() not in existing_lower:
+            existing_lines.append(r)
+            existing_lower.add(r.lower())
+            added.append(r)
+    cfg.rules = "\n".join(existing_lines)
+    ctx.db.commit()
+    return {"added": added, "count": len(added), "rules": cfg.rules}
+
+
 def _accumulate_brain(existing: dict, new: dict) -> dict:
     """Merge extracted knowledge INTO the brain: lists dedupe by real entity,
     scalars keep the fuller version. Never wipes prior data."""

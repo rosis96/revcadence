@@ -70,6 +70,18 @@ export default function BrainChat() {
     } catch (e) { toast(e.message, "bad"); } finally { setBusy(false); }
   };
 
+  const saveAsRule = async () => {
+    if (!messages.length || busy) return;
+    setBusy(true);
+    try {
+      const r = await api(`/api/enrich-lists/config/${wsId}/append-rules`, { method: "POST", body: { messages } });
+      if (r.added?.length) {
+        toast(`Added ${r.added.length} global rule(s)`);
+        setMessages((m) => [...m, { role: "assistant", content: `✅ Added to your global Rules — obeyed on every email:\n• ${r.added.join("\n• ")}`, learned: ["rules"] }]);
+      } else { toast("No new global rules found in this chat", "bad"); }
+    } catch (e) { toast(e.message, "bad"); } finally { setBusy(false); }
+  };
+
   const suggestions = [
     "What's our angle for a manufacturing CFO?",
     "Draft a cold email for a real-estate CEO using a relevant case study.",
@@ -78,12 +90,14 @@ export default function BrainChat() {
 
   return (
     <>
-      <PageHeader title="Ask the brain" desc="Chat with this client's knowledge base. Save what you paste, or build formats from it."
+      <PageHeader title="Ask the brain" desc="Knowledge → Save to brain · how to write a variable → Build formats · a rule for every email → Save as rule."
         actions={<div style={{ display: "flex", gap: 8 }}>
+          <button className="btn ghost" disabled={busy || !messages.length} onClick={saveAsRule}
+            style={{ display: "flex", alignItems: "center", gap: 6 }} title="Turn cross-variable / global instructions into global Rules (obeyed on every email)"><Sparkles size={15} /> Save as rule</button>
           <button className="btn secondary" disabled={busy || !messages.length} onClick={buildFormats}
-            style={{ display: "flex", alignItems: "center", gap: 6 }}><Sparkles size={15} /> Build formats</button>
+            style={{ display: "flex", alignItems: "center", gap: 6 }} title="Update the variables you described (keeps the rest)"><Sparkles size={15} /> Build formats</button>
           <button className="btn" disabled={busy || !messages.length} onClick={saveToBrain}
-            style={{ display: "flex", alignItems: "center", gap: 6 }}><Sparkles size={15} /> Save to brain</button>
+            style={{ display: "flex", alignItems: "center", gap: 6 }} title="Save company knowledge (case studies, services, metrics)"><Sparkles size={15} /> Save to brain</button>
         </div>} />
       <div className="card" style={{ padding: 0, display: "flex", flexDirection: "column", height: "70vh", overflow: "hidden" }}>
         <div style={{ flex: 1, overflowY: "auto", padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
