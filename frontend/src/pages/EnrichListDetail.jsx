@@ -440,7 +440,8 @@ export default function EnrichListDetail() {
                 <p>{openLead.research_error || openLead.generation_error ||
                   (openLead.status === "needs_review"
                     ? "One or more variables failed grounding checks and were quarantined instead of shipping."
-                    : "Fewer than three source-backed signals were found. No generic copy was generated.")}</p>
+                    : (openLead.research?.reason
+                      || "Fewer than three source-backed signals were found. No generic copy was generated."))}</p>
               </div>
             </div>)}
 

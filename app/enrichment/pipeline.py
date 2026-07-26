@@ -414,6 +414,28 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
 # personalization. Below this the lead is marked "insufficient", never guessed.
 MIN_RESEARCH_SIGNALS = 3
 
+
+def _research_reason(research: dict, signals: list) -> str:
+    """Plain-language 'why this lead produced no copy', shown in the UI up front so
+    a failure is instantly actionable instead of a black box. Pinpoints whether the
+    break was the crawl (thin/JS text), the extractor (found nothing), or the gate."""
+    text_len = int(research.get("signals_text_len") or 0)
+    pages = int(research.get("pages_crawled") or 0)
+    facts_total = sum((research.get("facts_by_type") or {}).values())
+    if pages == 0:
+        return ("The website could not be fetched (no page returned) — it may block bots, be down, "
+                "or need JavaScript rendering.")
+    if text_len < 600:
+        return (f"Read {pages} page(s) but only {text_len} characters of usable text — the site is almost "
+                "certainly JavaScript-rendered. Set a render key (RENDER_PROVIDER + RENDER_API_KEY) so its "
+                "pages can be read.")
+    if facts_total == 0:
+        return (f"Read {pages} pages ({text_len:,} chars) but the extractor found no named services, clients, "
+                "or industries — the page text is generic, or the extractor under-read it. Try the stronger "
+                "extractor (EXTRACT_MODEL=gpt-4o).")
+    return (f"Extracted {facts_total} detail(s) across {pages} pages, but only {len(signals)} cleared source "
+            f"corroboration ({MIN_RESEARCH_SIGNALS} needed) — the specifics may not appear verbatim on the site.")
+
 # Corporate filler / vague praise the writer must never use to REPLACE research.
 _BANNED_PHRASES = [
     "award-winning approach", "award winning approach", "commitment to excellence",
@@ -1142,6 +1164,7 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
     research = {**diagnostics, "signals_collected": len(signals),
                 "signal_types": sorted({s["type"] for s in signals})}
     if ai.has_ai() and len(signals) < MIN_RESEARCH_SIGNALS:
+        research["reason"] = _research_reason(research, signals)
         lead.result = {**(lead.result or {}), "_facts": facts, "_research": research,
                        "_insufficient": True}
         lead.status = "insufficient"
