@@ -345,6 +345,8 @@ export default function EnrichConfigPage({ tab }) {
                   <option value="gpt-5.4-mini">gpt-5.4-mini — stronger, higher cost</option>
                   <option value="gpt-5.6-luna">gpt-5.6-luna — latest efficient</option>
                   <option value="gpt-5.6-terra">gpt-5.6-terra — premium quality</option>
+                  <option value="gpt-4o">gpt-4o — strong, reliable (same as extraction)</option>
+                  <option value="gpt-4o-mini">gpt-4o-mini — cost-effective</option>
                   <option value="gpt-4.1-mini">gpt-4.1-mini — legacy</option>
                   <option value="gpt-4.1">gpt-4.1 — legacy premium</option>
                 </select>
