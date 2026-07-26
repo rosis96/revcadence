@@ -769,10 +769,32 @@ def brain_chat(workspace_id: int, body: BrainChatIn, ctx: AuthContext = Depends(
     cfg = _config(ctx.db, workspace_id)
     brain = cfg.profile or {}
 
+    # If the user shared any website URL, SCRAPE it (we have a crawler) so the brain
+    # can actually read it — no more "I can't browse websites".
+    import re as _re
+    scraped = ""
+    recent = " ".join((m.content or "") for m in body.messages[-4:] if m.role == "user")
+    urls = []
+    for u in _re.findall(r"https?://[^\s<>\"')\]]+", recent):
+        u = u.rstrip(".,);]")
+        if u not in urls:
+            urls.append(u)
+    if urls:
+        from ..enrichment.crawler import crawl_site
+        for u in urls[:2]:
+            try:
+                cr = crawl_site(u, max_pages=6, max_chars=10000, render=True)
+                if cr.get("text"):
+                    scraped += f"\n\n--- WEBSITE: {u} ---\n{cr['text'][:10000]}"
+            except Exception:
+                pass
+
     system = (
         "You are the private assistant for this client's workspace — an expert on the company described "
         "in CLIENT BRAIN below. Help the user: answer questions, draft cold emails / follow-ups, and give "
-        "advice, using ONLY the brain plus what the user tells you. Never invent facts about the client.\n"
+        "advice, using the brain plus what the user tells you. Never invent facts about the CLIENT (the "
+        "company in the brain). You CAN read any website the user shares — its scraped content is provided "
+        "under SCRAPED WEBSITES; use that real content to write about a prospect/company.\n"
         "If the user TEACHES you new information about the client (a case study, a service, a metric, "
         "positioning, a problem they solve, a testimonial, an objection), capture it in 'learned' so it is "
         "saved to the brain. Only include keys the user actually provided.\n"
@@ -782,7 +804,8 @@ def brain_chat(workspace_id: int, body: BrainChatIn, ctx: AuthContext = Depends(
         "(list), target_titles (list), case_studies (list of {client,industry,problem,solution,outcome,"
         "metrics}), problem_library (list of {industry,pains,our_angle}), testimonials (list of "
         "{quote,who}), objections (list of {objection,response})> or {} if nothing new}}.\n"
-        "CLIENT BRAIN:\n" + _json.dumps(brain)[:14000])
+        "CLIENT BRAIN:\n" + _json.dumps(brain)[:14000]
+        + (("\n\nSCRAPED WEBSITES (real page content the user shared — use this):\n" + scraped[:16000]) if scraped else ""))
 
     msgs = [{"role": "system", "content": system}]
     for m in body.messages[-14:]:
