@@ -13,7 +13,7 @@ from email.message import EmailMessage
 from email.utils import make_msgid
 
 from ..crypto import decrypt, encrypt
-from ..models.crm import Activity, Company, Contact, Deal
+from ..models.crm import Activity, Company, Contact, Deal, Stage
 from ..models.mailbox import ConversationMessage, DealConversation
 from ..models.onboarding import MailboxConnection
 from . import transport
@@ -443,13 +443,13 @@ def set_autopilot(db, conv: DealConversation, *, enabled: bool, interval_days=No
     if max_followups is not None:
         conv.max_followups = max(0, min(int(max_followups), 12))
     if enabled:
-        # arm from the last outbound (or now) — but only if the prospect hasn't replied since
-        anchor = conv.last_outbound_at or datetime.utcnow()
+        # Only arm if a first email already went out (autopilot FOLLOWS UP — it never
+        # cold-sends). If nothing sent yet, stay dormant; the first send arms it.
         replied_since = conv.last_inbound_at and conv.last_outbound_at and conv.last_inbound_at >= conv.last_outbound_at
-        if replied_since:
-            conv.next_followup_at = None   # they're mid-reply — leave it to the human
-        elif (conv.followups_sent or 0) < (conv.max_followups or 4):
-            conv.next_followup_at = anchor + timedelta(days=conv.followup_interval_days or 4)
+        if conv.last_outbound_at and not replied_since and (conv.followups_sent or 0) < (conv.max_followups or 4):
+            conv.next_followup_at = conv.last_outbound_at + timedelta(days=conv.followup_interval_days or 4)
+        else:
+            conv.next_followup_at = None
     else:
         conv.next_followup_at = None
     db.commit()
@@ -469,6 +469,17 @@ def run_due_followups(db, now=None) -> dict:
     sent = skipped = 0
     for conv in due:
         try:
+            # deal-closed guard: NEVER keep emailing a Won or Lost deal.
+            deal = db.get(Deal, conv.deal_id) if conv.deal_id else None
+            if deal and deal.stage_id:
+                st = db.get(Stage, deal.stage_id)
+                if st and (st.is_won or st.is_lost):
+                    conv.autopilot = False
+                    conv.next_followup_at = None
+                    conv.state = "won" if st.is_won else "lost"
+                    db.commit()
+                    skipped += 1
+                    continue
             # replied-since guard: if a reply landed after our last send, hand to human
             if conv.last_inbound_at and conv.last_outbound_at and conv.last_inbound_at >= conv.last_outbound_at:
                 conv.next_followup_at = None
@@ -479,6 +490,10 @@ def run_due_followups(db, now=None) -> dict:
                 skipped += 1
                 continue
             if not conv.prospect_email or not workspace_mailbox(db, conv.workspace_id):
+                conv.next_followup_at = None
+                skipped += 1
+                continue
+            if not conv.last_outbound_at:      # never cold-send: require a first email
                 conv.next_followup_at = None
                 skipped += 1
                 continue

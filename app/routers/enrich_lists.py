@@ -672,6 +672,8 @@ def build_profile(workspace_id: int, body: BuildProfileIn, ctx: AuthContext = De
         out = ai._call_openai(system, user, model=ai.extract_model())
     except Exception as e:
         raise HTTPException(502, f"AI extraction failed: {str(e)[:200]}")
+    if not isinstance(out, dict):
+        raise HTTPException(502, "AI returned an unexpected format — try again or paste cleaner material.")
     profile = {k: out.get(k, [] if k in ("industries", "positioning", "case_studies",
                "problem_library", "proof_points", "objections") else "") for k in CLIENT_BRAIN_KEYS}
 
