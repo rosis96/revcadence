@@ -1,6 +1,7 @@
 """Website crawler: homepage + a few high-signal internal pages (about,
 services, pricing...), cleaned to text. Patterns carried over from the proven
 outbound_personalization pipeline (browser headers, content budgets)."""
+import json
 import re
 from urllib.parse import urljoin, urlparse
 
@@ -144,6 +145,69 @@ def _image_metadata(soup: BeautifulSoup, page_url: str, page_type: str) -> list:
     return sorted(out, key=lambda x: -x["relevance"])[:30]
 
 
+# Content-bearing keys inside embedded JSON (JSON-LD, __NEXT_DATA__, __NUXT__,
+# generic application/json). Harvesting these recovers real text on JS-rendered
+# sites WITHOUT a paid render key — the content ships in <script> tags that _clean
+# strips, so on SPA/agency sites the visible HTML is an empty shell.
+_JSON_CONTENT_KEYS = (
+    "name", "title", "description", "headline", "text", "label", "caption", "body",
+    "summary", "alt", "heading", "quote", "author", "client", "service", "subtitle",
+    "excerpt", "content", "tagline", "role", "company", "industry", "result", "outcome",
+    "award", "project", "partner", "value", "question", "answer", "richtext",
+)
+_META_CONTENT_PROPS = ("og:title", "og:description", "og:site_name",
+                       "twitter:title", "twitter:description")
+
+
+def _collect_json_strings(obj, out: list, key: str = "", depth: int = 0):
+    """Pull human-readable string VALUES from content-bearing keys in embedded JSON."""
+    if depth > 8 or len(out) > 400:
+        return
+    if isinstance(obj, str):
+        s = obj.strip()
+        if (key.lower() in _JSON_CONTENT_KEYS and 2 <= len(s) <= 400
+                and not s.startswith(("http", "/", "#", "{", "["))
+                and any(c.isalpha() for c in s)):
+            out.append(s)
+    elif isinstance(obj, dict):
+        for k, v in obj.items():
+            _collect_json_strings(v, out, str(k), depth + 1)
+    elif isinstance(obj, list):
+        for v in obj:
+            _collect_json_strings(v, out, key, depth + 1)
+
+
+def _structured_text(soup: BeautifulSoup) -> str:
+    """Render-free content recovery: OpenGraph/Twitter meta + JSON-LD + framework
+    JSON payloads (__NEXT_DATA__/__NUXT__/application/json). This is what lets us
+    read Next.js/Nuxt/Webflow sites that serve an empty shell to a static fetch."""
+    parts = []
+    for m in soup.find_all("meta"):
+        prop = (m.get("property") or m.get("name") or "").lower()
+        if prop in _META_CONTENT_PROPS and (m.get("content") or "").strip():
+            parts.append(m["content"].strip())
+    for sc in soup.find_all("script"):
+        t = (sc.get("type") or "").lower()
+        sid = (sc.get("id") or "").lower()
+        if not (t in ("application/ld+json", "application/json") or sid in ("__next_data__", "__nuxt__")):
+            continue
+        raw = (sc.string or sc.get_text() or "").strip()
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+        except Exception:
+            continue
+        _collect_json_strings(data, parts)
+    seen, out = set(), []
+    for p in parts:
+        k = p.lower()
+        if k not in seen:
+            seen.add(k)
+            out.append(p)
+    return " ".join(out)[:8000]
+
+
 def _page_record(page_url: str, html: str) -> tuple[dict, BeautifulSoup]:
     soup = BeautifulSoup(html, "html.parser")
     title = soup.title.get_text(" ", strip=True) if soup.title else ""
@@ -151,6 +215,11 @@ def _page_record(page_url: str, html: str) -> tuple[dict, BeautifulSoup]:
     description = (md.get("content") or "").strip() if md else ""
     # Work on a second soup because _clean mutates it.
     text = _clean(BeautifulSoup(html, "html.parser"))
+    # Recover embedded structured content (JSON-LD / framework payloads / OG meta)
+    # so JS-rendered shells still yield real, checkable text without a render key.
+    structured = _structured_text(soup)
+    if structured:
+        text = f"{text} {structured}".strip()
     kind = _page_type(page_url, title, text)
     images = _image_metadata(soup, page_url, kind)
     # Image labels are real page metadata and often the only names on portfolio grids.
