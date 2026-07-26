@@ -298,6 +298,45 @@ def render_fetch(page_url: str) -> str:
     return ""
 
 
+_FREE_RENDER_TIMEOUT = 30
+_FREE_RENDER_CAP = 4          # bound free renders per site (rate-limit friendly)
+
+
+def free_render_enabled() -> bool:
+    """Free JS rendering via Jina Reader is ON by default (no key, no cost).
+    Set DISABLE_FREE_RENDER=1 to turn it off."""
+    return os.getenv("DISABLE_FREE_RENDER", "").lower() not in ("1", "true", "yes")
+
+
+def jina_fetch_text(page_url: str) -> str:
+    """Render a URL's JavaScript for FREE via Jina Reader (r.jina.ai) and return
+    clean text. No key needed (~20 rpm); an optional JINA_API_KEY raises the limit
+    for big batches. This is what lets us read client-rendered agency/consulting
+    sites without a paid render provider."""
+    if not free_render_enabled():
+        return ""
+    try:
+        headers = {"User-Agent": HEADERS["User-Agent"], "X-Return-Format": "text"}
+        key = os.getenv("JINA_API_KEY", "")
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+        r = requests.get("https://r.jina.ai/" + page_url, headers=headers, timeout=_FREE_RENDER_TIMEOUT)
+        if r.status_code < 300 and r.text and len(r.text) > 200:
+            return re.sub(r"\s{2,}", " ", r.text)
+    except Exception:
+        return ""
+    return ""
+
+
+def _text_record(page_url: str, text: str, title: str = "") -> dict:
+    """A minimal page record built from plain rendered text (no HTML/images)."""
+    text = re.sub(r"\s{2,}", " ", text or "").strip()
+    kind = _page_type(page_url, title, text)
+    return {"url": page_url, "title": title, "meta_description": "",
+            "page_type": kind, "score": _PAGE_SCORES.get(kind, 35),
+            "text": text, "text_length": len(text), "images": []}
+
+
 def _fetch_static(u: str):
     """Static GET with browser headers, redirects, and a second-fingerprint retry.
     Returns (html, status_code, final_url) or (None, status_code, None)."""
@@ -405,7 +444,8 @@ def crawl_site(website: str, html_override: str = "", on_progress=None,
     # Homepage extraction. Render both empty SPA shells and hybrid pages whose
     # static HTML contains a header but hides the useful cards/links behind JS.
     home_rec, home_soup = _page_record(url, html) if html else (None, None)
-    if do_render and (not html or _render_recommended(html, home_rec, home_soup)):
+    thin_home = (not home_rec) or _render_recommended(html or "", home_rec, home_soup)
+    if do_render and (not html or thin_home):
         note("rendering homepage")
         rhtml = render_fetch(url)
         if rhtml:
@@ -414,14 +454,32 @@ def crawl_site(website: str, html_override: str = "", on_progress=None,
             diag["fallback_method"] = "render(home)" if not diag.get("raw_html_len") else "static+render(home)"
             diag["rendered_pages"] += 1
             diag["raw_html_len"] = max(diag["raw_html_len"], len(rhtml))
+    # FREE render fallback (Jina Reader) — when still thin and no paid render key.
+    # Keeps the static soup (for its nav links) but swaps in the rendered text.
+    free_used = 0
+    if free_render_enabled() and free_used < _FREE_RENDER_CAP and \
+            ((not home_rec) or home_rec["text_length"] < _THIN_CHARS):
+        note("free-rendering homepage")
+        jt = jina_fetch_text(url)
+        if jt and len(jt) >= _THIN_CHARS:
+            title = home_rec["title"] if home_rec else ""
+            if home_rec:
+                home_rec["text"] = jt
+                home_rec["text_length"] = len(jt)
+            else:
+                home_rec = _text_record(url, jt, title)
+            diag["fallback_method"] += "+free_render(home)"
+            diag["rendered_pages"] += 1
+            free_used += 1
 
-    if not html or not home_rec or not home_rec["text"]:
-        # Research failed at the fetch/render stage — report it; DO NOT fabricate.
+    if not home_rec or not home_rec.get("text"):
+        # Research failed at the fetch/render stage (static + free render both empty)
+        # — report it; DO NOT fabricate.
         result["error"] = (f"homepage returned no usable content (HTTP {status})"
                            if status else "homepage fetch failed")
         return result
 
-    soup = home_soup
+    soup = home_soup      # may be None if only the free renderer produced content
     result["title"] = home_rec["title"]
     result["meta_description"] = home_rec["meta_description"]
     page_records = [home_rec]
@@ -468,7 +526,8 @@ def crawl_site(website: str, html_override: str = "", on_progress=None,
                     hint = f"{hint} {img.get('alt') or ''}".strip()
             add_candidate(urljoin(base, a["href"]), hint)
 
-    add_links(soup, url)
+    if soup is not None:
+        add_links(soup, url)
     diag["internal_links_found"] = len(queue)
 
     # Discovery: sitemap-indexed pages + common seed paths, so image/JS navs don't
@@ -508,6 +567,15 @@ def crawl_site(website: str, html_override: str = "", on_progress=None,
             if rhtml:
                 rec, s2 = _page_record(final_link, rhtml)
                 diag["rendered_pages"] += 1
+        # Free render fallback for high-value pages that are still thin.
+        if free_render_enabled() and free_used < _FREE_RENDER_CAP and rec["text_length"] < _THIN_CHARS \
+                and item["score"] >= 20:
+            jt = jina_fetch_text(final_link)
+            if jt and len(jt) > rec["text_length"]:
+                rec["text"] = jt
+                rec["text_length"] = len(jt)
+                diag["rendered_pages"] += 1
+                free_used += 1
         if final_link in fetched_final:
             if follow_all:
                 add_links(s2, final_link)
