@@ -66,6 +66,18 @@ def run_one(db, job) -> None:
 
 
 _MAILBOX_POLL_SECONDS = int(os.getenv("MAILBOX_POLL_SECONDS", "120"))
+_FOLLOWUP_TICK_SECONDS = int(os.getenv("FOLLOWUP_TICK_SECONDS", "300"))
+
+
+def run_followups(db):
+    """Fire any autonomous follow-ups that are due (opt-in, capped, reply-cancelled)."""
+    from ..mailbox import service
+    try:
+        r = service.run_due_followups(db)
+        if r.get("sent"):
+            print(f"[worker] autopilot follow-ups sent: {r['sent']} (skipped {r.get('skipped', 0)})")
+    except Exception as e:  # noqa: BLE001
+        print(f"[worker] follow-up runner error: {e}")
 
 
 def poll_mailboxes(db):
@@ -92,6 +104,7 @@ def main():
               "a private throwaway DB instead of the shared Postgres. Jobs queued "
               "by the web service will NEVER be seen. Fix the service variables. ***")
     last_mailbox_poll = 0.0
+    last_followup_tick = 0.0
     while True:
         db = SessionLocal()
         try:
@@ -99,6 +112,9 @@ def main():
             if time.time() - last_mailbox_poll >= _MAILBOX_POLL_SECONDS:
                 poll_mailboxes(db)
                 last_mailbox_poll = time.time()
+            if time.time() - last_followup_tick >= _FOLLOWUP_TICK_SECONDS:
+                run_followups(db)
+                last_followup_tick = time.time()
             job = _claim(db)
             if job:
                 print(f"[worker] running job {job.id} kind={job.kind} attempt={job.attempts}")

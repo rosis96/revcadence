@@ -43,6 +43,13 @@ class DealConversation(Base):
     last_inbound_at = Column(DateTime)
     last_outbound_at = Column(DateTime)
 
+    # Autonomous follow-up cadence (opt-in, hard-capped, cancels on any reply)
+    autopilot = Column(Boolean, default=False)                 # send follow-ups automatically
+    next_followup_at = Column(DateTime)                        # when the next auto follow-up fires
+    followups_sent = Column(Integer, default=0)                # how many auto follow-ups have gone
+    max_followups = Column(Integer, default=4)                 # hard cap — never exceed
+    followup_interval_days = Column(Integer, default=4)        # spacing between touches
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

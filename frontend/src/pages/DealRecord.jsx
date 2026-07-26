@@ -278,6 +278,16 @@ function ConversationTab({ dealId, contact }) {
     catch (e) { toast(e.message, "bad"); }
     setBusy("");
   };
+  const conv = data?.conversation || {};
+  const toggleAutopilot = async () => {
+    setBusy("auto");
+    try {
+      await api(`/api/deals/${dealId}/conversation/autopilot`, { method: "POST", body: { enabled: !conv.autopilot } });
+      reload();
+      toast(conv.autopilot ? "Autopilot off" : "Autopilot on — AI follows up until they reply");
+    } catch (e) { toast(e.message, "bad"); }
+    setBusy("");
+  };
   return (
     <div style={{ display: "grid", gap: 14 }}>
       {!connected && (
@@ -285,6 +295,25 @@ function ConversationTab({ dealId, contact }) {
           <Mail size={18} style={{ color: "#B54708" }} />
           <div style={{ flex: 1, fontSize: 13, color: "#B54708" }}>Connect a mailbox to send from your own address, in the same thread.</div>
           <Link className="btn" to="/settings/email">Connect email</Link>
+        </div>
+      )}
+      {connected && (
+        <div className="card" style={{ padding: 14, display: "flex", alignItems: "center", gap: 12,
+          justifyContent: "space-between", background: conv.autopilot ? "#f0f7ff" : "transparent",
+          borderColor: conv.autopilot ? "#bfdcf6" : undefined }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Sparkles size={18} style={{ color: conv.autopilot ? "#1f8fe6" : "var(--muted)" }} />
+            <div style={{ fontSize: 13 }}>
+              <div style={{ fontWeight: 600 }}>Follow-up autopilot {conv.autopilot ? "· ON" : "· off"}</div>
+              <div style={{ color: "var(--muted)", fontSize: 12 }}>
+                {conv.autopilot
+                  ? `AI sends the next follow-up ${conv.next_followup_at ? "on " + new Date(conv.next_followup_at).toLocaleDateString() : "when due"} · ${conv.followups_sent}/${conv.max_followups} sent · stops the moment they reply`
+                  : `Send AI follow-ups automatically every ${conv.followup_interval_days} days until they reply (max ${conv.max_followups}). Grounded in this thread + the client brain.`}
+              </div>
+            </div>
+          </div>
+          <Button size="sm" variant={conv.autopilot ? "secondary" : undefined} loading={busy === "auto"}
+            disabled={!!busy} onClick={toggleAutopilot}>{conv.autopilot ? "Turn off" : "Turn on"}</Button>
         </div>
       )}
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>

@@ -125,11 +125,36 @@ def get_conversation(deal_id: int, ctx: AuthContext = Depends(get_ctx)):
     return {
         "conversation": {"id": conv.id, "deal_id": conv.deal_id, "subject": conv.subject,
                          "prospect_email": conv.prospect_email, "state": conv.state,
+                         "autopilot": bool(conv.autopilot),
+                         "next_followup_at": conv.next_followup_at.isoformat() if conv.next_followup_at else None,
+                         "followups_sent": conv.followups_sent or 0, "max_followups": conv.max_followups or 4,
+                         "followup_interval_days": conv.followup_interval_days or 4,
                          "last_inbound_at": conv.last_inbound_at.isoformat() if conv.last_inbound_at else None,
                          "last_outbound_at": conv.last_outbound_at.isoformat() if conv.last_outbound_at else None},
         "mailbox_connected": bool(mailbox and mailbox.status == "connected"),
         "messages": [_msg_out(m) for m in msgs],
     }
+
+
+class AutopilotIn(BaseModel):
+    enabled: bool
+    interval_days: int | None = None
+    max_followups: int | None = None
+
+
+@router.post("/deals/{deal_id}/conversation/autopilot")
+def set_autopilot(deal_id: int, body: AutopilotIn, ctx: AuthContext = Depends(get_ctx)):
+    """Turn the autonomous follow-up cadence on/off for this deal's conversation."""
+    d = _deal(ctx, deal_id)
+    conv = service.ensure_conversation(ctx.db, d)
+    if body.enabled and not service.workspace_mailbox(ctx.db, d.workspace_id):
+        raise HTTPException(409, "Connect a mailbox first (Settings → Email) before enabling autopilot.")
+    conv = service.set_autopilot(ctx.db, conv, enabled=body.enabled,
+                                 interval_days=body.interval_days, max_followups=body.max_followups)
+    return {"autopilot": bool(conv.autopilot),
+            "next_followup_at": conv.next_followup_at.isoformat() if conv.next_followup_at else None,
+            "followups_sent": conv.followups_sent or 0, "max_followups": conv.max_followups or 4,
+            "followup_interval_days": conv.followup_interval_days or 4}
 
 
 class SendIn(BaseModel):

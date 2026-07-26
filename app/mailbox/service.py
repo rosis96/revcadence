@@ -8,7 +8,7 @@ Rules enforced here:
   back to the human.
 - AI never auto-sends: drafts are `status="draft"`, follow-ups are `status="scheduled"`.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.message import EmailMessage
 from email.utils import make_msgid
 
@@ -148,6 +148,9 @@ def send_message(db, conv: DealConversation, body_text: str, *, subject=None,
     conv.thread_refs = (references or f"{conv.thread_refs} {message_id}").strip()[:4000]
     conv.last_outbound_at = datetime.utcnow()
     conv.state = "active"
+    # autopilot: arm the next follow-up after this send (spacing from now)
+    if conv.autopilot and (conv.followups_sent or 0) < (conv.max_followups or 4):
+        conv.next_followup_at = datetime.utcnow() + timedelta(days=conv.followup_interval_days or 4)
     db.add(Activity(workspace_id=conv.workspace_id, deal_id=conv.deal_id, contact_id=conv.contact_id,
                     company_id=conv.company_id, kind="email_out",
                     title=f"Email sent{' (AI)' if ai_generated else ''}: {subj}",
@@ -195,6 +198,7 @@ def record_inbound(db, conv: DealConversation, *, from_email, subject, body_text
     db.add(cm)
     cancelled = cancel_scheduled(db, conv)
     conv.last_inbound_at = datetime.utcnow()
+    conv.next_followup_at = None    # prospect replied → stop autopilot, hand back to human
     conv.state = "active"
     if references or rfc_message_id:
         conv.thread_refs = (f"{conv.thread_refs} {rfc_message_id}").strip()[:4000]
@@ -422,6 +426,76 @@ def draft_followup(db, conv: DealConversation) -> dict:
     return {"body": f"{hi}\n\nJust following up on our last conversation — happy to answer any "
             "questions and figure out the best next step whenever the timing works for you.\n\n"
             "Would a quick call this week or next be helpful?", "source": "template"}
+
+
+def set_autopilot(db, conv: DealConversation, *, enabled: bool, interval_days=None, max_followups=None):
+    """Turn the autonomous follow-up cadence on/off for a conversation. When ON it
+    sends AI follow-ups on a schedule until the prospect replies or the cap is hit.
+    Opt-in and reversible — never on by default."""
+    conv.autopilot = bool(enabled)
+    if interval_days:
+        conv.followup_interval_days = max(1, min(int(interval_days), 60))
+    if max_followups is not None:
+        conv.max_followups = max(0, min(int(max_followups), 12))
+    if enabled:
+        # arm from the last outbound (or now) — but only if the prospect hasn't replied since
+        anchor = conv.last_outbound_at or datetime.utcnow()
+        replied_since = conv.last_inbound_at and conv.last_outbound_at and conv.last_inbound_at >= conv.last_outbound_at
+        if replied_since:
+            conv.next_followup_at = None   # they're mid-reply — leave it to the human
+        elif (conv.followups_sent or 0) < (conv.max_followups or 4):
+            conv.next_followup_at = anchor + timedelta(days=conv.followup_interval_days or 4)
+    else:
+        conv.next_followup_at = None
+    db.commit()
+    return conv
+
+
+def run_due_followups(db, now=None) -> dict:
+    """Send every follow-up that is due. Safety rails: opt-in (autopilot), hard cap
+    (max_followups), stops the instant a prospect replies, and only ever continues
+    the SAME thread. One failure never blocks the rest."""
+    now = now or datetime.utcnow()
+    due = (db.query(DealConversation)
+           .filter(DealConversation.autopilot == True,                       # noqa: E712
+                   DealConversation.state == "active",
+                   DealConversation.next_followup_at != None,                # noqa: E711
+                   DealConversation.next_followup_at <= now).all())
+    sent = skipped = 0
+    for conv in due:
+        try:
+            # replied-since guard: if a reply landed after our last send, hand to human
+            if conv.last_inbound_at and conv.last_outbound_at and conv.last_inbound_at >= conv.last_outbound_at:
+                conv.next_followup_at = None
+                skipped += 1
+                continue
+            if (conv.followups_sent or 0) >= (conv.max_followups or 4):
+                conv.next_followup_at = None
+                skipped += 1
+                continue
+            if not conv.prospect_email or not workspace_mailbox(db, conv.workspace_id):
+                conv.next_followup_at = None
+                skipped += 1
+                continue
+            draft = draft_followup(db, conv)
+            body = (draft or {}).get("body", "").strip()
+            if not body:
+                conv.next_followup_at = now + timedelta(days=1)   # retry tomorrow
+                continue
+            send_message(db, conv, body, ai_generated=True)       # threads + logs + re-arms
+            conv.followups_sent = (conv.followups_sent or 0) + 1
+            if conv.followups_sent >= (conv.max_followups or 4):
+                conv.next_followup_at = None                      # sequence complete
+            db.commit()
+            sent += 1
+        except Exception:
+            db.rollback()
+            try:
+                conv.next_followup_at = now + timedelta(days=1)   # back off, don't hammer
+                db.commit()
+            except Exception:
+                db.rollback()
+    return {"sent": sent, "skipped": skipped, "due": len(due)}
 
 
 def match_inbound_to_conversation(db, workspace_id, *, from_email, in_reply_to="", references=""):
