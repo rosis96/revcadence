@@ -302,7 +302,7 @@ function ConversationTab({ dealId, contact }) {
           justifyContent: "space-between", background: conv.autopilot ? "#f0f7ff" : "transparent",
           borderColor: conv.autopilot ? "#bfdcf6" : undefined }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Sparkles size={18} style={{ color: conv.autopilot ? "#1f8fe6" : "var(--muted)" }} />
+            <Sparkles size={18} style={{ color: conv.autopilot ? "var(--primary)" : "var(--muted)" }} />
             <div style={{ fontSize: 13 }}>
               <div style={{ fontWeight: 600 }}>Follow-up autopilot {conv.autopilot ? "· ON" : "· off"}</div>
               <div style={{ color: "var(--muted)", fontSize: 12 }}>

@@ -45,7 +45,7 @@ function GettingStarted({ wsParam, nav }) {
         <button className="btn ghost sm" onClick={() => { localStorage.setItem(key, "1"); setDismissed(true); }}>Dismiss</button>
       </div>
       <div style={{ height: 8, background: "#e6eef8", borderRadius: 6, overflow: "hidden", marginBottom: 14 }}>
-        <div style={{ height: "100%", width: `${100 * data.done / data.total}%`, background: "#1f8fe6" }} />
+        <div style={{ height: "100%", width: `${100 * data.done / data.total}%`, background: "var(--primary)" }} />
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
         {data.steps.map((s) => (

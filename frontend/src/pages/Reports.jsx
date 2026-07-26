@@ -44,7 +44,7 @@ export default function Reports() {
 
       {/* KPI row */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 14 }}>
-        <Kpi label="Open pipeline" value={money(k.open_pipeline_value)} sub={`${k.active_deals} active deals`} accent="#1f8fe6" />
+        <Kpi label="Open pipeline" value={money(k.open_pipeline_value)} sub={`${k.active_deals} active deals`} accent="var(--primary)" />
         <Kpi label="Won revenue (in range)" value={money(k.won_revenue_in_range)} sub={`${money(k.won_revenue)} all-time`} accent="#22a06b" />
         <Kpi label="Meetings booked" value={k.meetings_booked} sub="currently in pipeline" />
         <Kpi label="Positive replies" value={k.positive_replies_in_range} sub="in range" />
@@ -74,7 +74,7 @@ export default function Reports() {
                 </div>
                 <div style={{ height: 12, background: "#eef2f7", borderRadius: 6, overflow: "hidden" }}>
                   <div style={{ height: "100%", width: `${Math.max(3, 100 * f.count / funnelMax)}%`,
-                    background: ["#93b8e6", "#4a95e0", "#1f8fe6", "#22a06b"][i] || "#1f8fe6", borderRadius: 6 }} />
+                    background: ["#93b8e6", "#4a95e0", "var(--primary)", "#22a06b"][i] || "var(--primary)", borderRadius: 6 }} />
                 </div>
               </div>
             );
@@ -108,7 +108,7 @@ export default function Reports() {
         <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 90, marginBottom: 14 }}>
           {data.trend.map((t, i) => (
             <div key={i} title={`${t.week}: ${t.meetings} meetings`} style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end", height: "100%" }}>
-              <div style={{ height: `${Math.max(2, 100 * t.meetings / mtgMax)}%`, background: "#1f8fe6", borderRadius: "3px 3px 0 0" }} />
+              <div style={{ height: `${Math.max(2, 100 * t.meetings / mtgMax)}%`, background: "var(--primary)", borderRadius: "3px 3px 0 0" }} />
             </div>
           ))}
         </div>

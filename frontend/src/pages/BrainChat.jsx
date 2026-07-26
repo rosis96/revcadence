@@ -69,7 +69,7 @@ export default function BrainChat() {
         <div style={{ flex: 1, overflowY: "auto", padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
           {messages.length === 0 && (
             <div style={{ margin: "auto", textAlign: "center", maxWidth: 460 }}>
-              <Sparkles size={26} style={{ color: "#1f8fe6" }} />
+              <Sparkles size={26} style={{ color: "var(--primary)" }} />
               <div style={{ fontWeight: 600, marginTop: 8 }}>Ask anything about this client — or teach it something new.</div>
               <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 4, marginBottom: 12 }}>
                 It answers from the Client Brain. To <b>train it</b>, paste material (case studies, services, metrics)
@@ -85,7 +85,7 @@ export default function BrainChat() {
             <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "78%" }}>
               <div style={{
                 padding: "10px 13px", borderRadius: 12, fontSize: 13.5, lineHeight: 1.5, whiteSpace: "pre-wrap",
-                background: m.role === "user" ? "#1f8fe6" : "#f2f5f9", color: m.role === "user" ? "#fff" : "#20303f",
+                background: m.role === "user" ? "var(--primary)" : "#f2f5f9", color: m.role === "user" ? "#fff" : "#20303f",
               }}>{m.content}</div>
               {m.learned?.length ? (
                 <div style={{ fontSize: 11, color: "#15803d", marginTop: 3 }}>✓ saved to brain: {m.learned.join(", ")}</div>
