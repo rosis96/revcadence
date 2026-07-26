@@ -14,53 +14,85 @@ branch_labels = None
 depends_on = None
 
 
+def _table_names() -> set[str]:
+    return set(sa.inspect(op.get_bind()).get_table_names())
+
+
+def _index_names(table_name: str) -> set[str]:
+    return {
+        index["name"]
+        for index in sa.inspect(op.get_bind()).get_indexes(table_name)
+        if index.get("name")
+    }
+
+
+def _create_index_if_missing(
+    index_name: str,
+    table_name: str,
+    columns: list[str],
+) -> None:
+    if index_name not in _index_names(table_name):
+        op.create_index(index_name, table_name, columns, unique=False)
+
+
 def upgrade() -> None:
-    op.create_table(
-        "workspace_training_revisions",
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("workspace_id", sa.Integer(), nullable=False),
-        sa.Column("version", sa.Integer(), nullable=False),
-        sa.Column("action", sa.String(length=30), nullable=True),
-        sa.Column("note", sa.String(length=500), nullable=True),
-        sa.Column("revision_hash", sa.String(length=64), nullable=False),
-        sa.Column("snapshot", sa.JSON(), nullable=False),
-        sa.Column("created_by", sa.Integer(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=True),
-        sa.ForeignKeyConstraint(["created_by"], ["users.id"]),
-        sa.ForeignKeyConstraint(["workspace_id"], ["workspaces.id"]),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index(
+    # A prior release's pre-migration sync could create these mapped tables
+    # before Alembic ran. Accept that safe, additive state instead of failing the
+    # deployment, and fill in any indexes that are still missing.
+    tables = _table_names()
+    if "workspace_training_revisions" not in tables:
+        op.create_table(
+            "workspace_training_revisions",
+            sa.Column("id", sa.Integer(), nullable=False),
+            sa.Column("workspace_id", sa.Integer(), nullable=False),
+            sa.Column("version", sa.Integer(), nullable=False),
+            sa.Column("action", sa.String(length=30), nullable=True),
+            sa.Column("note", sa.String(length=500), nullable=True),
+            sa.Column("revision_hash", sa.String(length=64), nullable=False),
+            sa.Column("snapshot", sa.JSON(), nullable=False),
+            sa.Column("created_by", sa.Integer(), nullable=True),
+            sa.Column("created_at", sa.DateTime(), nullable=True),
+            sa.ForeignKeyConstraint(["created_by"], ["users.id"]),
+            sa.ForeignKeyConstraint(["workspace_id"], ["workspaces.id"]),
+            sa.PrimaryKeyConstraint("id"),
+        )
+    _create_index_if_missing(
         op.f("ix_workspace_training_revisions_workspace_id"),
-        "workspace_training_revisions", ["workspace_id"], unique=False,
+        "workspace_training_revisions",
+        ["workspace_id"],
     )
-    op.create_index(
+    _create_index_if_missing(
         op.f("ix_workspace_training_revisions_revision_hash"),
-        "workspace_training_revisions", ["revision_hash"], unique=False,
+        "workspace_training_revisions",
+        ["revision_hash"],
     )
-    op.create_index(
+    _create_index_if_missing(
         op.f("ix_workspace_training_revisions_created_at"),
-        "workspace_training_revisions", ["created_at"], unique=False,
+        "workspace_training_revisions",
+        ["created_at"],
     )
-    op.create_table(
-        "workspace_evaluation_cases",
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("workspace_id", sa.Integer(), nullable=False),
-        sa.Column("name", sa.String(length=255), nullable=False),
-        sa.Column("company", sa.String(length=255), nullable=True),
-        sa.Column("website", sa.Text(), nullable=True),
-        sa.Column("facts", sa.JSON(), nullable=True),
-        sa.Column("expected_outputs", sa.JSON(), nullable=True),
-        sa.Column("notes", sa.Text(), nullable=True),
-        sa.Column("active", sa.Boolean(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(), nullable=True),
-        sa.ForeignKeyConstraint(["workspace_id"], ["workspaces.id"]),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index(
+
+    if "workspace_evaluation_cases" not in tables:
+        op.create_table(
+            "workspace_evaluation_cases",
+            sa.Column("id", sa.Integer(), nullable=False),
+            sa.Column("workspace_id", sa.Integer(), nullable=False),
+            sa.Column("name", sa.String(length=255), nullable=False),
+            sa.Column("company", sa.String(length=255), nullable=True),
+            sa.Column("website", sa.Text(), nullable=True),
+            sa.Column("facts", sa.JSON(), nullable=True),
+            sa.Column("expected_outputs", sa.JSON(), nullable=True),
+            sa.Column("notes", sa.Text(), nullable=True),
+            sa.Column("active", sa.Boolean(), nullable=True),
+            sa.Column("created_at", sa.DateTime(), nullable=True),
+            sa.Column("updated_at", sa.DateTime(), nullable=True),
+            sa.ForeignKeyConstraint(["workspace_id"], ["workspaces.id"]),
+            sa.PrimaryKeyConstraint("id"),
+        )
+    _create_index_if_missing(
         op.f("ix_workspace_evaluation_cases_workspace_id"),
-        "workspace_evaluation_cases", ["workspace_id"], unique=False,
+        "workspace_evaluation_cases",
+        ["workspace_id"],
     )
 
 

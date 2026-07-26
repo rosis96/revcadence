@@ -60,13 +60,19 @@ def init_db():
         migrate()
 
 
-def migrate():
-    """Additive migration: create any brand-new tables (create_all is
-    checkfirst — only makes missing tables, never alters existing ones), then for
-    every mapped column missing from a live table, ALTER TABLE ... ADD COLUMN.
-    Never drops or rewrites anything, so it's safe on every deploy."""
+def migrate(*, create_missing_tables: bool = True):
+    """Apply the legacy additive schema sync.
+
+    ``create_missing_tables`` remains enabled for local SQLite setup and
+    pre-Alembic database adoption. Alembic-managed production databases disable
+    it so a pending Alembic migration remains the sole owner of new tables.
+
+    Existing mapped tables still receive missing columns. Nothing is dropped or
+    rewritten.
+    """
     from . import models  # noqa: F401  (ensure all models are registered on Base)
-    Base.metadata.create_all(engine)   # create missing tables (e.g. client_profiles)
+    if create_missing_tables:
+        Base.metadata.create_all(engine)
     insp = inspect(engine)
     with engine.begin() as conn:
         for table in Base.metadata.sorted_tables:

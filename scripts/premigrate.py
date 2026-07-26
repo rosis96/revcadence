@@ -23,11 +23,11 @@ def main():
 
     if "alembic_version" in tables:
         print("[premigrate] alembic_version found — normal migration path")
-        # Also run the additive column sync: it only ADDs columns that are mapped
-        # on a model but missing from the live table (never drops/alters), so it's
-        # safe and idempotent on every deploy and guarantees new model columns
-        # (e.g. reply_leads.send_error) exist even without a hand-written migration.
-        migrate()
+        # Keep the legacy additive *column* sync for mapped tables, but never
+        # create missing tables here. Pending Alembic migrations own new tables;
+        # creating them before `alembic upgrade head` causes duplicate-table
+        # failures during deployment.
+        migrate(create_missing_tables=False)
         print("[premigrate] additive column sync complete")
         return
     if "organizations" not in tables:
