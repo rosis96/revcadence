@@ -14,7 +14,15 @@ export default function BrainChat() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const endRef = useRef(null);
+  const taRef = useRef(null);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, busy]);
+  // auto-grow the input with its content (up to a max), then scroll — like Claude/ChatGPT
+  useEffect(() => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 320)}px`;
+  }, [input]);
 
   if (!wsId) return <ErrorBox msg="Pick a specific workspace (top-left) — the brain is per client workspace." />;
 
@@ -87,11 +95,12 @@ export default function BrainChat() {
           {busy && <div style={{ alignSelf: "flex-start", fontSize: 12.5, color: "var(--muted)" }}>Thinking…</div>}
           <div ref={endRef} />
         </div>
-        <div style={{ borderTop: "1px solid #e6edf5", padding: 12, display: "flex", gap: 8 }}>
-          <textarea rows={1} value={input} onChange={(e) => setInput(e.target.value)}
+        <div style={{ borderTop: "1px solid #e6edf5", padding: 12, display: "flex", gap: 8, alignItems: "flex-end" }}>
+          <textarea ref={taRef} rows={1} value={input} onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
             placeholder="Ask about the client, draft outreach, or paste a new case study to save…"
-            style={{ flex: 1, resize: "none", padding: "10px 12px", borderRadius: 8, border: "1px solid #d9e2ec", fontSize: 13.5 }} />
+            style={{ flex: 1, resize: "none", padding: "10px 12px", borderRadius: 8, border: "1px solid #d9e2ec",
+              fontSize: 13.5, lineHeight: 1.5, minHeight: 44, maxHeight: 320, overflowY: "auto", fontFamily: "inherit" }} />
           <button className="btn" disabled={busy || !input.trim()} onClick={send}
             style={{ display: "flex", alignItems: "center", gap: 6 }}><Send size={15} /> Send</button>
         </div>
