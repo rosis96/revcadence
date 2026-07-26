@@ -380,7 +380,43 @@ export default function EnrichListDetail() {
               <Badge tone={vTone(openLead.email_status)}>{openLead.email_status || "—"}</Badge></div>
             <div className="k">ICP reason</div><div>{openLead.icp_reason || "—"}</div>
           </div>
-          <h3 style={{ fontSize: 13, margin: "10px 0 8px" }}>Enrichment variables</h3>
+
+          {(openLead.status === "insufficient" || openLead.research_error) && (
+            <div className="card" style={{ padding: 12, margin: "10px 0", borderColor: "#f0c36d",
+              background: "#fff9ec" }}>
+              <div style={{ fontWeight: 700, fontSize: 13, color: "#8a5a00" }}>
+                {openLead.research_error ? "Research failed — not generated" : "Research insufficient — not generated"}</div>
+              <div style={{ fontSize: 12, color: "#8a5a00", marginTop: 3 }}>
+                {openLead.research_error
+                  ? openLead.research_error
+                  : "Fewer than 3 verifiable website signals were found, so no personalization was written (no guessing). Re-run after setting a render key or check the page below."}</div>
+            </div>)}
+
+          {openLead.research && (
+            <>
+              <h3 style={{ fontSize: 13, margin: "12px 0 6px" }}>Research diagnostics</h3>
+              <div className="kv" style={{ margin: 0, fontSize: 12.5 }}>
+                {[["HTTP status", openLead.research.http_status],
+                  ["Final URL", openLead.research.final_url],
+                  ["Fallback method", openLead.research.fallback_method],
+                  ["Raw HTML length", openLead.research.raw_html_len],
+                  ["Internal links found", openLead.research.internal_links_found],
+                  ["Sitemap URLs", openLead.research.sitemap_urls],
+                  ["Pages crawled", openLead.research.pages_crawled],
+                  ["Pages failed", openLead.research.pages_failed],
+                  ["Rendered pages", openLead.research.rendered_pages],
+                  ["Research text length", openLead.research.signals_text_len],
+                  ["Signals collected", openLead.research.signals_collected],
+                  ["Signal types", (openLead.research.signal_types || []).join(", ")]]
+                  .filter(([, v]) => v !== undefined && v !== null)
+                  .map(([k, v]) => (
+                    <div key={k} style={{ display: "contents" }}>
+                      <div className="k">{k}</div><div>{String(v) || "—"}</div>
+                    </div>))}
+              </div>
+            </>)}
+
+          <h3 style={{ fontSize: 13, margin: "12px 0 8px" }}>Enrichment variables</h3>
           {Object.keys(openLead.vars || {}).length === 0
             ? <div className="empty" style={{ padding: 12 }}>Not enriched yet</div>
             : Object.entries(openLead.vars).map(([k, v]) => (

@@ -94,17 +94,31 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
                 icp_block += f"WHEN UNSURE, RETURN: {icp['default']}\n"
         except Exception:
             pass  # plain-text ICP definition — use as-is
-        system = ("You are an ICP classifier and fact extractor. Ground everything ONLY in the "
-                  "provided site text — never invent. ICP definition (single source of truth):\n"
+        system = ("You are an ICP classifier and EVIDENCE extractor. Read the whole site text and build an "
+                  "EVIDENCE BANK of concrete, company-specific signals — NOT themes. Ground everything ONLY "
+                  "in the provided site text: copy names/numbers verbatim, and LEAVE A FIELD EMPTY when the "
+                  "site does not support it (never invent, never generalize a category into a 'fact'). Do "
+                  "NOT record vague themes like 'clarity', 'leadership', 'award-winning', 'bold brands' — "
+                  "only named, checkable specifics.\n"
+                  "ICP definition (single source of truth):\n"
                   + icp_block
-                  + "\nAlso pull SPECIFIC, CITEABLE PROOF from the site so cold email can reference real "
-                    "detail (never invent; copy names/numbers verbatim; leave a field empty if not present). "
-                    'Return JSON: {"icp_decision": "ICP"|"Non-ICP"|"Needs Review", "icp_score": 0-100, '
-                    '"icp_reason": str, "industry": str, "facts": {"description": str, "services": [str], '
-                    '"notable_work": [str — named projects/campaigns/case studies, each WITH any stated '
-                    'outcome or metric], "clients": [str — named clients/brands they have worked with], '
-                    '"proof_points": [str — awards, numbers, results, recognitions], '
-                    '"differentiators": [str — named methodologies/frameworks or what makes them distinct]}}')
+                  + '\nReturn JSON: {"icp_decision": "ICP"|"Non-ICP"|"Needs Review", "icp_score": 0-100, '
+                    '"icp_reason": str, "industry": str, "facts": {'
+                    '"category": str (what kind of company they are), '
+                    '"description": str, '
+                    '"services": [str], '
+                    '"named_services": [str — signature/branded/named products or services], '
+                    '"frameworks": [str — proprietary methodologies/frameworks/tools, by name], '
+                    '"named_clients": [str — specific client/brand names they have worked with], '
+                    '"case_studies": [ {"name": str, "client": str, "result": str (the measurable outcome, '
+                    'verbatim, or "")} ], '
+                    '"measurable_results": [str — numbers/percentages/outcomes stated on the site], '
+                    '"awards": [str — named awards/recognitions only], '
+                    '"partnerships": [str — named partners/affiliations], '
+                    '"distinctive_projects": [str — named campaigns/projects], '
+                    '"target_industries": [str — the industries/sectors of their customers], '
+                    '"decision_makers": [str — the buyer roles they serve], '
+                    '"commercial_challenges": [str — the business problems their customers face]}}')
         research_chars = 14000 if deep else 10000
         user = (f"Company: {lead.company}\nSite: {crawl.get('url')}\nText:\n"
                 f"{crawl.get('text')[:research_chars]}")
@@ -124,13 +138,289 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
             "crawl": crawl, "source": "demo"}
 
 
+# ---------------------------------------------------------------- evidence layer
+# Minimum distinct company-specific signals required before we generate any
+# personalization. Below this the lead is marked "insufficient", never guessed.
+MIN_RESEARCH_SIGNALS = 3
+
+# Corporate filler / vague praise the writer must never use to REPLACE research.
+_BANNED_PHRASES = [
+    "award-winning approach", "award winning approach", "commitment to excellence",
+    "bold and dynamic", "sets you apart", "very impressive", "impressive",
+    "industry-leading", "industry leading", "innovative solutions", "unique approach",
+    "enterprise clients", "streamline sales processes", "revenue growth system",
+    "clearer reason to progress", "world-class", "world class", "high standard",
+    "truly sets", "sets a high standard", "love how", "cutting-edge", "cutting edge",
+    "top-notch", "best-in-class", "best in class",
+]
+# Generic value-nouns that must NOT stand in for a concrete website detail.
+_GENERIC_NOUNS = {"quality", "innovation", "expertise", "commitment", "creativity",
+                  "leadership", "excellence", "clarity", "passion", "dedication",
+                  "professionalism", "reliability", "vision"}
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(s or "").lower()).strip()
+
+
+def _flatten_signals(facts: dict) -> list:
+    """Turn the evidence bank into a scored, deduped signal list (highest first).
+    Scores follow the operator's ranking: measurable result / named client = 10,
+    award / framework = 9, named service / project / partnership = 8, industry
+    specialization = 7."""
+    facts = facts or {}
+    sig = []
+
+    def add(kind, score, text):
+        text = (text or "").strip()
+        key = _norm(text)
+        if text and key:
+            sig.append({"type": kind, "score": score, "text": text, "key": key})
+    for cs in facts.get("case_studies") or []:
+        if isinstance(cs, dict):
+            who = (cs.get("client") or cs.get("name") or "").strip()
+            res = (cs.get("result") or "").strip()
+            label = " — ".join([x for x in [who, res] if x])
+            add("case_study", 10 if res else 8, label)
+        elif isinstance(cs, str):
+            add("case_study", 8, cs)
+    for r in facts.get("measurable_results") or []:
+        add("result", 10, r)
+    for c in facts.get("named_clients") or []:
+        add("client", 9, c)
+    for a in facts.get("awards") or []:
+        add("award", 9, a)
+    for f in facts.get("frameworks") or []:
+        add("framework", 9, f)
+    for s in facts.get("named_services") or []:
+        add("service", 8, s)
+    for p in facts.get("distinctive_projects") or []:
+        add("project", 8, p)
+    for p in facts.get("partnerships") or []:
+        add("partnership", 8, p)
+    for i in facts.get("target_industries") or []:
+        add("industry", 7, i)
+    # dedupe by (type,key) keeping the highest score, then sort by score desc
+    best = {}
+    for s in sig:
+        k = (s["type"], s["key"])
+        if k not in best or s["score"] > best[k]["score"]:
+            best[k] = s
+    return sorted(best.values(), key=lambda x: -x["score"])
+
+
+def _role_of(fmt: dict) -> str:
+    """Map a configured variable to its cold-email JOB by name/label."""
+    n = (str(fmt.get("name", "")) + " " + str(fmt.get("label", ""))).lower()
+    if "first" in n and "line" in n:
+        return "first_line"
+    if "value" in n or "proposition" in n or n.strip() == "vp":
+        return "value_proposition"
+    if "compliment" in n or "complimentary" in n or "product" in n:
+        return "product_compliment"
+    if "reference" in n:
+        return "reference"
+    if "pitch" in n:
+        return "pitch"
+    return "other"
+
+
+_ROLE_PURPOSE = {
+    "first_line": ("Prove we actually researched THEM. Open with ONE specific named detail "
+                   "(a methodology, framework, named project, service, or award). No pitch, no greeting, "
+                   "no compliment about a value."),
+    "value_proposition": ("Connect our offer to their STRONGEST commercial proof — a measurable case study "
+                          "or a named client result. Tie that proof to why our work helps them get more of it."),
+    "product_compliment": ("Start a human conversation about a DIFFERENT specific piece of their work — a "
+                           "named project, service, campaign, or case-study deliverable (never a value like "
+                           "clarity/quality). Say what is distinctive about it, then ask ONE genuine question "
+                           "about its demand, response, or strategic role."),
+    "reference": ("Continue the value-proposition thread from the previous email: expand that SAME proof with "
+                  "the practical next steps we would run. Reusing the value-proposition evidence is expected."),
+    "pitch": ("Explain plainly WHO we can bring (their real target industries / client types), WHICH commercial "
+              "problems we solve, and the long-term outcome. Use audience + pain research, not case-study "
+              "wording. Plain language — never branded terms."),
+    "other": ("Use a specific, checkable website detail; never generic praise."),
+}
+
+
+def _assign_evidence(facts: dict, formats: list) -> dict:
+    """Give each variable its own primary evidence so no two lean on the same
+    signal. first_line / value_proposition / product_compliment must be distinct;
+    reference deliberately reuses the value_proposition evidence; pitch uses the
+    audience + pains, not a single proof."""
+    signals = _flatten_signals(facts)
+    used_keys = set()
+
+    def take(prefer_types, strict=False):
+        # strict: try each preferred TYPE in order (a fresh angle beats a higher
+        # score); non-strict: highest-scoring unused signal within the preferred set.
+        if strict and prefer_types:
+            for t in prefer_types:
+                for s in signals:
+                    if s["key"] not in used_keys and s["type"] == t:
+                        used_keys.add(s["key"])
+                        return s
+            for s in signals:
+                if s["key"] not in used_keys:
+                    used_keys.add(s["key"])
+                    return s
+            return None
+        want = set(prefer_types) if prefer_types else None
+        for scope in (want, None):
+            for s in signals:
+                if s["key"] in used_keys:
+                    continue
+                if scope is None or s["type"] in scope:
+                    used_keys.add(s["key"])
+                    return s
+        return None
+
+    roles = {f.get("name"): _role_of(f) for f in formats}
+    assign = {}
+    # Order matters: claim the strongest commercial proof for the value prop first,
+    # a distinctive approach for the first line, then a fresh angle for the compliment.
+    order = sorted(formats, key=lambda f: {"value_proposition": 0, "first_line": 1,
+                                           "product_compliment": 2, "reference": 3,
+                                           "pitch": 4, "other": 5}[roles[f.get("name")]])
+    vp_sig = None
+    for f in order:
+        name = f.get("name")
+        role = roles[name]
+        sig = None
+        if role == "value_proposition":
+            sig = take(("case_study", "result", "client"))
+            vp_sig = sig
+        elif role == "first_line":
+            sig = take(("framework", "award", "project", "service"), strict=True)
+        elif role == "product_compliment":
+            # a DIFFERENT angle: prefer a fresh named project/service over reusing a client
+            sig = take(("project", "service", "award", "framework", "client"), strict=True)
+        elif role == "reference":
+            sig = vp_sig  # deliberate reuse; do NOT consume a new key
+        elif role == "pitch":
+            sig = None  # built from audience below
+        else:
+            sig = take(None)
+        assign[name] = {
+            "role": role,
+            "purpose": _ROLE_PURPOSE[role],
+            "evidence": (sig or {}).get("text", ""),
+            "evidence_type": (sig or {}).get("type", ""),
+            "evidence_key": (sig or {}).get("key", ""),
+            "reuse_ok": role == "reference",
+        }
+    # pitch audience packet
+    aud = {
+        "target_industries": facts.get("target_industries") or [],
+        "example_clients": (facts.get("named_clients") or [])[:4],
+        "decision_makers": facts.get("decision_makers") or [],
+        "commercial_challenges": facts.get("commercial_challenges") or [],
+    }
+    for name, a in assign.items():
+        if a["role"] == "pitch":
+            a["evidence"] = json.dumps(aud)
+    return assign
+
+
+def _has_concrete_detail(text: str, facts: dict) -> bool:
+    """A line is concrete if it names a real entity from the bank or carries a
+    number/percentage — not just a generic value-noun."""
+    low = (text or "").lower()
+    if not low.strip():
+        return False
+    if re.search(r"\d", low):
+        return True
+    for key in ("named_clients", "named_services", "frameworks", "distinctive_projects",
+                "awards", "partnerships"):
+        for v in facts.get(key) or []:
+            tok = _norm(v)
+            if len(tok) >= 4 and tok in _norm(text):
+                return True
+    for cs in facts.get("case_studies") or []:
+        if isinstance(cs, dict):
+            for v in (cs.get("client"), cs.get("name")):
+                tok = _norm(v or "")
+                if len(tok) >= 4 and tok in _norm(text):
+                    return True
+    return False
+
+
+def _qc_failures(vars_out: dict, assign: dict, facts: dict) -> dict:
+    """Return {name: reason} for variables that must be regenerated. Empty strings
+    are allowed (missing evidence → intentionally blank), so they never fail."""
+    fails = {}
+    primary_seen = {}   # evidence_key -> first variable that used it
+    for name, text in vars_out.items():
+        t = (text or "").strip()
+        if not t:
+            continue
+        low = t.lower()
+        role = assign.get(name, {}).get("role", "other")
+        hit = next((p for p in _BANNED_PHRASES if p in low), None)
+        if hit:
+            fails[name] = f"uses banned filler '{hit}'"
+            continue
+        if not _has_concrete_detail(t, facts):
+            # tolerate the pitch (it's audience/pain framing, not a single named proof)
+            if role != "pitch":
+                fails[name] = "no concrete, website-specific detail (named entity or number)"
+                continue
+        # generic value-noun compliment with no concrete anchor
+        if role == "product_compliment" and any(g in low for g in _GENERIC_NOUNS) and not _has_concrete_detail(t, facts):
+            fails[name] = "compliment is about a broad value, not a named piece of work"
+            continue
+        # cross-variable evidence duplication (reference may reuse value_proposition)
+        key = assign.get(name, {}).get("evidence_key", "")
+        if key:
+            if key in primary_seen and not assign.get(name, {}).get("reuse_ok"):
+                fails[name] = f"reuses the same evidence as '{primary_seen[key]}'"
+                continue
+            primary_seen.setdefault(key, name)
+    return fails
+
+
+def _augmented_formats(formats: list, assign: dict) -> list:
+    """Attach each variable's assigned evidence + distinct purpose for the writer."""
+    aug = []
+    for f in formats:
+        a = assign.get(f.get("name"), {})
+        aug.append({**f,
+                    "_job": a.get("purpose", ""),
+                    "_use_this_evidence": a.get("evidence", ""),
+                    "_evidence_type": a.get("evidence_type", "")})
+    return aug
+
+
+def _writer_system(cfg, rules, level_line) -> str:
+    return ("You write personalized cold-email variables. Work in this order and NEVER skip it: "
+            "(1) read the EVIDENCE BANK and each variable's assigned '_use_this_evidence'; "
+            "(2) write each variable to do its own distinct '_job', built around ITS assigned evidence. "
+            "Ground ONLY in verified facts — never invent a client, project, result, or award.\n"
+            "HARD RULES:\n"
+            "- Every variable must contain a concrete, website-specific detail: a named client, project, "
+            "service, framework, campaign, award, or a measurable number. A line that could be sent "
+            "unchanged to another company in the same industry is a FAILURE — rewrite it.\n"
+            "- Do NOT reuse the same primary evidence across the first line, value proposition, and "
+            "compliment. The reference intentionally continues the value proposition's evidence.\n"
+            "- Do NOT lean on generic value-nouns (quality, innovation, expertise, commitment, creativity, "
+            "leadership, excellence, clarity) as if they were research.\n"
+            "- NEVER claim something is 'award-winning' unless a specific award is named in the evidence.\n"
+            "- Say the specific project/service by name instead of 'your work' whenever it is available.\n"
+            "- BANNED PHRASES (do not use): " + "; ".join(_BANNED_PHRASES[:16]) + ".\n"
+            "- Explain our service in plain words (e.g. 'managing cold outreach and post-meeting sales "
+            "follow-up'), never as a branded label.\n"
+            "- If a variable has no supporting evidence, use its 'fallback' when provided; otherwise return "
+            "an empty string. Never pad with praise, never invent.\n"
+            + level_line +
+            "\nCLIENT PROFILE (our voice):\n" + json.dumps(cfg.profile or {}) +
+            "\nGLOBAL RULES (obey every line):\n" + "\n".join(rules))
+
+
 def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None) -> dict:
-    """Writes the configured variables, reusing ctx (no second scrape).
-    `enrichments`: selected output variable names (legacy 'choose enrichments
-    to output') — empty/None = all configured."""
-    # Variable selection: honour each variable's on/off flag (default on), then an
-    # optional per-run narrowing. This is what lets you choose which variables get
-    # written instead of always writing every one.
+    """Research → evidence bank → signal scoring → per-variable evidence assignment
+    → generation → QC/regeneration. `enrichments`: selected output variable names —
+    empty/None = all configured."""
     formats = [f for f in (cfg.formats or []) if f.get("enabled", True)]
     if enrichments:
         sel = [f for f in formats if f.get("name") in enrichments]
@@ -142,45 +432,55 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
                                 "grounded in a real fact from their site. No generic flattery.",
                     "min_words": 12, "max_words": 25}]
     rules = [ln.strip() for ln in (cfg.rules or "").splitlines() if ln.strip()]
+    facts = ctx.get("facts", {}) or {}
+
     if ai.has_ai():
         reading = (getattr(cfg, "reading_level", "") or "").strip()
         level_line = (f"\nREADING LEVEL: write so a {reading} reader understands it easily — "
                       "short sentences, everyday words, no jargon." if reading else "")
-        # Static prefix FIRST (prompt caching), per-lead content LAST — preserve ordering.
-        system = ("You write personalized cold-email copy grounded ONLY in verified facts. "
-                  "Never fabricate. Match each variable's guidance and word range exactly. "
-                  "GROUND IN SPECIFICS: lead with the most concrete, checkable detail available about "
-                  "the prospect — a named project, client, campaign, metric, methodology, or award from "
-                  "VERIFIED FACTS (notable_work / clients / proof_points / differentiators) or the site "
-                  "excerpt. One real, verifiable detail beats any amount of general praise. "
-                  "BANNED — never write vague flattery with no specific fact behind it: 'impressive', "
-                  "'truly sets a high standard', 'world-class', 'sets you apart', 'love how', 'bold and "
-                  "dynamic', 'high standard in the industry', or similar. If you have no specific verified "
-                  "detail for a variable, use its 'fallback' instruction when provided; if there is no "
-                  "fallback and no specific fact, return an empty string for that variable (never pad with "
-                  "praise, never invent). "
-                  "Use the CLIENT PROFILE as the voice of an insider: when it helps, connect the "
-                  "prospect to the profile's problem_library entry for their industry, and reference a "
-                  "case_study or proof_point ONLY if it genuinely fits — never invent one or its metrics."
-                  + level_line +
-                  "\nCLIENT PROFILE:\n" + json.dumps(cfg.profile or {}) +
-                  "\nGLOBAL RULES (obey every line):\n" + "\n".join(rules) +
-                  "\nVARIABLES (return JSON keyed by 'name'):\n" + json.dumps(formats))
+        assign = _assign_evidence(facts, formats)
+        aug = _augmented_formats(formats, assign)
+        system = _writer_system(cfg, rules, level_line) + \
+            "\nVARIABLES (return JSON keyed by 'name'; honour each one's _job and _use_this_evidence):\n" \
+            + json.dumps(aug)
         deep = getattr(cfg, "research_depth", "") == "deep"
         wc = 16000 if deep else 9000
         user = ("LEAD: " + json.dumps({"first_name": lead.first_name, "company": lead.company,
                                        "title": lead.title}) +
-                "\nVERIFIED FACTS: " + json.dumps(ctx.get("facts", {})) +
+                "\nEVIDENCE BANK: " + json.dumps(facts) +
                 "\nSITE EXCERPT:\n" + (ctx.get("crawl", {}).get("text", "")[:wc]))
         try:
-            out = ai._call_openai(system, user,
-                                  model=(getattr(cfg, "writer_model", "") or ai.writer_model()))
-            return {"vars": {f["name"]: out.get(f["name"], "") for f in formats}, "source": "openai"}
+            model = (getattr(cfg, "writer_model", "") or ai.writer_model())
+            out = ai._call_openai(system, user, model=model)
+            vars_out = {f["name"]: out.get(f["name"], "") for f in formats}
+            # ---- QC pass: regenerate only the variables that fail hard checks
+            fails = _qc_failures(vars_out, assign, facts)
+            if fails:
+                fix_formats = [f for f in aug if f["name"] in fails]
+                fix_system = (_writer_system(cfg, rules, level_line) +
+                              "\nThese variables FAILED review and MUST be rewritten to fix the stated "
+                              "problem. Use ONLY the assigned _use_this_evidence; if it is empty and there is "
+                              "no other unused specific detail, return an empty string rather than praise.\n"
+                              "FAILURES (name: reason):\n" +
+                              "\n".join(f"- {n}: {r}" for n, r in fails.items()) +
+                              "\nVARIABLES TO REWRITE (return JSON keyed by 'name'):\n" + json.dumps(fix_formats))
+                try:
+                    fixed = ai._call_openai(fix_system, user, model=model)
+                    for n in fails:
+                        if isinstance(fixed, dict) and n in fixed:
+                            vars_out[n] = fixed.get(n, "")
+                except Exception:
+                    pass
+                # anything still failing a banned-phrase check → blank it rather than ship filler
+                for n, reason in _qc_failures(vars_out, assign, facts).items():
+                    if "banned filler" in reason:
+                        vars_out[n] = ""
+            return {"vars": vars_out, "source": "openai"}
         except Exception:
             pass
-    desc = (ctx.get("facts", {}) or {}).get("description", "") or f"what {lead.company} does"
+    desc = (facts.get("description", "")) or f"what {lead.company} does"
     return {"vars": {f.get("name", f"var_{i}"):
-                     f"Really like how {lead.company} focuses on {desc[:80].rstrip('.')} — impressive work."
+                     f"Really like how {lead.company} focuses on {desc[:80].rstrip('.')}."
                      for i, f in enumerate(formats)}, "source": "demo"}
 
 
@@ -300,9 +600,13 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
         return lead.status
 
     icp = _icp_and_facts(lead, cfg)
+    diagnostics = (icp.get("crawl", {}) or {}).get("diagnostics", {})
     if icp.get("error"):
+        # Research FAILED at the fetch/render stage — record diagnostics and STOP.
+        # Never fabricate "researched" copy on a failed fetch.
         lead.status = "error"
-        lead.result = {**(lead.result or {}), "_error": icp["error"]}
+        lead.result = {**(lead.result or {}), "_error": icp["error"], "_research": diagnostics}
+        lead.updated_at = datetime.utcnow()
         db.commit()
         return lead.status
     lead.icp_decision = icp.get("icp_decision", "Needs Review")
@@ -316,11 +620,27 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
         db.commit()
         return lead.status
 
+    # 3b. RESEARCH SUFFICIENCY GATE — never generate personalization without evidence.
+    # Require at least 3 distinct company-specific signals (named client/project/
+    # service/framework/award/result). Below that, mark the lead "insufficient" so it
+    # can be retried (with a render key / deeper crawl) instead of shipping guesses.
+    facts = icp.get("facts", {}) or {}
+    signals = _flatten_signals(facts)
+    research = {**diagnostics, "signals_collected": len(signals),
+                "signal_types": sorted({s["type"] for s in signals})}
+    if ai.has_ai() and len(signals) < MIN_RESEARCH_SIGNALS:
+        lead.result = {**(lead.result or {}), "_facts": facts, "_research": research,
+                       "_insufficient": True}
+        lead.status = "insufficient"
+        lead.updated_at = datetime.utcnow()
+        db.commit()
+        return lead.status
+
     # 4. Write copy — reuses icp ctx; no second scrape/extraction
     written = _write_copy(lead, cfg, icp, enrichments=enrichments)
     clean_vars = {k: sanitize_text(v) for k, v in written["vars"].items()}
     lead.result = {**(lead.result or {}), **clean_vars,
-                   "_facts": icp.get("facts", {}), "_writer": written["source"]}
+                   "_facts": facts, "_writer": written["source"], "_research": research}
     lead.status = "done"
     lead.updated_at = datetime.utcnow()
     db.commit()

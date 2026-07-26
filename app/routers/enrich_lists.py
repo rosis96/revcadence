@@ -12,7 +12,7 @@ from ..models.jobs import Job
 
 router = APIRouter(prefix="/api/enrich-lists", tags=["enrichment-lists"])
 
-VIEWS = ("all", "processed", "verified", "enriched", "nonicp", "no_website",
+VIEWS = ("all", "processed", "verified", "enriched", "insufficient", "nonicp", "no_website",
          "invalid", "unsafe", "notrun", "title_rejected",
          "esp_microsoft", "esp_google", "esp_other", "esp_unknown")
 
@@ -25,6 +25,8 @@ def _view_filter(q, view: str):
         return q.filter(L.email_status.in_(["safe", "valid", "catch_all", "unknown"]))
     if view == "enriched":
         return q.filter(L.status == "done")
+    if view == "insufficient":
+        return q.filter(L.status == "insufficient")
     if view == "nonicp":
         return q.filter(L.icp_decision == "Non-ICP")
     if view == "no_website":
@@ -166,6 +168,9 @@ def list_leads(list_id: int, view: str = "all", page: int = 1, page_size: int = 
             "icp_decision": l.icp_decision, "icp_score": l.icp_score, "icp_reason": l.icp_reason,
             "industry": l.industry, "esp": l.esp, "status": l.status, "competitors": l.competitors or [],
             "vars": {k: v for k, v in (l.result or {}).items() if not k.startswith("_")},
+            "research": (l.result or {}).get("_research"),
+            "research_error": (l.result or {}).get("_error"),
+            "insufficient": bool((l.result or {}).get("_insufficient")),
             "imported": {k: v for k, v in (l.data or {}).items()
                          if not k.startswith("_") and k.lower() not in STD_ALIASES},
         } for l in rows],
