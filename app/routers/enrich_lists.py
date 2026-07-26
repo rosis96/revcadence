@@ -1001,6 +1001,80 @@ def append_global_rules(workspace_id: int, body: AppendRulesIn, ctx: AuthContext
     return {"added": added, "count": len(added), "rules": cfg.rules}
 
 
+class UpdateIcpIn(BaseModel):
+    text: str = ""
+    messages: list[dict] | None = None
+
+
+@router.post("/config/{workspace_id}/update-icp")
+def update_icp_from_chat(workspace_id: int, body: UpdateIcpIn, ctx: AuthContext = Depends(get_ctx)):
+    """ACCUMULATE ICP signals described in the chat into the existing ICP
+    definition (cfg.icp_definition): add the fit types / auto-reject rules / steps
+    the operator states, keep everything already there, deduped. Never replaces."""
+    ctx.require_workspace(workspace_id)
+    import json as _json
+
+    from ..enrichment import ai
+    from ..enrichment.pipeline import _config
+    if not ai.has_ai():
+        raise HTTPException(422, "No OpenAI key set — connect AI before updating the ICP.")
+    cfg = _config(ctx.db, workspace_id)
+
+    src = (body.text or "").strip()
+    if not src and body.messages:
+        src = "\n\n".join((m.get("content") or "") for m in body.messages if m.get("role") == "user").strip()
+    if not src:
+        raise HTTPException(422, "Nothing to add to the ICP.")
+
+    try:
+        cur = _json.loads(cfg.icp_definition) if cfg.icp_definition else {}
+        if not isinstance(cur, dict):
+            cur = {}
+    except Exception:
+        cur = {}
+    cats = [str(x).strip() for x in (cur.get("icp_categories") or []) if str(x).strip()]
+    rejects = [str(x).strip() for x in (cur.get("hard_non_icp") or []) if str(x).strip()]
+    proc = [str(x).strip() for x in (cur.get("procedure") or []) if str(x).strip()]
+    default = cur.get("default") or "Needs Review"
+
+    system = (
+        "From the operator's message, extract NEW ICP (ideal customer profile) signals to ADD to an existing "
+        "definition. Return JSON with keys: icp_categories (list of company types that ARE a fit), "
+        "hard_non_icp (list of signals that AUTO-REJECT a company), procedure (list of new decision steps), "
+        "default (one of 'ICP','Non-ICP','Needs Review', or '' if not specified). Include ONLY what the "
+        "operator actually stated or clearly implied; never invent. Empty lists are fine.")
+    try:
+        out = ai._call_openai(system, src[:6000], model=ai.extract_model())
+    except Exception as e:
+        raise HTTPException(502, f"AI ICP update failed: {str(e)[:200]}")
+    out = out if isinstance(out, dict) else {}
+
+    def _merge(existing, new):
+        low = {e.lower() for e in existing}
+        added = []
+        for x in (new or []):
+            x = str(x).strip()
+            if x and x.lower() not in low:
+                existing.append(x)
+                low.add(x.lower())
+                added.append(x)
+        return added
+    added_cats = _merge(cats, out.get("icp_categories"))
+    added_rej = _merge(rejects, out.get("hard_non_icp"))
+    added_proc = _merge(proc, out.get("procedure"))
+    nd = str(out.get("default") or "").strip()
+    if nd in ("ICP", "Non-ICP", "Needs Review"):
+        default = nd
+
+    icp = {"procedure": proc, "icp_categories": cats, "hard_non_icp": rejects, "default": default}
+    cfg.icp_definition = _json.dumps(icp, indent=2)
+    ctx.db.commit()
+    return {"icp": icp,
+            "added": {"categories": added_cats, "rejects": added_rej, "steps": added_proc,
+                      "default": nd if nd in ("ICP", "Non-ICP", "Needs Review") else None},
+            "counts": {"categories": len(cats), "rejects": len(rejects), "steps": len(proc)}}
+
+
 def _accumulate_brain(existing: dict, new: dict) -> dict:
     """Merge extracted knowledge INTO the brain: lists dedupe by real entity,
     scalars keep the fuller version. Never wipes prior data."""

@@ -82,6 +82,23 @@ export default function BrainChat() {
     } catch (e) { toast(e.message, "bad"); } finally { setBusy(false); }
   };
 
+  const updateIcp = async () => {
+    if (!messages.length || busy) return;
+    setBusy(true);
+    try {
+      const r = await api(`/api/enrich-lists/config/${wsId}/update-icp`, { method: "POST", body: { messages } });
+      const a = r.added || {}, parts = [];
+      if (a.categories?.length) parts.push(`${a.categories.length} fit type(s)`);
+      if (a.rejects?.length) parts.push(`${a.rejects.length} reject rule(s)`);
+      if (a.steps?.length) parts.push(`${a.steps.length} step(s)`);
+      if (a.default) parts.push(`default → ${a.default}`);
+      if (parts.length) {
+        toast(`ICP updated: ${parts.join(", ")}`);
+        setMessages((m) => [...m, { role: "assistant", content: `✅ Updated the ICP (added these, kept the rest): ${parts.join(", ")}. Review on the ICP / Non-ICP tab.`, learned: ["icp"] }]);
+      } else { toast("No new ICP signals found in this chat", "bad"); }
+    } catch (e) { toast(e.message, "bad"); } finally { setBusy(false); }
+  };
+
   const suggestions = [
     "What's our angle for a manufacturing CFO?",
     "Draft a cold email for a real-estate CEO using a relevant case study.",
@@ -91,9 +108,11 @@ export default function BrainChat() {
   return (
     <>
       <PageHeader title="Ask the brain" desc="Knowledge → Save to brain · how to write a variable → Build formats · a rule for every email → Save as rule."
-        actions={<div style={{ display: "flex", gap: 8 }}>
+        actions={<div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
           <button className="btn ghost" disabled={busy || !messages.length} onClick={saveAsRule}
             style={{ display: "flex", alignItems: "center", gap: 6 }} title="Turn cross-variable / global instructions into global Rules (obeyed on every email)"><Sparkles size={15} /> Save as rule</button>
+          <button className="btn ghost" disabled={busy || !messages.length} onClick={updateIcp}
+            style={{ display: "flex", alignItems: "center", gap: 6 }} title="Add the fit / reject signals you described to the ICP (keeps the rest)"><Sparkles size={15} /> Update ICP</button>
           <button className="btn secondary" disabled={busy || !messages.length} onClick={buildFormats}
             style={{ display: "flex", alignItems: "center", gap: 6 }} title="Update the variables you described (keeps the rest)"><Sparkles size={15} /> Build formats</button>
           <button className="btn" disabled={busy || !messages.length} onClick={saveToBrain}
