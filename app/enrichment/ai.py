@@ -15,7 +15,10 @@ OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 # lower input cost than gpt-4.1-mini, structured output support, and enough
 # reasoning for a tightly planned writing task. Premium models remain overrides.
 def extract_model() -> str:
-    return os.getenv("EXTRACT_MODEL", os.getenv("OPENAI_MODEL", "gpt-5-mini"))
+    # Fact extraction is the quality-critical step (it finds the named services,
+    # clients and metrics that make copy specific). Default to the stronger gpt-4o
+    # so it can't silently downgrade if EXTRACT_MODEL is ever unset. Still overridable.
+    return os.getenv("EXTRACT_MODEL", "gpt-4o")
 
 
 def writer_model() -> str:
