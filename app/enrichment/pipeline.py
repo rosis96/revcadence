@@ -66,8 +66,15 @@ def _title_gate(title: str) -> bool:
 def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
     """One scrape + one extraction; returns ctx reused by the writer."""
     deep = getattr(cfg, "research_depth", "") == "deep"
+    # Research the PROSPECT the way a human would: read MULTIPLE pages (follow_all
+    # reaches the /work, /case-study, /about pages where the real proof lives) and
+    # render JS when a render key is configured (render=True is a safe no-op
+    # otherwise). Homepage-only, no-render crawls are the #1 reason copy comes out
+    # generic — the citeable facts (named projects, clients, metrics) are on inner
+    # pages and behind JS.
     crawl = crawl_site(lead.website, html_override=(lead.data or {}).get("html_override", ""),
-                       max_pages=8 if deep else 0, max_chars=20000 if deep else 0)
+                       max_pages=12 if deep else 6, max_chars=32000 if deep else 18000,
+                       follow_all=True, render=True)
     if crawl.get("error") or not crawl.get("text"):
         return {"error": crawl.get("error") or "no website content", "crawl": crawl}
     if ai.has_ai():
@@ -90,10 +97,17 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
         system = ("You are an ICP classifier and fact extractor. Ground everything ONLY in the "
                   "provided site text — never invent. ICP definition (single source of truth):\n"
                   + icp_block
-                  + '\nReturn JSON: {"icp_decision": "ICP"|"Non-ICP"|"Needs Review", "icp_score": 0-100, '
-                    '"icp_reason": str, "industry": str, "facts": {"description": str, "services": [str]}}')
+                  + "\nAlso pull SPECIFIC, CITEABLE PROOF from the site so cold email can reference real "
+                    "detail (never invent; copy names/numbers verbatim; leave a field empty if not present). "
+                    'Return JSON: {"icp_decision": "ICP"|"Non-ICP"|"Needs Review", "icp_score": 0-100, '
+                    '"icp_reason": str, "industry": str, "facts": {"description": str, "services": [str], '
+                    '"notable_work": [str — named projects/campaigns/case studies, each WITH any stated '
+                    'outcome or metric], "clients": [str — named clients/brands they have worked with], '
+                    '"proof_points": [str — awards, numbers, results, recognitions], '
+                    '"differentiators": [str — named methodologies/frameworks or what makes them distinct]}}')
+        research_chars = 14000 if deep else 10000
         user = (f"Company: {lead.company}\nSite: {crawl.get('url')}\nText:\n"
-                f"{crawl.get('text')[:ai.extract_content_chars()]}")
+                f"{crawl.get('text')[:research_chars]}")
         try:
             out = ai._call_openai(system, user, model=ai.extract_model())
             out["crawl"] = crawl
@@ -135,18 +149,25 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
         # Static prefix FIRST (prompt caching), per-lead content LAST — preserve ordering.
         system = ("You write personalized cold-email copy grounded ONLY in verified facts. "
                   "Never fabricate. Match each variable's guidance and word range exactly. "
+                  "GROUND IN SPECIFICS: lead with the most concrete, checkable detail available about "
+                  "the prospect — a named project, client, campaign, metric, methodology, or award from "
+                  "VERIFIED FACTS (notable_work / clients / proof_points / differentiators) or the site "
+                  "excerpt. One real, verifiable detail beats any amount of general praise. "
+                  "BANNED — never write vague flattery with no specific fact behind it: 'impressive', "
+                  "'truly sets a high standard', 'world-class', 'sets you apart', 'love how', 'bold and "
+                  "dynamic', 'high standard in the industry', or similar. If you have no specific verified "
+                  "detail for a variable, use its 'fallback' instruction when provided; if there is no "
+                  "fallback and no specific fact, return an empty string for that variable (never pad with "
+                  "praise, never invent). "
                   "Use the CLIENT PROFILE as the voice of an insider: when it helps, connect the "
                   "prospect to the profile's problem_library entry for their industry, and reference a "
-                  "case_study or proof_point ONLY if it genuinely fits — never invent one or its metrics. "
-                  "If a variable's primary info is missing from the facts/site, use its "
-                  "'fallback' instruction when one is provided; if there is no fallback and the "
-                  "info is missing, return an empty string for that variable (never invent)."
+                  "case_study or proof_point ONLY if it genuinely fits — never invent one or its metrics."
                   + level_line +
                   "\nCLIENT PROFILE:\n" + json.dumps(cfg.profile or {}) +
                   "\nGLOBAL RULES (obey every line):\n" + "\n".join(rules) +
                   "\nVARIABLES (return JSON keyed by 'name'):\n" + json.dumps(formats))
         deep = getattr(cfg, "research_depth", "") == "deep"
-        wc = 14000 if deep else ai.writer_content_chars()
+        wc = 16000 if deep else 9000
         user = ("LEAD: " + json.dumps({"first_name": lead.first_name, "company": lead.company,
                                        "title": lead.title}) +
                 "\nVERIFIED FACTS: " + json.dumps(ctx.get("facts", {})) +
