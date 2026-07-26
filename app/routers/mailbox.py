@@ -23,6 +23,9 @@ def _mbx_out(c: MailboxConnection) -> dict:
             "username": c.username, "smtp_host": c.smtp_host, "smtp_port": c.smtp_port,
             "imap_host": c.imap_host, "imap_port": c.imap_port, "status": c.status,
             "last_error": c.last_error, "active": bool(c.active),
+            "default_autopilot": bool(getattr(c, "default_autopilot", False)),
+            "default_interval_days": getattr(c, "default_interval_days", 4) or 4,
+            "default_max_followups": getattr(c, "default_max_followups", 4) or 4,
             "last_checked_at": c.last_checked_at.isoformat() if c.last_checked_at else None}
 
 
@@ -70,6 +73,31 @@ def connect(body: MailboxIn, ctx: AuthContext = Depends(get_ctx)):
     out = _mbx_out(c)
     out["backfill_job_id"] = job_id
     return out
+
+
+class FollowupDefaultsIn(BaseModel):
+    workspace_id: int
+    default_autopilot: bool | None = None
+    default_interval_days: int | None = None
+    default_max_followups: int | None = None
+
+
+@router.put("/mailbox/followup-defaults")
+def set_followup_defaults(body: FollowupDefaultsIn, ctx: AuthContext = Depends(get_ctx)):
+    """Workspace-level follow-up autopilot defaults — new deal conversations
+    inherit these (existing ones are unchanged)."""
+    ctx.require_workspace(body.workspace_id)
+    c = service.workspace_mailbox(ctx.db, body.workspace_id)
+    if not c:
+        raise HTTPException(404, "Connect a mailbox first")
+    if body.default_autopilot is not None:
+        c.default_autopilot = bool(body.default_autopilot)
+    if body.default_interval_days is not None:
+        c.default_interval_days = max(1, min(int(body.default_interval_days), 60))
+    if body.default_max_followups is not None:
+        c.default_max_followups = max(0, min(int(body.default_max_followups), 12))
+    ctx.db.commit()
+    return _mbx_out(c)
 
 
 @router.post("/mailbox/test")

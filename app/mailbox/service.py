@@ -87,6 +87,11 @@ def ensure_conversation(db, deal: Deal) -> DealConversation:
         contact_id=deal.contact_id, mailbox_id=mailbox.id if mailbox else None,
         subject=subject, prospect_email=(contact.email.lower().strip() if contact and contact.email else ""),
         state="active")
+    # inherit the workspace's follow-up autopilot defaults (armed on first send)
+    if mailbox:
+        conv.autopilot = bool(getattr(mailbox, "default_autopilot", False))
+        conv.followup_interval_days = getattr(mailbox, "default_interval_days", 4) or 4
+        conv.max_followups = getattr(mailbox, "default_max_followups", 4) or 4
     db.add(conv)
     db.commit()
     return conv

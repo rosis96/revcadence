@@ -28,6 +28,18 @@ export default function MailboxConnect() {
   const { data: existing, loading, reload } = useApi("/api/mailbox", { workspace_id: wsParam });
   const [form, setForm] = useState({ provider: "gmail", email: "", app_password: "", from_name: "",
     username: "", smtp_host: "", smtp_port: "", imap_host: "", imap_port: "" });
+  const [fu, setFu] = useState(null);
+  useEffect(() => {
+    if (existing) setFu({ default_autopilot: !!existing.default_autopilot,
+      default_interval_days: existing.default_interval_days || 4,
+      default_max_followups: existing.default_max_followups || 4 });
+  }, [existing?.id, existing?.default_autopilot]);
+  const saveFu = async () => {
+    try {
+      await api("/api/mailbox/followup-defaults", { method: "PUT", body: { workspace_id: wsId, ...fu } });
+      toast("Follow-up defaults saved"); reload();
+    } catch (e) { toast(e.message, "bad"); }
+  };
   const [busy, setBusy] = useState(false);
   const [importing, setImporting] = useState(false);   // "wow" backfill state
 
@@ -95,6 +107,30 @@ export default function MailboxConnect() {
           </div>
           <Button variant="secondary" onClick={test} disabled={busy}>Test</Button>
           <Button variant="danger" onClick={disconnect} disabled={busy}>Disconnect</Button>
+        </div>
+      )}
+
+      {existing?.status === "connected" && fu && (
+        <div className="card" style={{ padding: 16, marginBottom: 14 }}>
+          <h3 style={{ fontSize: 14, margin: "0 0 6px", display: "flex", alignItems: "center", gap: 8 }}>
+            <Sparkles size={16} /> Follow-up autopilot defaults</h3>
+          <p style={{ fontSize: 12.5, color: "var(--muted)", margin: "0 0 12px" }}>
+            New deals in this workspace inherit these. When on, the AI follows up in the same email
+            thread automatically — stopping the moment the prospect replies. (Existing deals keep their own setting.)</p>
+          <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, marginBottom: 10 }}>
+            <input type="checkbox" checked={fu.default_autopilot}
+              onChange={(e) => setFu({ ...fu, default_autopilot: e.target.checked })} />
+            Turn on autopilot for new deals by default
+          </label>
+          <div style={{ display: "flex", gap: 14, alignItems: "flex-end" }}>
+            <label style={{ fontSize: 12.5 }}>Days between follow-ups
+              <input type="number" min="1" max="60" value={fu.default_interval_days} style={{ width: 90, display: "block", marginTop: 4 }}
+                onChange={(e) => setFu({ ...fu, default_interval_days: Number(e.target.value) || 4 })} /></label>
+            <label style={{ fontSize: 12.5 }}>Max follow-ups
+              <input type="number" min="0" max="12" value={fu.default_max_followups} style={{ width: 90, display: "block", marginTop: 4 }}
+                onChange={(e) => setFu({ ...fu, default_max_followups: Number(e.target.value) || 0 })} /></label>
+            <Button variant="secondary" onClick={saveFu}>Save defaults</Button>
+          </div>
         </div>
       )}
 
