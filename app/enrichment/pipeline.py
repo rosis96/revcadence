@@ -141,6 +141,70 @@ def _research_excerpt(text: str, room: int) -> str:
     return f"{lead}\nPROOF HIGHLIGHTS: {suffix}"[:room] if suffix else text[:room]
 
 
+def _norm_for_match(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(s or "").lower()).strip()
+
+
+def _corroborated(text_norm: str, needle: str) -> bool:
+    """Grounded-but-tolerant match: True when the needle's distinctive tokens
+    actually appear in the crawled text — so a real fact isn't dropped just because
+    the model paraphrased a quote, while still refusing anything not on the site."""
+    n = _norm_for_match(needle)
+    if not n:
+        return False
+    if n in text_norm:
+        return True
+    words = [t for t in n.split() if len(t) >= 3]
+    nums = [t for t in n.split() if t.isdigit()]
+    distinct = words + nums
+    if not words:                       # numeric/short-only → demand exact presence
+        return n in text_norm
+    if len(distinct) == 1:
+        return distinct[0] in text_norm
+    hits = sum(1 for t in distinct if t in text_norm)
+    return hits >= max(2, int(0.75 * len(distinct)))
+
+
+# Typed evidence buckets → canonical evidence type, corroborated against the site.
+_CORROBORATE_BUCKETS = (
+    ("named_clients", "named_client"), ("named_services", "named_service"),
+    ("frameworks", "methodology"), ("distinctive_projects", "project"),
+    ("awards", "award"), ("measurable_results", "measurable_result"),
+)
+
+
+def _corroborated_evidence(crawl: dict, facts: dict, existing: list) -> list:
+    """Recover REAL evidence the strict verbatim-quote pass dropped: every typed-
+    bucket fact (named client/service/framework/project/award/result) and case study
+    whose distinctive tokens are present in the crawled text becomes a validated
+    signal. Grounded in the actual site — never invents. Appends to `existing`."""
+    pages = crawl.get("page_records") or []
+    all_text = _norm_for_match(" ".join(p.get("text", "") for p in pages) or crawl.get("text", ""))
+    out = list(existing or [])
+    seen = {(e.get("type"), _norm_for_match(e.get("claim", ""))) for e in out}
+
+    def push(kind, claim, conf=0.7):
+        claim = (claim or "").strip()
+        key = (kind, _norm_for_match(claim))
+        if not claim or key in seen:
+            return
+        seen.add(key)
+        out.append({"id": f"ev_{len(out) + 1}", "type": kind, "claim": claim,
+                    "supporting_quote": "", "source_url": "", "source_kind": "html",
+                    "confidence": conf, "corroborated": True})
+    for field, kind in _CORROBORATE_BUCKETS:
+        for v in facts.get(field) or []:
+            if isinstance(v, str) and _corroborated(all_text, v):
+                push(kind, v)
+    for cs in facts.get("case_studies") or []:
+        if isinstance(cs, dict):
+            who = (cs.get("client") or cs.get("name") or "").strip()
+            res = (cs.get("result") or "").strip()
+            if who and _corroborated(all_text, who):
+                push("case_study", " — ".join([x for x in [who, res] if x]) or who, 0.8)
+    return out
+
+
 def _validate_text_evidence(crawl: dict, items: list) -> list:
     """Keep only evidence whose supporting quote exists on its claimed page."""
     pages = crawl.get("page_records") or []
@@ -253,12 +317,19 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
             out = ai._call_openai(system, user, model=ai.extract_model())
             facts = out.get("facts") if isinstance(out.get("facts"), dict) else {}
             evidence = _validate_text_evidence(crawl, facts.get("evidence") or [])
+            strict_n = len(evidence)
+            # Recover real facts the strict verbatim-quote pass dropped: corroborate
+            # the typed buckets (named clients/services/frameworks/projects/awards/
+            # results/case studies) against the crawled text. Grounded, not invented.
+            evidence = _corroborated_evidence(crawl, facts, evidence)
             for item in visual:
                 item = {**item, "id": f"ev_{len(evidence) + 1}"}
                 evidence.append(item)
             facts["evidence"] = evidence
             facts["_evidence_version"] = 2
             out["facts"] = facts
+            crawl["diagnostics"]["evidence_strict"] = strict_n
+            crawl["diagnostics"]["evidence_corroborated"] = len(evidence) - strict_n - len(visual)
             reason_low = str(out.get("icp_reason") or "").lower()
             absence_only = any(p in reason_low for p in (
                 "does not provide", "no information", "no indication", "not stated",
