@@ -141,6 +141,14 @@ def _research_excerpt(text: str, room: int) -> str:
     return f"{lead}\nPROOF HIGHLIGHTS: {suffix}"[:room] if suffix else text[:room]
 
 
+# The evidence-bank bucket keys the extractor returns. Used to recover the schema
+# whether the model nests it under "facts" or flattens it to the top level.
+_FACT_KEYS = ("category", "description", "services", "named_services", "frameworks",
+              "named_clients", "case_studies", "measurable_results", "awards",
+              "partnerships", "distinctive_projects", "target_industries",
+              "decision_makers", "commercial_challenges", "evidence")
+
+
 def _norm_for_match(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(s or "").lower()).strip()
 
@@ -356,7 +364,15 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
             user = (f"Company: {lead.company}\nSite: {crawl.get('url')}\n"
                     f"SOURCE-LABELLED PAGES:\n{packet}{visual_context}")
             out = ai._call_openai(system, user, model=ai.extract_model())
-            facts = out.get("facts") if isinstance(out.get("facts"), dict) else {}
+            # Robust unwrap: gpt-4o-mini often FLATTENS the schema, putting services/
+            # named_clients/etc. at the top level instead of under "facts". Reading
+            # only out["facts"] then loses everything (0 facts despite a good crawl).
+            # Merge any bucket keys the model left at the top level back into facts.
+            raw_facts = out.get("facts")
+            facts = dict(raw_facts) if isinstance(raw_facts, dict) else {}
+            for k in _FACT_KEYS:
+                if not facts.get(k) and out.get(k):
+                    facts[k] = out[k]
             evidence = _validate_text_evidence(crawl, facts.get("evidence") or [])
             strict_n = len(evidence)
             # Recover real facts the strict verbatim-quote pass dropped: corroborate
