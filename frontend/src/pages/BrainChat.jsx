@@ -58,13 +58,15 @@ export default function BrainChat() {
     if (busy) return;
     const instructions = messages.filter((m) => m.role === "user").map((m) => m.content).join("\n\n").trim();
     if (!instructions) { toast("Explain your formats in the chat first", "bad"); return; }
-    if (!confirm("Build formats from this conversation? This replaces the current formats for this workspace (review/edit them on the Formats tab afterward).")) return;
+    if (!confirm("Apply this conversation to your formats? It updates the variables you described (e.g. value proposition) and keeps the rest. Review/edit on the Formats tab afterward.")) return;
     setBusy(true);
     try {
+      // merge=true (default): revise only the variables discussed, keep everything else as saved
       const r = await api(`/api/enrich-lists/config/${wsId}/build-formats`, { method: "POST", body: { instructions } });
       await api(`/api/enrich-lists/config/${wsId}`, { method: "PUT", body: { formats: r.formats } });
-      toast(`Built ${r.count} formats — review on the Formats tab`);
-      setMessages((m) => [...m, { role: "assistant", content: `✅ Built ${r.count} format variables from what you explained and saved them. Open the Formats tab to review, tweak, and use them.`, learned: ["formats"] }]);
+      const did = r.merged ? `Updated ${r.updated.length} variable(s): ${r.updated.join(", ")}` : `Built ${r.count} format variables`;
+      toast(`${did} — review on the Formats tab`);
+      setMessages((m) => [...m, { role: "assistant", content: `✅ ${did} from what you explained${r.merged ? " (your other variables were kept)" : ""} and saved. Open the Formats tab to review and tweak.`, learned: ["formats"] }]);
     } catch (e) { toast(e.message, "bad"); } finally { setBusy(false); }
   };
 

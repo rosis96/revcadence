@@ -419,7 +419,9 @@ export default function EnrichConfigPage({ tab }) {
               No JSON needed. Explain how you want the variables written — in as much or as little detail as you
               like, and <b>it follows what you actually said</b> (detailed where you explained a lot, light where
               you didn't; it won't invent rules or examples you didn't give). It grounds everything in this
-              client's brain. Review below, then Save. <b>Train the brain / fill the Client Profile first</b> for the best results.</p>
+              client's brain. Review below, then Save. <b>Train the brain / fill the Client Profile first</b> for the best results.
+              {(cfg.formats || []).length > 0 && <> When you already have variables, it <b>updates just the ones
+              you describe and keeps the rest</b> — e.g. paste a better value-proposition spec to fix only that.</>}</p>
             <div className="field" style={{ margin: 0 }}><label>Your rules / how you want variables written <span style={{ color: "var(--muted)", fontWeight: 400 }}>(optional — paste your old formats/rules)</span></label>
               <textarea rows={5} style={{ width: "100%" }} value={fmtB.instructions}
                         onChange={(e) => setFmtB({ ...fmtB, instructions: e.target.value })}
@@ -430,13 +432,19 @@ export default function EnrichConfigPage({ tab }) {
                   setFmtB((b) => ({ ...b, busy: true }));
                   try {
                     const r = await api(`/api/enrich-lists/config/${wsId}/build-formats`,
-                      { method: "POST", body: { instructions: fmtB.instructions } });
+                      { method: "POST", body: { instructions: fmtB.instructions, current: cfg.formats || [], merge: fmtB.merge !== false } });
                     setCfg((c) => ({ ...c, formats: r.formats }));
-                    setFmtB((b) => ({ ...b, busy: false, done: r.count }));
+                    setFmtB((b) => ({ ...b, busy: false, done: r.merged ? `updated ${r.updated.length} (${r.updated.join(", ")})` : `${r.count} built` }));
                   } catch (e) { alert(e.message); setFmtB((b) => ({ ...b, busy: false })); }
-                }}>{fmtB.busy ? "Designing variables…" : "Build formats with AI"}</button>
+                }}>{fmtB.busy ? "Working…" : ((cfg.formats || []).length > 0 && fmtB.merge !== false ? "Update formats with AI" : "Build formats with AI")}</button>
+              {(cfg.formats || []).length > 0 && (
+                <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5, color: "var(--muted)" }}>
+                  <input type="checkbox" checked={fmtB.merge === false}
+                         onChange={(e) => setFmtB({ ...fmtB, merge: !e.target.checked })} />
+                  Rebuild all from scratch (replace)
+                </label>)}
               {fmtB.done != null && <span style={{ fontSize: 12.5, color: "#15803d" }}>
-                ✓ built {fmtB.done} variables. Review below, then <b>Save formats</b>.</span>}
+                ✓ {fmtB.done}. Review below, then <b>Save formats</b>.</span>}
             </div>
           </div>
 

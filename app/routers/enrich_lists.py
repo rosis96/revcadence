@@ -842,14 +842,17 @@ def brain_chat(workspace_id: int, body: BrainChatIn, ctx: AuthContext = Depends(
 
 class BuildFormatsIn(BaseModel):
     instructions: str = ""    # the operator's rules / how variables should be written / pasted formats
+    current: list | None = None   # the operator's live formats to REVISE in place (None → use saved)
+    merge: bool = True            # True → edit the variables discussed, keep the rest; False → clean rebuild
 
 
 @router.post("/config/{workspace_id}/build-formats")
 def build_formats(workspace_id: int, body: BuildFormatsIn, ctx: AuthContext = Depends(get_ctx)):
-    """The AI designs the OUTPUT VARIABLES (formats) the cold-email writer will
-    produce — grounded in the Client Brain + the operator's rules. This replaces
-    hand-writing format JSON: describe how you want it written, and it builds the
-    variable definitions (guidance, template, word ranges, rules, examples)."""
+    """The AI designs OR REVISES the OUTPUT VARIABLES (formats) the cold-email
+    writer produces — grounded in the Client Brain + the operator's rules. When
+    formats already exist and merge=True, it EDITS IN PLACE: it revises only the
+    variables the operator is talking about and keeps every other variable exactly
+    as it was (nothing hand-tuned is lost)."""
     ctx.require_workspace(workspace_id)
     import json as _json
     import re as _re
@@ -860,26 +863,40 @@ def build_formats(workspace_id: int, body: BuildFormatsIn, ctx: AuthContext = De
         raise HTTPException(422, "No OpenAI key set — connect AI before building formats.")
     cfg = _config(ctx.db, workspace_id)
     brain = cfg.profile or {}
+    # Baseline to revise: the live formats the UI sent, else what's saved.
+    existing = body.current if body.current is not None else (cfg.formats or [])
+    existing = [f for f in (existing or []) if isinstance(f, dict)]
+    editing = bool(body.merge and existing)
 
     system = (
-        "You design the OUTPUT VARIABLES ('formats') an AI cold-email writer will produce for THIS client, "
-        "using the CLIENT BRAIN and the OPERATOR INSTRUCTIONS. Follow two rules of CARE:\n"
-        "1) BE FAITHFUL to what the operator actually described. Build the variables THEY explain or ask "
-        "for. If they give no specific variables, propose the standard set (Personalized First Line, Value "
-        "Proposition, Product Complimentary, Reference, Pitch) — but never force a variable they didn't want.\n"
+        "You design OR REVISE the OUTPUT VARIABLES ('formats') an AI cold-email writer will produce for THIS "
+        "client, using the CLIENT BRAIN and the OPERATOR INSTRUCTIONS. Follow these rules of CARE:\n"
+        "1) BE FAITHFUL to what the operator actually described. Build/revise the variables THEY explain or "
+        "ask for. If they give no specific variables and none exist yet, propose the standard set "
+        "(Personalized First Line, Value Proposition, Product Complimentary, Reference, Pitch) — but never "
+        "force a variable they didn't want.\n"
         "2) MATCH DEPTH per variable to how much the operator explained it. Where they gave detailed "
         "structure, rules, or examples, reflect that fully. Where they said little, keep THAT variable "
         "light — short guidance, NO invented rigid template, NO fabricated rules or examples. Do NOT impose "
         "one uniform format on every variable, and do NOT invent rules, templates, word limits, or examples "
         "the operator didn't provide or clearly imply. Set min_words/max_words ONLY if a length was "
         "specified, else null. Prefer 0-2 REAL examples grounded in the brain over made-up ones.\n"
-        "Return JSON {\"formats\": [ {\"label\": str, \"name\": snake_case slug, \"guidance\": str (how to "
+        + ("3) YOU ARE EDITING EXISTING FORMATS (given under CURRENT FORMATS). Return ONLY the variables the "
+           "operator's instructions actually address — revise those, reusing their exact 'name' slug so they "
+           "map onto the current ones. Do NOT return the untouched variables; they are kept automatically. "
+           "Do NOT rename or renumber. If the operator describes a brand-new variable, include it with a new "
+           "slug.\n" if editing else "")
+        + "Return JSON {\"formats\": [ {\"label\": str, \"name\": snake_case slug, \"guidance\": str (how to "
         "write it, grounded in the client's real offer/problems/proof), \"template\": str (optional; "
         "{{placeholders}} or \"\"), \"min_words\": int|null, \"max_words\": int|null, \"rules\": [str], "
         "\"examples\": [str], \"enabled\": true} ] }. Ground everything ONLY in the CLIENT BRAIN + operator "
         "instructions; never invent client facts.")
     user = ("OPERATOR INSTRUCTIONS / RULES / SAMPLE FORMATS:\n" + (body.instructions or "(none — use best practice)")
-            + "\n\nCLIENT BRAIN:\n" + _json.dumps(brain)[:14000])
+            + (("\n\nCURRENT FORMATS (revise only the ones the instructions address; keep names):\n"
+                + _json.dumps([{k: f.get(k) for k in ("label", "name", "guidance", "template", "min_words",
+                                                       "max_words", "rules", "examples")} for f in existing])[:8000])
+               if editing else "")
+            + "\n\nCLIENT BRAIN:\n" + _json.dumps(brain)[:12000])
     try:
         out = ai._call_openai(system, user, model=ai.extract_model())
     except Exception as e:
@@ -906,7 +923,28 @@ def build_formats(workspace_id: int, body: BuildFormatsIn, ctx: AuthContext = De
             "examples": [str(e) for e in (f.get("examples") or []) if e],
             "enabled": f.get("enabled", True) is not False,
         })
-    return {"formats": clean, "count": len(clean)}
+
+    if not editing:
+        return {"formats": clean, "count": len(clean), "updated": [f["name"] for f in clean], "merged": False}
+
+    # ---- merge in place: overlay revised variables onto the existing set by slug,
+    # preserving order, untouched variables, and per-variable extras (placeholders,
+    # fallback). Only substantive (non-empty) fields overwrite an existing variable.
+    def _nonempty(d):
+        return {k: v for k, v in d.items() if v not in (None, "", [], {})}
+    order = [f.get("name") for f in existing]
+    merged = {f.get("name"): dict(f) for f in existing}
+    updated = []
+    for f in clean:
+        n = f["name"]
+        if n in merged:
+            merged[n] = {**merged[n], **_nonempty(f)}
+        else:
+            merged[n] = f
+            order.append(n)
+        updated.append(n)
+    final = [merged[n] for n in order if n in merged]
+    return {"formats": final, "count": len(final), "updated": updated, "merged": True}
 
 
 def _accumulate_brain(existing: dict, new: dict) -> dict:
