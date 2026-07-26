@@ -626,10 +626,44 @@ class BuildProfileIn(BaseModel):
 
 
 # The Client Brain schema — one rich, structured knowledge base the AI writer uses.
-CLIENT_BRAIN_KEYS = ["client_name", "one_liner", "main_offer", "what_we_are_pitching",
+CLIENT_BRAIN_KEYS = ["client_name", "one_liner", "service_brief", "main_offer", "what_we_are_pitching",
                      "target_outcome", "icp_summary", "industries", "services", "positioning",
                      "methodology", "results_metrics", "proof_points", "testimonials",
                      "target_titles", "tone", "case_studies", "problem_library", "objections"]
+_BRAIN_LIST_KEYS = {"industries", "services", "positioning", "methodology", "results_metrics",
+                    "proof_points", "testimonials", "target_titles", "case_studies",
+                    "problem_library", "objections"}
+# identity field per dict-list, so re-crawls dedupe by the REAL entity (not exact text)
+_BRAIN_DICT_KEY = {
+    "case_studies": lambda x: str(x.get("client", "")).strip().lower(),
+    "problem_library": lambda x: str(x.get("industry", "")).strip().lower(),
+    "objections": lambda x: str(x.get("objection", ""))[:60].strip().lower(),
+    "testimonials": lambda x: (str(x.get("who", "")).strip().lower() + "|" + str(x.get("quote", ""))[:40].lower()),
+}
+
+
+def _merge_brain_list(k, existing, new):
+    import json as _j
+    items = list(existing or []) + list(new or [])
+    if k in _BRAIN_DICT_KEY:
+        keyf = _BRAIN_DICT_KEY[k]
+        by, keyless = {}, []
+        for x in items:
+            if not isinstance(x, dict):
+                continue
+            key = keyf(x)
+            if not key:
+                keyless.append(x)
+            elif key not in by or len(_j.dumps(x)) > len(_j.dumps(by[key])):
+                by[key] = x          # keep the richer (more detailed) version
+        return list(by.values()) + keyless
+    seen, out = set(), []             # plain string list — dedupe case-insensitively
+    for x in items:
+        key = " ".join(str(x if isinstance(x, str) else _j.dumps(x, sort_keys=True)).lower().split())
+        if key and key not in seen:
+            seen.add(key)
+            out.append(x)
+    return out
 
 
 def _extract_upload_text(raw: bytes, filename: str) -> str:
@@ -729,7 +763,9 @@ def build_profile(workspace_id: int, body: BuildProfileIn, ctx: AuthContext = De
         "summarize into one-liners: preserve the real detail, numbers, client names, and outcomes as "
         "written. Ground EVERYTHING only in the material — never invent; leave a field empty/[] if the "
         "material doesn't support it. Return JSON with EXACTLY these keys:\n"
-        'client_name (str), one_liner (str), main_offer (str — full, detailed), '
+        'client_name (str), one_liner (str), '
+        'service_brief (str — a full paragraph: who the client is and everything they sell), '
+        'main_offer (str — full, detailed), '
         'what_we_are_pitching (str), target_outcome (str), icp_summary (str), '
         'industries (list of str), '
         'services (list of str — every service/offering, specific), '
@@ -751,28 +787,20 @@ def build_profile(workspace_id: int, body: BuildProfileIn, ctx: AuthContext = De
         raise HTTPException(502, f"AI extraction failed: {str(e)[:200]}")
     if not isinstance(out, dict):
         raise HTTPException(502, "AI returned an unexpected format — try again or paste cleaner material.")
-    LIST_KEYS = {"industries", "services", "positioning", "methodology", "results_metrics",
-                 "proof_points", "testimonials", "target_titles", "case_studies", "problem_library",
-                 "objections"}
-    profile = {k: out.get(k, [] if k in LIST_KEYS else "") for k in CLIENT_BRAIN_KEYS}
+    profile = {k: out.get(k, [] if k in _BRAIN_LIST_KEYS else "") for k in CLIENT_BRAIN_KEYS}
 
     if body.merge:
-        # ACCUMULATE — new data ADDS to what's there, never wipes it. Lists append
-        # (deduped); scalars fill only when empty so prior detail is preserved.
+        # ACCUMULATE — new data ADDS to what's there, never wipes it. Lists merge by
+        # the real entity (client/industry) so re-crawls don't duplicate; scalars keep
+        # the FULLER version so each crawl can enrich them.
         cfg = _config(ctx.db, workspace_id)
         merged = {**(cfg.profile or {})}
         for k, v in profile.items():
-            if k in LIST_KEYS:
-                existing = list(merged.get(k) or [])
-                seen = {_json.dumps(x, sort_keys=True) if isinstance(x, dict) else str(x) for x in existing}
-                for item in (v or []):
-                    sig = _json.dumps(item, sort_keys=True) if isinstance(item, dict) else str(item)
-                    if item and sig not in seen:
-                        existing.append(item)
-                        seen.add(sig)
-                merged[k] = existing
-            elif v and not merged.get(k):
-                merged[k] = v          # keep prior scalar detail; only fill blanks
+            if k in _BRAIN_LIST_KEYS:
+                merged[k] = _merge_brain_list(k, merged.get(k), v)
+            elif isinstance(v, str) and v.strip():
+                old = str(merged.get(k) or "")
+                merged[k] = v if len(v.strip()) > len(old.strip()) else old
         profile = merged
     return {"profile": profile,
             "counts": {"case_studies": len(profile.get("case_studies") or []),

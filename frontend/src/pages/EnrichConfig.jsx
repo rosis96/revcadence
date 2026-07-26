@@ -141,7 +141,7 @@ export default function EnrichConfigPage({ tab }) {
   const AUTO_TOKENS = new Set(["company_name", "first_name", "last_name", "company", "title", "email", "website", "firstname", "lastname"]);
 
   return (
-    <div style={{ maxWidth: 1100 }}>
+    <div style={{ maxWidth: 1500 }}>
       {saved && <div className="card" style={{ padding: "8px 14px", marginBottom: 12, color: "var(--ok)", borderColor: "var(--ok)" }}>Saved.</div>}
 
       {tab === "profile" && (
