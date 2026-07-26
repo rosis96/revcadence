@@ -540,8 +540,14 @@ export default function EnrichListDetail() {
                   ["Rendered pages", openLead.research.rendered_pages],
                   ["Images discovered", openLead.research.images_discovered],
                   ["Vision candidates", openLead.research.vision_candidates],
+                  ["Research text length", openLead.research.signals_text_len],
                   ["Signals collected", openLead.research.signals_collected],
                   ["Evidence validated", openLead.research.evidence_validated],
+                  ["Evidence (strict / corroborated)",
+                    (openLead.research.evidence_strict != null || openLead.research.evidence_corroborated != null)
+                      ? `${openLead.research.evidence_strict || 0} / ${openLead.research.evidence_corroborated || 0}` : null],
+                  ["Facts found", Object.entries(openLead.research.facts_by_type || {})
+                    .map(([k, v]) => `${pretty(k)} ${v}`).join(" · ")],
                   ["Writer model", openLead.generation?.model],
                   ["Writer calls", openLead.generation?.calls],
                   ["Candidates considered", openLead.generation?.candidates_considered],

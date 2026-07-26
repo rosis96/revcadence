@@ -171,6 +171,34 @@ _CORROBORATE_BUCKETS = (
     ("frameworks", "methodology"), ("distinctive_projects", "project"),
     ("awards", "award"), ("measurable_results", "measurable_result"),
 )
+# Tier B: softer-but-real specifics every ordinary B2B site has — the SPECIFIC
+# services it offers and the audience it serves. This is exactly what a human (or
+# ChatGPT) personalizes from when a site names no clients or metrics. Counted only
+# when specific enough (generic single words like "consulting" are filtered out).
+_CORROBORATE_TIER_B = (("services", "service"), ("target_industries", "industry"))
+
+# Generic terms that must not stand alone as a "specific" service/industry.
+_GENERIC_TERMS = {
+    "consulting", "consultancy", "services", "service", "solutions", "solution",
+    "business", "businesses", "companies", "company", "clients", "customers",
+    "marketing", "advisory", "support", "management", "technology", "software",
+    "development", "design", "products", "product", "strategy", "operations",
+    "growth", "digital", "agency", "firm", "team", "work", "industry", "sector",
+}
+
+
+def _specific_phrase(s: str) -> bool:
+    """A service/industry is usable evidence only if it's specific — a multi-word
+    phrase with a non-generic word, or a single distinctive term. 'M&A advisory',
+    'succession planning', 'SaaS companies' pass; 'consulting', 'businesses' fail."""
+    n = _norm_for_match(s)
+    words = [w for w in n.split() if w]
+    if not words or len(n) < 4:
+        return False
+    non_generic = [w for w in words if w not in _GENERIC_TERMS]
+    if len(words) >= 2:
+        return len(non_generic) >= 1
+    return words[0] not in _GENERIC_TERMS and len(words[0]) >= 5
 
 
 def _corroborated_evidence(crawl: dict, facts: dict, existing: list) -> list:
@@ -202,6 +230,13 @@ def _corroborated_evidence(crawl: dict, facts: dict, existing: list) -> list:
             res = (cs.get("result") or "").strip()
             if who and _corroborated(all_text, who):
                 push("case_study", " — ".join([x for x in [who, res] if x]) or who, 0.8)
+    # Tier B — specific services + audience the site actually states (grounded, but
+    # softer than named clients). Lets ordinary small-business sites generate honest
+    # copy instead of falsely reading "insufficient".
+    for field, kind in _CORROBORATE_TIER_B:
+        for v in facts.get(field) or []:
+            if isinstance(v, str) and _specific_phrase(v) and _corroborated(all_text, v):
+                push(kind, v, 0.6)
     return out
 
 
@@ -277,7 +312,13 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
                   "in the provided pages: copy names/numbers verbatim, and LEAVE A FIELD EMPTY when the "
                   "site does not support it (never invent, never generalize a category into a 'fact'). Do "
                   "NOT record vague themes like 'clarity', 'leadership', 'award-winning', 'bold brands' — "
-                  "only named, checkable specifics. A missing private metric (revenue, LTV, employee count, "
+                  "only named, checkable specifics. Even when the site names no clients or metrics, CAPTURE "
+                  "the real specifics it DOES state: every SPECIFIC service/offering by name (e.g. 'M&A "
+                  "advisory', 'succession planning'), the SPECIFIC industries/audience it serves (e.g. "
+                  "'family-owned manufacturers', 'SaaS scale-ups'), named methodologies, and locations. "
+                  "Populate services, named_services, and target_industries fully from what the site says — "
+                  "these are checkable specifics too. Only leave a field empty if the site truly omits it. A "
+                  "missing private metric (revenue, LTV, employee count, "
                   "demand, sales-cycle complexity) is UNKNOWN, never negative evidence. Return Non-ICP only "
                   "when a positive fact matches a hard exclusion; otherwise use Needs Review when evidence "
                   "is incomplete.\n"
@@ -330,6 +371,16 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
             out["facts"] = facts
             crawl["diagnostics"]["evidence_strict"] = strict_n
             crawl["diagnostics"]["evidence_corroborated"] = len(evidence) - strict_n - len(visual)
+            # What the model actually extracted per bucket — the smoking gun when a
+            # site reads "0 facts": empty here → crawl/extraction problem; full here
+            # but 0 evidence → corroboration/gate problem.
+            crawl["diagnostics"]["facts_by_type"] = {
+                k: len(facts.get(k) or [])
+                for k in ("named_clients", "named_services", "services", "frameworks",
+                          "distinctive_projects", "awards", "measurable_results",
+                          "case_studies", "target_industries")
+                if facts.get(k)
+            }
             reason_low = str(out.get("icp_reason") or "").lower()
             absence_only = any(p in reason_low for p in (
                 "does not provide", "no information", "no indication", "not stated",
