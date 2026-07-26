@@ -265,6 +265,95 @@ def duplicate_rws(rws_id: int, ctx: AuthContext = Depends(require_master)):
     return _rws_out(copy)
 
 
+class BuildReplyFormatsIn(BaseModel):
+    instructions: str = ""        # the operator's reply rules / sample reply formats
+    followups: bool = True        # also design the FUP1..6 follow-up ladder
+
+
+@router.post("/workspaces/{rws_id}/build-reply-formats")
+def build_reply_formats(rws_id: int, body: BuildReplyFormatsIn, ctx: AuthContext = Depends(require_master)):
+    """Design the reply-management formats (response_types + follow-up ladder) with
+    AI — the same idea as the outbound Formats builder, grounded in the SAME Client
+    Brain. Describe how each reply type should be written; it builds the structured
+    response_types and FUP1..6 for you to review and Save."""
+    import json as _json
+
+    from ..enrichment import ai
+    from ..models.enrich import EnrichConfig
+    w = ctx.db.get(ReplyWorkspace, rws_id)
+    if not w:
+        raise HTTPException(404, "Not found")
+    ctx.require_workspace(w.workspace_id)
+    if not ai.has_ai():
+        raise HTTPException(422, "No OpenAI key set — connect AI before building reply formats.")
+    ecfg = ctx.db.query(EnrichConfig).filter(EnrichConfig.workspace_id == w.workspace_id).first()
+    brain = (ecfg.profile if ecfg else None) or {}
+    # merge the reply workspace's own profile over the shared brain (same as the engine)
+    merged = {**brain, **(w.client_profile or {})}
+
+    system = (
+        "You design the REPLY FORMATS an AI reply-writer uses to answer inbound prospect replies for THIS "
+        "client, grounded in the CLIENT BRAIN + OPERATOR INSTRUCTIONS. Two rules of CARE:\n"
+        "1) BE FAITHFUL to what the operator actually described — build the response types and rules THEY "
+        "explain. If they give none, propose a sensible default set (e.g. positive/interested, asks-for-"
+        "pricing, asks-a-question, not-now/later, not-interested, referral/forward).\n"
+        "2) MATCH DEPTH per type to how much the operator explained it. Where they gave structure, rules, or "
+        "examples, reflect them fully; where they said little, keep that type light — short guidance, no "
+        "invented rigid template, no fabricated rules or examples. Only mark auto_send:true for a type the "
+        "operator clearly said may send automatically; otherwise false (human review).\n"
+        "Return JSON {\"response_types\": [ {\"id\": snake_case slug, \"intent\": str (when this type "
+        "applies), \"examples\": [str], \"template\": str (optional; {{placeholders}} or \"\"), \"rules\": "
+        "str (one rule per line, or \"\"), \"auto_send\": bool} ]"
+        + (", \"followups\": [ {\"label\": \"FUP 1\", \"intent\": str (what this nudge does), \"max_words\": "
+           "int|null, \"template\": str} ]" if body.followups else "")
+        + " }. Ground everything ONLY in the CLIENT BRAIN + operator instructions; never invent client facts.")
+    user = ("OPERATOR INSTRUCTIONS / REPLY RULES / SAMPLE FORMATS:\n"
+            + (body.instructions or "(none — use best practice)")
+            + "\n\nCLIENT BRAIN + PROFILE:\n" + _json.dumps(merged)[:14000])
+    try:
+        out = ai._call_openai(system, user, model=ai.extract_model())
+    except Exception as e:
+        raise HTTPException(502, f"AI reply-format design failed: {str(e)[:200]}")
+    rtypes = out.get("response_types") if isinstance(out, dict) else None
+    if not isinstance(rtypes, list) or not rtypes:
+        raise HTTPException(502, "AI didn't return reply formats — try again with clearer instructions.")
+
+    import re as _re
+
+    def _slug(s, i):
+        s = _re.sub(r"[^a-z0-9]+", "_", str(s or "").lower()).strip("_")
+        return s or f"type_{i + 1}"
+    clean_types = []
+    for i, t in enumerate(rtypes):
+        if not isinstance(t, dict):
+            continue
+        rules = t.get("rules")
+        if isinstance(rules, list):
+            rules = "\n".join(str(r) for r in rules if r)
+        clean_types.append({
+            "id": _slug(t.get("id") or t.get("intent"), i),
+            "intent": str(t.get("intent") or ""),
+            "examples": [str(e) for e in (t.get("examples") or []) if e],
+            "template": str(t.get("template") or ""),
+            "rules": str(rules or ""),
+            "auto_send": t.get("auto_send", False) is True,
+        })
+    clean_fups = []
+    if body.followups:
+        fups = out.get("followups") if isinstance(out, dict) else None
+        for i, f in enumerate(fups or []):
+            if not isinstance(f, dict):
+                continue
+            clean_fups.append({
+                "label": str(f.get("label") or f"FUP {i + 1}"),
+                "intent": str(f.get("intent") or ""),
+                "max_words": int(f.get("max_words") or 0) or 100,
+                "template": str(f.get("template") or ""),
+            })
+    return {"reply_format": {"response_types": clean_types, "followups": clean_fups},
+            "count": len(clean_types), "followup_count": len(clean_fups)}
+
+
 # ================================================================ leads console
 @router.get("/leads")
 def reply_leads(status: str = "", q: str = "", page: int = 1, workspace_id: int | None = None,

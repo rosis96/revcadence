@@ -118,6 +118,7 @@ export default function ReplySetup() {
   const [secrets, setSecrets] = useState({});
   const [pasteJson, setPasteJson] = useState("");
   const [fupJson, setFupJson] = useState("");
+  const [rfB, setRfB] = useState({ instructions: "", followups: true, busy: false, done: null });
   const [calResult, setCalResult] = useState(null);
 
   useEffect(() => {
@@ -305,6 +306,38 @@ export default function ReplySetup() {
       </div>
 
       <div className="section">
+        <div className="card" style={{ padding: 16, marginBottom: 12, borderColor: "#bfdcf6",
+          background: "linear-gradient(180deg,#fff,#f4f9ff)" }}>
+          <h2 style={{ fontSize: 15, margin: "0 0 4px" }}>Build reply formats with AI</h2>
+          <p style={{ color: "var(--muted)", fontSize: 12.5, margin: "0 0 10px", lineHeight: 1.5 }}>
+            Same idea as the outbound Formats builder, and it uses the <b>same Client Brain</b>. Describe your
+            reply types and how each should be written — it builds the structured response types (and the FUP1–6
+            ladder) for you to review and Save. It stays faithful to what you describe and won't invent rules.
+            <b> Train the brain / fill the Client Profile first</b> for the best results.</p>
+          <textarea rows={5} style={{ width: "100%" }} value={rfB.instructions}
+                    onChange={(e) => setRfB({ ...rfB, instructions: e.target.value })}
+                    placeholder={"e.g. Positive/interested → offer 2 times from Calendly, warm, 1–2 sentences, may auto-send. Asks pricing → don't quote a number, pivot to a quick call. Not now → gracious, ask to circle back in a quarter. Referral → thank + ask for the right contact…"} />
+          <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
+            <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5 }}>
+              <input type="checkbox" checked={rfB.followups}
+                     onChange={(e) => setRfB({ ...rfB, followups: e.target.checked })} />
+              Also build the follow-up ladder (FUP1–6)
+            </label>
+            <button className="btn" disabled={rfB.busy}
+              onClick={async () => {
+                if (!confirm("Build reply formats from your instructions? This replaces the current response types" + (rfB.followups ? " and follow-up ladder" : "") + " below (review, then Save).")) return;
+                setRfB((b) => ({ ...b, busy: true }));
+                try {
+                  const r = await api(`/api/reply/workspaces/${w.id}/build-reply-formats`,
+                    { method: "POST", body: { instructions: rfB.instructions, followups: rfB.followups } });
+                  setRf({ response_types: r.reply_format.response_types,
+                          ...(rfB.followups ? { followups: r.reply_format.followups } : {}) });
+                  setRfB((b) => ({ ...b, busy: false, done: `${r.count} response types${rfB.followups ? `, ${r.followup_count} follow-ups` : ""}` }));
+                } catch (e) { alert(e.message); setRfB((b) => ({ ...b, busy: false })); }
+              }}>{rfB.busy ? "Designing…" : "Build reply formats with AI"}</button>
+            {rfB.done && <span style={{ fontSize: 12.5, color: "#15803d" }}>✓ built {rfB.done}. Review below, then <b>Save</b>.</span>}
+          </div>
+        </div>
         <div className="toolbar">
           <h2 style={{ margin: 0 }}>Response types</h2>
           <div className="spacer" />
