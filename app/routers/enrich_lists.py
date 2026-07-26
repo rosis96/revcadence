@@ -807,6 +807,70 @@ def brain_chat(workspace_id: int, body: BrainChatIn, ctx: AuthContext = Depends(
     return {"reply": reply, "learned": updated}
 
 
+class BuildFormatsIn(BaseModel):
+    instructions: str = ""    # the operator's rules / how variables should be written / pasted formats
+
+
+@router.post("/config/{workspace_id}/build-formats")
+def build_formats(workspace_id: int, body: BuildFormatsIn, ctx: AuthContext = Depends(get_ctx)):
+    """The AI designs the OUTPUT VARIABLES (formats) the cold-email writer will
+    produce — grounded in the Client Brain + the operator's rules. This replaces
+    hand-writing format JSON: describe how you want it written, and it builds the
+    variable definitions (guidance, template, word ranges, rules, examples)."""
+    ctx.require_workspace(workspace_id)
+    import json as _json
+    import re as _re
+
+    from ..enrichment import ai
+    from ..enrichment.pipeline import _config
+    if not ai.has_ai():
+        raise HTTPException(422, "No OpenAI key set — connect AI before building formats.")
+    cfg = _config(ctx.db, workspace_id)
+    brain = cfg.profile or {}
+
+    system = (
+        "You design the OUTPUT VARIABLES ('formats') that an AI cold-email writer will produce for THIS "
+        "client, in a lead-generation workflow. Use the CLIENT BRAIN (their offer, services, case studies, "
+        "per-industry problems, proof) and the OPERATOR INSTRUCTIONS to design excellent variables. "
+        "Return JSON {\"formats\": [ ... ]}. Each format = {\"label\": str (human name), \"name\": snake_case "
+        "slug, \"guidance\": str (exactly how to write this variable, grounded in the client's real offer/"
+        "problems/proof — specific, not generic), \"template\": str (optional; use {{placeholders}} for "
+        "fill-in parts, else \"\"), \"min_words\": int, \"max_words\": int, \"rules\": [str] (concrete do/"
+        "don'ts), \"examples\": [str] (1-2 strong sample outputs grounded in the brain), \"enabled\": true}. "
+        "Design the classic set unless the operator says otherwise: Personalized First Line, Value "
+        "Proposition, Product Complimentary, Reference, and Pitch — but adapt to the operator's instructions. "
+        "Ground guidance and examples ONLY in the CLIENT BRAIN + instructions; never invent client facts.")
+    user = ("OPERATOR INSTRUCTIONS / RULES / SAMPLE FORMATS:\n" + (body.instructions or "(none — use best practice)")
+            + "\n\nCLIENT BRAIN:\n" + _json.dumps(brain)[:14000])
+    try:
+        out = ai._call_openai(system, user, model=ai.extract_model())
+    except Exception as e:
+        raise HTTPException(502, f"AI format design failed: {str(e)[:200]}")
+    formats = out.get("formats") if isinstance(out, dict) else None
+    if not isinstance(formats, list) or not formats:
+        raise HTTPException(502, "AI didn't return formats — try again with clearer instructions.")
+
+    def _slug(s, i):
+        s = _re.sub(r"[^a-z0-9]+", "_", str(s or "").lower()).strip("_")
+        return s or f"variable_{i + 1}"
+    clean = []
+    for i, f in enumerate(formats):
+        if not isinstance(f, dict):
+            continue
+        clean.append({
+            "label": str(f.get("label") or f"Variable {i + 1}"),
+            "name": _slug(f.get("name") or f.get("label"), i),
+            "guidance": str(f.get("guidance") or ""),
+            "template": str(f.get("template") or ""),
+            "min_words": int(f.get("min_words") or 0) or None,
+            "max_words": int(f.get("max_words") or 0) or None,
+            "rules": [str(r) for r in (f.get("rules") or []) if r],
+            "examples": [str(e) for e in (f.get("examples") or []) if e],
+            "enabled": f.get("enabled", True) is not False,
+        })
+    return {"formats": clean, "count": len(clean)}
+
+
 @router.post("/config/{workspace_id}/build-profile")
 def build_profile(workspace_id: int, body: BuildProfileIn, ctx: AuthContext = Depends(get_ctx)):
     """Train the workspace on ONE client: crawl their site + read any pasted

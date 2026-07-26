@@ -27,6 +27,7 @@ export default function EnrichConfigPage({ tab }) {
   const [reoonKey, setReoonKey] = useState("");
   const [brain, setBrain] = useState({ website: "", material: "", busy: false, done: null });
   const [icpB, setIcpB] = useState({ file: null, text: "", website: "", busy: false, done: null });
+  const [fmtB, setFmtB] = useState({ instructions: "", busy: false, done: null });
 
   // Paste Client Profile JSON → fills the boxes. Accepts the training-file
   // schema incl. aliases (value_prop → what_we_are_pitching) and keeps extra
@@ -410,8 +411,36 @@ export default function EnrichConfigPage({ tab }) {
 
       {tab === "formats" && (
         <>
+          <div className="card" style={{ padding: 18, marginBottom: 14, borderColor: "#bfdcf6",
+            background: "linear-gradient(180deg,#fff,#f4f9ff)" }}>
+            <h2 style={{ fontSize: 15, marginBottom: 4 }}>Build formats with AI</h2>
+            <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 12 }}>
+              No JSON needed. Describe how you want each variable written (or paste your old format rules), and
+              the AI designs the variables — <b>Personalized First Line, Value Proposition, Product Complimentary,
+              Reference, Pitch</b> — grounded in this client's brain. Review below, then Save. <b>Fill the Client
+              Profile first</b> for the best results.</p>
+            <div className="field" style={{ margin: 0 }}><label>Your rules / how you want variables written <span style={{ color: "var(--muted)", fontWeight: 400 }}>(optional — paste your old formats/rules)</span></label>
+              <textarea rows={5} style={{ width: "100%" }} value={fmtB.instructions}
+                        onChange={(e) => setFmtB({ ...fmtB, instructions: e.target.value })}
+                        placeholder={"e.g. Value proposition = 2 sentences; 2nd starts with 'And, I have seen'. Personalized first line: no more than 1 exclamation, sound natural. Keep it a single connected sentence…"} /></div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12 }}>
+              <button className="btn" disabled={fmtB.busy}
+                onClick={async () => {
+                  setFmtB((b) => ({ ...b, busy: true }));
+                  try {
+                    const r = await api(`/api/enrich-lists/config/${wsId}/build-formats`,
+                      { method: "POST", body: { instructions: fmtB.instructions } });
+                    setCfg((c) => ({ ...c, formats: r.formats }));
+                    setFmtB((b) => ({ ...b, busy: false, done: r.count }));
+                  } catch (e) { alert(e.message); setFmtB((b) => ({ ...b, busy: false })); }
+                }}>{fmtB.busy ? "Designing variables…" : "Build formats with AI"}</button>
+              {fmtB.done != null && <span style={{ fontSize: 12.5, color: "#15803d" }}>
+                ✓ built {fmtB.done} variables. Review below, then <b>Save formats</b>.</span>}
+            </div>
+          </div>
+
           <div className="card" style={{ padding: 18 }}>
-            <h2 style={{ fontSize: 15, marginBottom: 4 }}>Paste Format JSON</h2>
+            <h2 style={{ fontSize: 15, marginBottom: 4 }}>Paste Format JSON <span style={{ color: "var(--muted)", fontWeight: 400, fontSize: 12.5 }}>(advanced)</span></h2>
             <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 10 }}>
               Same JSON the old Formats editor accepted — a bare array of variables, or
               {" "}<code>{"{ variables: [...], global_output_rules: [...] }"}</code>. Each variable:
