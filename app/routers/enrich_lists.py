@@ -589,6 +589,7 @@ class ConfigIn(BaseModel):
     reading_level: str | None = None
     writer_model: str | None = None
     research_depth: str | None = None
+    require_research_gate: bool | None = None
 
 
 class FormatExampleIn(BaseModel):
@@ -992,6 +993,7 @@ def get_config(workspace_id: int, ctx: AuthContext = Depends(get_ctx)):
             "formats": cfg.formats or [], "rules": cfg.rules or "",
             "skip_title_gate": bool(cfg.skip_title_gate), "skip_icp": bool(cfg.skip_icp),
             "only_safe": bool(cfg.only_safe),
+            "require_research_gate": bool(getattr(cfg, "require_research_gate", 0)),
             "reading_level": cfg.reading_level or "b2 business",
             "writer_model": cfg.writer_model or "",
             "research_depth": cfg.research_depth or "standard",
@@ -1034,6 +1036,8 @@ def put_config(workspace_id: int, body: ConfigIn, ctx: AuthContext = Depends(get
         cfg.writer_model = body.writer_model.strip()
     if body.research_depth is not None:
         cfg.research_depth = body.research_depth if body.research_depth in ("standard", "deep") else "standard"
+    if body.require_research_gate is not None:
+        cfg.require_research_gate = 1 if body.require_research_gate else 0
     ctx.db.commit()
     return {"ok": True}
 

@@ -78,6 +78,9 @@ class EnrichConfig(Base):
     reading_level = Column(String(40), default="b2 business")  # default: clear natural B2 business English
     writer_model = Column(String(60), default="")    # override the OpenAI writer model (else env default)
     research_depth = Column(String(20), default="standard")  # standard | deep (crawl pages + content budget)
+    require_research_gate = Column(Integer, default=0)  # 1: refuse ("insufficient") when evidence is thin;
+    #                                                     0 (default): always write — per-variable QC blanks
+    #                                                     anything ungroundable instead of skipping the lead
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 

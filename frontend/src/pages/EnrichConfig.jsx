@@ -268,6 +268,14 @@ export default function EnrichConfigPage({ tab }) {
                      onChange={(e) => setCfg({ ...cfg, only_safe: e.target.checked })} />
               Only Safe — catch-all / unknown emails stop as unsafe (recommended; saves writer spend)
             </label>
+            <label style={{ display: "flex", gap: 8, alignItems: "flex-start", marginTop: 8, fontSize: 13 }}>
+              <input type="checkbox" checked={cfg.require_research_gate}
+                     onChange={(e) => setCfg({ ...cfg, require_research_gate: e.target.checked })} />
+              <span>Strict research gate — mark a lead “insufficient” and write nothing when the site has too
+              little verified evidence. <b>Off by default:</b> the engine always writes the variables it can
+              ground and leaves the rest blank (it never fabricates). Turn on only if you'd rather skip
+              thin-evidence leads entirely.</span>
+            </label>
           </div>
 
           <div className="card" style={{ padding: 18, marginTop: 14 }}>
