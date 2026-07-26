@@ -2,7 +2,7 @@
 // per workspace. Formats accepts the same Format JSON the old system used
 // ("Paste Format JSON" → fills the editor).
 import { useEffect, useState } from "react";
-import { api } from "../api";
+import { api, getToken } from "../api";
 import { useAuth } from "../auth";
 import { ErrorBox, Spinner } from "../components";
 
@@ -26,6 +26,7 @@ export default function EnrichConfigPage({ tab }) {
   const [profileJson, setProfileJson] = useState("");
   const [reoonKey, setReoonKey] = useState("");
   const [brain, setBrain] = useState({ website: "", material: "", busy: false, done: null });
+  const [icpB, setIcpB] = useState({ file: null, text: "", website: "", busy: false, done: null });
 
   // Paste Client Profile JSON → fills the boxes. Accepts the training-file
   // schema incl. aliases (value_prop → what_we_are_pitching) and keeps extra
@@ -329,20 +330,55 @@ export default function EnrichConfigPage({ tab }) {
 
       {tab === "icp" && (
         <>
+          <div className="card" style={{ padding: 18, marginBottom: 14, borderColor: "#bfdcf6",
+            background: "linear-gradient(180deg,#fff,#f4f9ff)" }}>
+            <h2 style={{ fontSize: 15, marginBottom: 4 }}>Build the ICP with AI</h2>
+            <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 12 }}>
+              No JSON needed. <b>Upload the client's ICP document (PDF)</b>, paste a description, or give a
+              website — the AI reads it and builds the ICP rules for you. Review below, then Save.</p>
+            <div className="field" style={{ margin: 0 }}><label>Upload ICP document (PDF or text)</label>
+              <input type="file" accept=".pdf,.txt,.md" onChange={(e) => setIcpB({ ...icpB, file: e.target.files[0] })} /></div>
+            <div className="field"><label>…or paste a description <span style={{ color: "var(--muted)", fontWeight: 400 }}>(who's a fit, who's not)</span></label>
+              <textarea rows={3} style={{ width: "100%" }} value={icpB.text}
+                        onChange={(e) => setIcpB({ ...icpB, text: e.target.value })}
+                        placeholder="e.g. We target B2B branding agencies with 5–50 staff selling $25k+ projects. Not B2C, not freelancers." /></div>
+            <div className="field" style={{ margin: 0 }}><label>…or a website</label>
+              <input style={{ width: "100%" }} value={icpB.website}
+                     onChange={(e) => setIcpB({ ...icpB, website: e.target.value })} placeholder="https://client.com" /></div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12 }}>
+              <button className="btn" disabled={icpB.busy || (!icpB.file && !icpB.text.trim() && !icpB.website.trim())}
+                onClick={async () => {
+                  setIcpB((b) => ({ ...b, busy: true }));
+                  try {
+                    const fd = new FormData();
+                    if (icpB.file) fd.append("file", icpB.file);
+                    fd.append("text", icpB.text || ""); fd.append("website", icpB.website || "");
+                    const res = await fetch(`/api/enrich-lists/config/${wsId}/build-icp`,
+                      { method: "POST", headers: { Authorization: `Bearer ${getToken()}` }, body: fd });
+                    if (!res.ok) throw new Error((await res.json()).detail || "Failed");
+                    const r = await res.json();
+                    setCfg((c) => ({ ...c, icp_definition: r.icp_json }));
+                    setIcpB((b) => ({ ...b, busy: false, done: r.counts }));
+                  } catch (e) { alert(e.message); setIcpB((b) => ({ ...b, busy: false })); }
+                }}>{icpB.busy ? "Reading & building…" : "Build ICP with AI"}</button>
+              {icpB.done && <span style={{ fontSize: 12.5, color: "#15803d" }}>
+                ✓ {icpB.done.categories} fit categories · {icpB.done.rejects} auto-rejects. Review below, then <b>Save</b>.</span>}
+            </div>
+          </div>
+
           <div className="card" style={{ padding: 18 }}>
-            <h2 style={{ fontSize: 15, marginBottom: 4 }}>ICP / Non-ICP — the single ICP brain</h2>
+            <h2 style={{ fontSize: 15, marginBottom: 4 }}>ICP definition <span style={{ color: "var(--muted)", fontWeight: 400, fontSize: 12.5 }}>(advanced / source)</span></h2>
             <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 10 }}>
-              Drives the engine's strict ICP review for both classification and enrichment. Paste
-              the ICP JSON (keys: <b>procedure</b> steps, <b>icp_categories</b> allowed fits,
-              <b> hard_non_icp</b> auto-rejects, <b>default</b> when unsure) — or plain text.
-              Editing here changes how leads are judged immediately.</p>
-            <textarea rows={16} style={{ width: "100%", fontFamily: "monospace", fontSize: 12.5 }}
+              The AI fills this above, or edit it directly. Keys: <b>procedure</b> steps,
+              <b> icp_categories</b> allowed fits, <b>hard_non_icp</b> auto-rejects, <b>default</b> when unsure.
+              Changes here judge leads immediately.</p>
+            <textarea rows={14} style={{ width: "100%", fontFamily: "monospace", fontSize: 12.5 }}
                       value={cfg.icp_definition}
                       onChange={(e) => setCfg({ ...cfg, icp_definition: e.target.value })}
                       placeholder='{"procedure": ["Step 1: ..."], "icp_categories": ["B2B consulting firms."], "hard_non_icp": ["B2C only."], "default": "Needs Review"}' />
           </div>
           <div className="toolbar" style={{ marginTop: 14 }}>
-            <button className="btn" disabled={busy} onClick={() => save({ icp_definition: cfg.icp_definition })}>Save ICP JSON</button>
+            <button className="btn" disabled={busy} onClick={() => save({ icp_definition: cfg.icp_definition })}>Save ICP</button>
           </div>
         </>
       )}

@@ -2,7 +2,7 @@
 Views + full-list counts are server-side so 50k+ lists stay browsable and the
 chips are always accurate. 'Select all in view' semantics: actions accept a
 view name and apply to the entire filtered set, not just a page."""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import func
 
@@ -629,6 +629,69 @@ class BuildProfileIn(BaseModel):
 CLIENT_BRAIN_KEYS = ["client_name", "one_liner", "main_offer", "what_we_are_pitching",
                      "target_outcome", "icp_summary", "industries", "positioning", "tone",
                      "case_studies", "problem_library", "proof_points", "objections"]
+
+
+def _extract_upload_text(raw: bytes, filename: str) -> str:
+    """Read text from an uploaded ICP doc — PDF (pypdf) or plain text."""
+    name = (filename or "").lower()
+    if name.endswith(".pdf"):
+        try:
+            import io
+
+            from pypdf import PdfReader
+            r = PdfReader(io.BytesIO(raw))
+            return "\n".join((p.extract_text() or "") for p in r.pages)
+        except Exception:
+            return ""
+    try:
+        return raw.decode("utf-8", "ignore")
+    except Exception:
+        return ""
+
+
+@router.post("/config/{workspace_id}/build-icp")
+async def build_icp(workspace_id: int,
+                    file: UploadFile = File(None), text: str = Form(""), website: str = Form(""),
+                    ctx: AuthContext = Depends(get_ctx)):
+    """Build the ICP definition from a PDF / pasted text / a website, so nobody has
+    to hand-write JSON. Returns structured ICP JSON to review and save."""
+    ctx.require_workspace(workspace_id)
+    import json as _json
+
+    from ..enrichment import ai
+    from ..enrichment.crawler import crawl_site
+    if not ai.has_ai():
+        raise HTTPException(422, "No OpenAI key set — connect AI before building the ICP.")
+    material = (text or "").strip()
+    if file is not None:
+        raw = await file.read()
+        material = (material + "\n\n" + _extract_upload_text(raw, file.filename)).strip()
+    if website:
+        crawl = crawl_site(website, max_pages=10, max_chars=24000)
+        if crawl.get("text"):
+            material = (material + "\n\n" + crawl["text"]).strip()
+    if not material.strip():
+        raise HTTPException(422, "Upload a PDF, paste text, or give a website to learn the ICP from.")
+
+    system = (
+        "You write a STRICT ICP (ideal customer profile) definition for a B2B outbound engine, from the "
+        "material provided. Ground ONLY in the material — never invent. Return JSON with EXACTLY these keys:\n"
+        'procedure (list of str — the ordered steps to decide if a company is a fit), '
+        'icp_categories (list of str — the specific company types that ARE a fit), '
+        'hard_non_icp (list of str — signals that AUTO-REJECT a company), '
+        'default (str — one of "ICP", "Non-ICP", "Needs Review" — what to return when unsure). '
+        "Be concrete and specific to this business.")
+    try:
+        out = ai._call_openai(system, "MATERIAL:\n" + material[:24000], model=ai.extract_model())
+    except Exception as e:
+        raise HTTPException(502, f"AI extraction failed: {str(e)[:200]}")
+    if not isinstance(out, dict):
+        raise HTTPException(502, "AI returned an unexpected format — try again or paste cleaner material.")
+    icp = {k: out.get(k, [] if k in ("procedure", "icp_categories", "hard_non_icp") else "")
+           for k in ("procedure", "icp_categories", "hard_non_icp", "default")}
+    return {"icp_json": _json.dumps(icp, indent=2), "icp": icp,
+            "counts": {"categories": len(icp["icp_categories"] or []),
+                       "rejects": len(icp["hard_non_icp"] or []), "steps": len(icp["procedure"] or [])}}
 
 
 @router.post("/config/{workspace_id}/build-profile")
