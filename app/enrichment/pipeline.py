@@ -428,7 +428,7 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
 # ---------------------------------------------------------------- evidence layer
 # Minimum distinct company-specific signals required before we generate any
 # personalization. Below this the lead is marked "insufficient", never guessed.
-MIN_RESEARCH_SIGNALS = 3
+MIN_RESEARCH_SIGNALS = 2
 
 
 def _research_reason(research: dict, signals: list) -> str:
@@ -1179,7 +1179,13 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
     signals = _flatten_signals(facts)
     research = {**diagnostics, "signals_collected": len(signals),
                 "signal_types": sorted({s["type"] for s in signals})}
-    if ai.has_ai() and len(signals) < MIN_RESEARCH_SIGNALS:
+    # Gate: generate when there's at least one REAL thing to say — 2 grounded
+    # signals, or a single STRONG one (named client/case study/result/framework).
+    # The per-variable QC is the real safety net now: it blanks any variable it
+    # can't ground, so we write the grounded ones and skip the rest (never fabricate).
+    strong = any((s.get("score") or 0) >= 9 for s in signals)
+    enough = len(signals) >= MIN_RESEARCH_SIGNALS or (strong and signals)
+    if ai.has_ai() and not enough:
         research["reason"] = _research_reason(research, signals)
         lead.result = {**(lead.result or {}), "_facts": facts, "_research": research,
                        "_insufficient": True}
