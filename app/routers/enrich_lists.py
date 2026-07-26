@@ -871,6 +871,74 @@ def build_formats(workspace_id: int, body: BuildFormatsIn, ctx: AuthContext = De
     return {"formats": clean, "count": len(clean)}
 
 
+def _accumulate_brain(existing: dict, new: dict) -> dict:
+    """Merge extracted knowledge INTO the brain: lists dedupe by real entity,
+    scalars keep the fuller version. Never wipes prior data."""
+    merged = {**(existing or {})}
+    for k, v in (new or {}).items():
+        if k in _BRAIN_LIST_KEYS:
+            merged[k] = _merge_brain_list(k, merged.get(k), v)
+        elif isinstance(v, str) and v.strip():
+            old = str(merged.get(k) or "")
+            merged[k] = v if len(v.strip()) > len(old.strip()) else old
+    return merged
+
+
+class BrainLearnIn(BaseModel):
+    messages: list[dict] = []
+    text: str = ""
+
+
+@router.post("/config/{workspace_id}/brain-learn")
+def brain_learn(workspace_id: int, body: BrainLearnIn, ctx: AuthContext = Depends(get_ctx)):
+    """Explicitly SAVE what you've shared into the brain: extract every case study,
+    service, metric, problem and proof from the material/conversation and merge it
+    (accumulated, deduped). Grounds only in what you provided — never invents."""
+    ctx.require_workspace(workspace_id)
+    import json as _json
+
+    from ..enrichment import ai
+    from ..enrichment.pipeline import _config
+    if not ai.has_ai():
+        raise HTTPException(422, "No OpenAI key set — connect AI to save to the brain.")
+    material = (body.text or "").strip()
+    if not material and body.messages:
+        material = "\n\n".join(str(m.get("content") or "") for m in body.messages if m.get("role") == "user")
+    material = material.strip()
+    if not material:
+        raise HTTPException(422, "Nothing to save — share some material first.")
+
+    system = (
+        "You extract a COMPREHENSIVE knowledge base about a B2B company from the material the operator "
+        "shares, to save into the company's brain. Be exhaustive — capture every case study, metric, "
+        "service, proof and problem, preserving real detail and numbers. Ground ONLY in the material; "
+        "never invent; leave a field empty/[] if unsupported. Return JSON with these keys: "
+        "service_brief (str), main_offer (str), one_liner (str), target_outcome (str), icp_summary (str), "
+        "industries (list), services (list), positioning (list), methodology (list), results_metrics "
+        "(list), proof_points (list), target_titles (list), tone (str), case_studies (list of "
+        "{client,industry,problem,solution,outcome,metrics}), problem_library (list of "
+        "{industry,pains,our_angle}), testimonials (list of {quote,who}), objections (list of "
+        "{objection,response}). Include only keys the material supports.")
+    try:
+        out = ai._call_openai(system, "MATERIAL:\n" + material[:40000], model=ai.extract_model())
+    except Exception as e:
+        raise HTTPException(502, f"AI extraction failed: {str(e)[:200]}")
+    if not isinstance(out, dict):
+        raise HTTPException(502, "AI returned an unexpected format — try again.")
+    new = {k: v for k, v in out.items() if k in CLIENT_BRAIN_KEYS and v not in (None, "", [])}
+    cfg = _config(ctx.db, workspace_id)
+    before = cfg.profile or {}
+    merged = _accumulate_brain(before, new)
+    cfg.profile = merged
+    ctx.db.commit()
+    saved = [k for k in new if merged.get(k) != before.get(k)]
+    return {"saved": saved,
+            "counts": {"case_studies": len(merged.get("case_studies") or []),
+                       "services": len(merged.get("services") or []),
+                       "metrics": len(merged.get("results_metrics") or []),
+                       "problems": len(merged.get("problem_library") or [])}}
+
+
 @router.post("/config/{workspace_id}/build-profile")
 def build_profile(workspace_id: int, body: BuildProfileIn, ctx: AuthContext = Depends(get_ctx)):
     """Train the workspace on ONE client: crawl their site + read any pasted

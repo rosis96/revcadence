@@ -32,6 +32,20 @@ export default function BrainChat() {
     } finally { setBusy(false); }
   };
 
+  const saveToBrain = async () => {
+    if (!messages.length || busy) return;
+    setBusy(true);
+    try {
+      const r = await api(`/api/enrich-lists/config/${wsId}/brain-learn`, { method: "POST", body: { messages } });
+      if (r.saved?.length) {
+        toast(`Saved to brain: ${r.saved.join(", ")}`);
+        setMessages((m) => [...m, { role: "assistant", content: `✅ Saved to the brain: ${r.saved.join(", ")}. It now has ${r.counts.case_studies} case studies, ${r.counts.services} services, ${r.counts.metrics} metrics.`, learned: r.saved }]);
+      } else {
+        toast("Nothing new to save from this conversation", "bad");
+      }
+    } catch (e) { toast(e.message, "bad"); } finally { setBusy(false); }
+  };
+
   const suggestions = [
     "What's our angle for a manufacturing CFO?",
     "Draft a cold email for a real-estate CEO using a relevant case study.",
@@ -40,7 +54,9 @@ export default function BrainChat() {
 
   return (
     <>
-      <PageHeader title="Ask the brain" desc="Chat with this client's knowledge base. Teach it new facts and it remembers." />
+      <PageHeader title="Ask the brain" desc="Chat with this client's knowledge base. Paste material, then hit “Save to brain” to store it."
+        actions={<button className="btn" disabled={busy || !messages.length} onClick={saveToBrain}
+          style={{ display: "flex", alignItems: "center", gap: 6 }}><Sparkles size={15} /> Save to brain</button>} />
       <div className="card" style={{ padding: 0, display: "flex", flexDirection: "column", height: "70vh", overflow: "hidden" }}>
         <div style={{ flex: 1, overflowY: "auto", padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
           {messages.length === 0 && (
@@ -48,7 +64,8 @@ export default function BrainChat() {
               <Sparkles size={26} style={{ color: "#1f8fe6" }} />
               <div style={{ fontWeight: 600, marginTop: 8 }}>Ask anything about this client — or teach it something new.</div>
               <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 4, marginBottom: 12 }}>
-                It answers from the Client Brain, and if you paste a new case study, service, or metric, it saves it.</div>
+                It answers from the Client Brain. To <b>train it</b>, paste material (case studies, services, metrics)
+                and click <b>Save to brain</b> — everything gets extracted and stored permanently.</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {suggestions.map((s) => (
                   <button key={s} className="btn ghost sm" style={{ textAlign: "left" }} onClick={() => setInput(s)}>{s}</button>
