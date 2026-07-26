@@ -886,12 +886,13 @@ def build_profile(workspace_id: int, body: BuildProfileIn, ctx: AuthContext = De
     if not ai.has_ai():
         raise HTTPException(422, "No OpenAI key set — connect AI before building the profile.")
     text = (body.material or "").strip()
-    pages_crawled = 0
+    pages_crawled = js_rendered = 0
     if body.website:
         # crawl the WHOLE site (every same-domain page) to capture all case studies,
-        # results and industries — bounded so it always terminates.
-        crawl = crawl_site(body.website, max_pages=40, max_chars=140000, follow_all=True)
+        # results and industries — and render JS-empty pages (SPA support).
+        crawl = crawl_site(body.website, max_pages=40, max_chars=140000, follow_all=True, render=True)
         pages_crawled = len(crawl.get("pages") or [])
+        js_rendered = crawl.get("js_rendered", 0)
         if crawl.get("text"):
             text = (crawl["text"] + "\n\n---PASTED---\n" + text)
     text = text[:120000]    # gpt-4o-mini has a large context — send a lot, don't over-summarize
@@ -950,4 +951,4 @@ def build_profile(workspace_id: int, body: BuildProfileIn, ctx: AuthContext = De
                        "services": len(profile.get("services") or []),
                        "metrics": len(profile.get("results_metrics") or []),
                        "industries": len(profile.get("industries") or [])},
-            "pages_crawled": pages_crawled, "crawled": bool(body.website)}
+            "pages_crawled": pages_crawled, "js_rendered": js_rendered, "crawled": bool(body.website)}

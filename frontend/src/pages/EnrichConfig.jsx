@@ -170,13 +170,13 @@ export default function EnrichConfigPage({ tab }) {
                     const r = await api(`/api/enrich-lists/config/${wsId}/build-profile`,
                       { method: "POST", body: { website: brain.website.trim(), material: brain.material.trim(), merge: true } });
                     setCfg((c) => ({ ...c, profile: r.profile }));
-                    setBrain((b) => ({ ...b, busy: false, done: r.counts }));
+                    setBrain((b) => ({ ...b, busy: false, done: { ...r.counts, pages_crawled: r.pages_crawled, js_rendered: r.js_rendered } }));
                   } catch (e) { alert(e.message); setBrain((b) => ({ ...b, busy: false })); }
                 }}>
                 {brain.busy ? "Reading & building…" : "Build with AI"}</button>
               {brain.done && <span style={{ fontSize: 12.5, color: "#15803d" }}>
-                ✓ crawled {brain.done.pages_crawled ?? "?"} pages · {brain.done.case_studies} case studies ·
-                {" "}{brain.done.services ?? 0} services · {brain.done.metrics ?? 0} metrics.
+                ✓ crawled {brain.done.pages_crawled ?? "?"} pages{brain.done.js_rendered ? ` (${brain.done.js_rendered} JS-rendered)` : ""} ·
+                {" "}{brain.done.case_studies} case studies · {brain.done.services ?? 0} services · {brain.done.metrics ?? 0} metrics.
                 It <b>adds to</b> what's already saved. Review below, then <b>Save profile</b>.</span>}
             </div>
           </div>
