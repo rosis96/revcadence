@@ -617,3 +617,72 @@ def put_config(workspace_id: int, body: ConfigIn, ctx: AuthContext = Depends(get
         cfg.research_depth = body.research_depth if body.research_depth in ("standard", "deep") else "standard"
     ctx.db.commit()
     return {"ok": True}
+
+
+class BuildProfileIn(BaseModel):
+    website: str = ""       # crawl this to gather material
+    material: str = ""      # pasted case studies / docs / positioning
+    merge: bool = True       # merge into the existing profile vs replace
+
+
+# The Client Brain schema — one rich, structured profile the AI writer uses.
+CLIENT_BRAIN_KEYS = ["client_name", "one_liner", "main_offer", "what_we_are_pitching",
+                     "target_outcome", "icp_summary", "industries", "positioning", "tone",
+                     "case_studies", "problem_library", "proof_points", "objections"]
+
+
+@router.post("/config/{workspace_id}/build-profile")
+def build_profile(workspace_id: int, body: BuildProfileIn, ctx: AuthContext = Depends(get_ctx)):
+    """Train the workspace on ONE client: crawl their site + read any pasted
+    material, and extract a structured Client Brain (offer, ICP, case studies, and
+    a per-industry problem library) that grounds all AI writing. Grounds only in
+    the material — never invents metrics or case studies."""
+    ctx.require_workspace(workspace_id)
+    import json as _json
+
+    from ..enrichment import ai
+    from ..enrichment.crawler import crawl_site
+    from ..enrichment.pipeline import _config
+    if not ai.has_ai():
+        raise HTTPException(422, "No OpenAI key set — connect AI before building the profile.")
+    text = (body.material or "").strip()
+    if body.website:
+        crawl = crawl_site(body.website, max_pages=8, max_chars=20000)
+        if crawl.get("text"):
+            text = (crawl["text"] + "\n\n---PASTED---\n" + text)[:24000]
+    if not text.strip():
+        raise HTTPException(422, "Provide a website URL or paste some material to learn from.")
+
+    system = (
+        "You build a structured CLIENT BRAND PROFILE for a B2B company from THEIR OWN material, "
+        "so an AI can write outreach and follow-ups that sound like an insider. Ground EVERYTHING "
+        "only in the material provided — never invent case studies, clients, metrics, or claims; "
+        "leave a field empty/[] if the material doesn't support it. Return JSON with EXACTLY these keys:\n"
+        'client_name (str), one_liner (str), main_offer (str), what_we_are_pitching (str), '
+        'target_outcome (str), icp_summary (str), industries (list of str), '
+        'positioning (list of str — real differentiators), tone (str), '
+        'case_studies (list of {client, industry, problem, solution, outcome}), '
+        'problem_library (list of {industry, pains: list of str, our_angle: str} — the specific '
+        'problems buyers in each industry face and how this company addresses them), '
+        'proof_points (list of str — awards, stats, notable logos), '
+        'objections (list of {objection, response}).')
+    user = "COMPANY MATERIAL:\n" + text
+    try:
+        out = ai._call_openai(system, user, model=ai.extract_model())
+    except Exception as e:
+        raise HTTPException(502, f"AI extraction failed: {str(e)[:200]}")
+    profile = {k: out.get(k, [] if k in ("industries", "positioning", "case_studies",
+               "problem_library", "proof_points", "objections") else "") for k in CLIENT_BRAIN_KEYS}
+
+    if body.merge:
+        cfg = _config(ctx.db, workspace_id)
+        merged = {**(cfg.profile or {})}
+        for k, v in profile.items():
+            if v not in (None, "", []):
+                merged[k] = v
+        profile = merged
+    return {"profile": profile,
+            "counts": {"case_studies": len(profile.get("case_studies") or []),
+                       "problems": len(profile.get("problem_library") or []),
+                       "industries": len(profile.get("industries") or [])},
+            "crawled": bool(body.website)}

@@ -25,6 +25,7 @@ export default function EnrichConfigPage({ tab }) {
   const [formatJson, setFormatJson] = useState("");
   const [profileJson, setProfileJson] = useState("");
   const [reoonKey, setReoonKey] = useState("");
+  const [brain, setBrain] = useState({ website: "", material: "", busy: false, done: null });
 
   // Paste Client Profile JSON → fills the boxes. Accepts the training-file
   // schema incl. aliases (value_prop → what_we_are_pitching) and keeps extra
@@ -144,6 +145,65 @@ export default function EnrichConfigPage({ tab }) {
 
       {tab === "profile" && (
         <>
+          <div className="card" style={{ padding: 18, marginBottom: 14, borderColor: "#bfdcf6",
+            background: "linear-gradient(180deg,#fff,#f4f9ff)" }}>
+            <h2 style={{ fontSize: 15, marginBottom: 4 }}>Build the client brain from their material</h2>
+            <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 12 }}>
+              Give the AI the client's website and/or paste their case studies & positioning. It reads
+              everything and builds a structured profile — offer, ICP, <b>case studies</b>, and a
+              <b> per-industry problem library</b> — so all outreach sounds like an insider. Review, then Save.</p>
+            <div className="field" style={{ margin: 0 }}><label>Client website (crawled)</label>
+              <input style={{ width: "100%" }} value={brain.website}
+                     onChange={(e) => setBrain({ ...brain, website: e.target.value })}
+                     placeholder="https://future.works" /></div>
+            <div className="field"><label>Paste extra material <span style={{ color: "var(--muted)", fontWeight: 400 }}>(case studies, decks, positioning — optional)</span></label>
+              <textarea rows={4} style={{ width: "100%" }} value={brain.material}
+                        onChange={(e) => setBrain({ ...brain, material: e.target.value })}
+                        placeholder="Paste anything that describes what they do, who they help, proof, and the problems they solve…" /></div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <button className="btn" disabled={brain.busy || (!brain.website.trim() && !brain.material.trim())}
+                onClick={async () => {
+                  setBrain((b) => ({ ...b, busy: true }));
+                  try {
+                    const r = await api(`/api/enrich-lists/config/${wsId}/build-profile`,
+                      { method: "POST", body: { website: brain.website.trim(), material: brain.material.trim(), merge: true } });
+                    setCfg((c) => ({ ...c, profile: r.profile }));
+                    setBrain((b) => ({ ...b, busy: false, done: r.counts }));
+                  } catch (e) { alert(e.message); setBrain((b) => ({ ...b, busy: false })); }
+                }}>
+                {brain.busy ? "Reading & building…" : "Build with AI"}</button>
+              {brain.done && <span style={{ fontSize: 12.5, color: "#15803d" }}>
+                ✓ {brain.done.case_studies} case studies · {brain.done.problems} problem sets · {brain.done.industries} industries.
+                Review below, then <b>Save profile</b>.</span>}
+            </div>
+          </div>
+
+          {(cfg.profile?.problem_library?.length > 0 || cfg.profile?.case_studies?.length > 0) && (
+            <div className="card" style={{ padding: 18, marginBottom: 14 }}>
+              <h2 style={{ fontSize: 15, marginBottom: 8 }}>Captured knowledge</h2>
+              {(cfg.profile?.case_studies || []).length > 0 && (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>Case studies</div>
+                  {(cfg.profile.case_studies).slice(0, 8).map((c, i) => (
+                    <div key={i} style={{ fontSize: 12.5, color: "var(--muted)", padding: "3px 0" }}>
+                      <b style={{ color: "var(--ink,#16263c)" }}>{c.client || c.industry || "—"}</b>
+                      {c.industry ? ` · ${c.industry}` : ""}{c.outcome ? ` — ${c.outcome}` : ""}</div>
+                  ))}
+                </div>
+              )}
+              {(cfg.profile?.problem_library || []).length > 0 && (
+                <div>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>Problem library (per industry)</div>
+                  {(cfg.profile.problem_library).slice(0, 10).map((p, i) => (
+                    <div key={i} style={{ fontSize: 12.5, color: "var(--muted)", padding: "3px 0" }}>
+                      <b style={{ color: "var(--ink,#16263c)" }}>{p.industry || "—"}</b>
+                      {(p.pains || []).length ? `: ${(p.pains || []).slice(0, 3).join("; ")}` : ""}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="card" style={{ padding: 14, marginBottom: 14 }}>
             <label style={{ fontSize: 12.5, fontWeight: 600 }}>Paste Client Profile JSON (auto-fills the boxes below)</label>
             <textarea rows={2} style={{ width: "100%", fontFamily: "monospace", fontSize: 12, marginTop: 4 }}

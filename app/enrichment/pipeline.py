@@ -135,6 +135,9 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
         # Static prefix FIRST (prompt caching), per-lead content LAST — preserve ordering.
         system = ("You write personalized cold-email copy grounded ONLY in verified facts. "
                   "Never fabricate. Match each variable's guidance and word range exactly. "
+                  "Use the CLIENT PROFILE as the voice of an insider: when it helps, connect the "
+                  "prospect to the profile's problem_library entry for their industry, and reference a "
+                  "case_study or proof_point ONLY if it genuinely fits — never invent one or its metrics. "
                   "If a variable's primary info is missing from the facts/site, use its "
                   "'fallback' instruction when one is provided; if there is no fallback and the "
                   "info is missing, return an empty string for that variable (never invent)."
