@@ -6,6 +6,7 @@ No network or AI calls are made.
 from app.enrichment import crawler
 from app.enrichment.crawler import _discover_sitemap, crawl_site
 from app.enrichment.pipeline import (
+    _augmented_formats,
     _assign_evidence,
     _flatten_signals,
     _qc_failures,
@@ -115,6 +116,31 @@ def main():
           _qc_failures(bad, assignments, facts)["value_proposition"])
     check("generic copy cannot borrow a broad evidence word",
           "distinctive anchor" in _qc_failures(generic, assignments, facts)["value_proposition"])
+
+    product_facts = {"_evidence_version": 2, "evidence": [{
+        "id": "ev_2", "type": "project",
+        "claim": "Cambot 360 AI-Powered 3D Camera",
+        "source_url": "https://proof.example/cambot",
+        "supporting_quote": "Four 4K lenses create auto-stitched 16K views with AI autofocus.",
+        "source_kind": "html", "confidence": 1,
+    }]}
+    product_formats = [{"name": "product_complimentary", "label": "Product compliment",
+                        "examples": ["old one", "approved two", "approved three"]}]
+    product_assign = _assign_evidence(product_facts, product_formats)
+    weak_product = {"product_complimentary":
+                    "Cambot 360 looks advanced. Is it popular with clients?"}
+    strong_product = {"product_complimentary":
+                      "Cambot 360's four 4K lenses creating auto-stitched 16K views are ambitious. "
+                      "Is it a flagship project?"}
+    check("project name without its meaningful detail fails QC",
+          "omits the concrete detail" in
+          _qc_failures(weak_product, product_assign, product_facts, product_formats)
+          ["product_complimentary"])
+    check("specific mechanism plus question passes product QC",
+          not _qc_failures(strong_product, product_assign, product_facts, product_formats))
+    augmented = _augmented_formats(product_formats, product_assign)
+    check("only two recent approved examples enter the paid prompt",
+          augmented[0]["examples"] == ["approved two", "approved three"])
 
     print(f"\n{sum(PASS)}/{len(PASS)} checks passed")
 

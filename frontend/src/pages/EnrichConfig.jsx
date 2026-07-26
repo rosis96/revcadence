@@ -332,11 +332,14 @@ export default function EnrichConfigPage({ tab }) {
                 <select style={{ width: "100%" }} value={cfg.writer_model || ""}
                         onChange={(e) => setCfg({ ...cfg, writer_model: e.target.value })}>
                   <option value="">Default ({cfg.writer_model_effective || "server default"})</option>
-                  <option value="gpt-4.1-mini">gpt-4.1-mini</option>
-                  <option value="gpt-4o-mini">gpt-4o-mini</option>
-                  <option value="gpt-4o">gpt-4o (higher quality)</option>
-                  <option value="gpt-4.1">gpt-4.1 (highest)</option>
+                  <option value="gpt-5-mini">gpt-5-mini — recommended cost/quality</option>
+                  <option value="gpt-5.4-mini">gpt-5.4-mini — stronger, higher cost</option>
+                  <option value="gpt-5.6-luna">gpt-5.6-luna — latest efficient</option>
+                  <option value="gpt-5.6-terra">gpt-5.6-terra — premium quality</option>
+                  <option value="gpt-4.1-mini">gpt-4.1-mini — legacy</option>
+                  <option value="gpt-4.1">gpt-4.1 — legacy premium</option>
                 </select>
+                <small style={{ color: "var(--muted)" }}>The default minimizes costly input tokens; upgrade only after comparing the same test leads.</small>
               </div>
             </div>
             <div style={{ marginTop: 10, fontSize: 12, color: cfg.ai_enabled ? "var(--muted)" : "#b91c1c" }}>

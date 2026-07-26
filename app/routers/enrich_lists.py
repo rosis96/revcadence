@@ -181,6 +181,7 @@ def list_leads(list_id: int, view: str = "all", page: int = 1, page_size: int = 
             "research": (l.result or {}).get("_research"),
             "research_error": (l.result or {}).get("_error"),
             "generation_error": (l.result or {}).get("_generation_error"),
+            "generation": (l.result or {}).get("_generation") or {},
             "insufficient": bool((l.result or {}).get("_insufficient")),
             "evidence": ((l.result or {}).get("_facts") or {}).get("evidence") or [],
             "assignments": (l.result or {}).get("_assignments") or {},
@@ -582,6 +583,43 @@ class ConfigIn(BaseModel):
     research_depth: str | None = None
 
 
+class FormatExampleIn(BaseModel):
+    text: str
+
+
+@router.post("/config/{workspace_id}/formats/{format_name}/examples")
+def add_format_example(workspace_id: int, format_name: str, body: FormatExampleIn,
+                       ctx: AuthContext = Depends(get_ctx)):
+    """Approve generated copy as a future style/structure example for one variable."""
+    ctx.require_workspace(workspace_id)
+    from ..enrichment.pipeline import _config
+
+    text = " ".join((body.text or "").split()).strip()
+    if len(text) < 8:
+        raise HTTPException(422, "The approved example is empty or too short.")
+    if len(text) > 4000:
+        raise HTTPException(422, "The approved example is too long.")
+    cfg = _config(ctx.db, workspace_id)
+    formats = [dict(f) for f in (cfg.formats or []) if isinstance(f, dict)]
+    found = False
+    for fmt in formats:
+        if str(fmt.get("name") or "") != format_name:
+            continue
+        found = True
+        examples = [str(x).strip() for x in (fmt.get("examples") or []) if str(x).strip()]
+        normalized = {" ".join(x.casefold().split()) for x in examples}
+        if " ".join(text.casefold().split()) not in normalized:
+            examples.append(text)
+        fmt["examples"] = examples[-20:]  # durable memory; writer retrieves only the latest two
+        break
+    if not found:
+        raise HTTPException(404, "That format variable no longer exists.")
+    cfg.formats = formats
+    ctx.db.commit()
+    return {"ok": True, "format": format_name,
+            "example_count": len(next(f["examples"] for f in formats if f.get("name") == format_name))}
+
+
 @router.get("/config/{workspace_id}")
 def get_config(workspace_id: int, ctx: AuthContext = Depends(get_ctx)):
     ctx.require_workspace(workspace_id)
@@ -806,10 +844,19 @@ def brain_chat(workspace_id: int, body: BrainChatIn, ctx: AuthContext = Depends(
     for m in body.messages[-14:]:
         msgs.append({"role": "assistant" if m.role == "assistant" else "user", "content": (m.content or "")[:6000]})
     try:
+        chat_model = (cfg.writer_model or ai.writer_model()).lower()
+        chat_payload = {
+            "model": chat_model,
+            "response_format": {"type": "json_object"},
+            "messages": msgs,
+        }
+        if chat_model.startswith("gpt-5"):
+            chat_payload["reasoning_effort"] = "low"
+        else:
+            chat_payload["temperature"] = 0.4
         r = requests.post(ai.OPENAI_URL,
             headers={"Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}", "Content-Type": "application/json"},
-            json={"model": (cfg.writer_model or ai.writer_model()).lower(), "temperature": 0.4,
-                  "response_format": {"type": "json_object"}, "messages": msgs}, timeout=60)
+            json=chat_payload, timeout=60)
         r.raise_for_status()
         out = _json.loads(r.json()["choices"][0]["message"]["content"])
     except Exception as e:
@@ -1155,7 +1202,7 @@ def build_profile(workspace_id: int, body: BuildProfileIn, ctx: AuthContext = De
         js_rendered = crawl.get("js_rendered", 0)
         if crawl.get("text"):
             text = (crawl["text"] + "\n\n---PASTED---\n" + text)
-    text = text[:120000]    # gpt-4o-mini has a large context — send a lot, don't over-summarize
+    text = text[:120000]    # current extract models have ample context; preserve proof-rich material
     if not text.strip():
         raise HTTPException(422, "Provide a website URL or paste some material to learn from.")
 

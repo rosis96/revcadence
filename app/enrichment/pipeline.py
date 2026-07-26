@@ -20,6 +20,15 @@ from .crawler import crawl_site
 from .engine import SENIOR_TITLES
 from .reoon import verify_one
 from .verify_free import check as free_check
+from .writer_quality import (
+    anchor_matches,
+    evidence_terms,
+    enrich_signal,
+    local_candidate_score,
+    plan_core_assignments,
+    role_signal_score,
+    supporting_detail_matches,
+)
 
 # Invisible / control characters that make downstream tools (Instantly, Excel,
 # some CRMs) reject a cell as "characters that cannot be stored". AI writers and
@@ -291,7 +300,9 @@ _BANNED_PHRASES = [
     "enterprise clients", "streamline sales processes", "revenue growth system",
     "clearer reason to progress", "world-class", "world class", "high standard",
     "truly sets", "sets a high standard", "love how", "cutting-edge", "cutting edge",
-    "top-notch", "best-in-class", "best in class",
+    "top-notch", "best-in-class", "best in class", "technically sophisticated",
+    "client satisfaction", "customer satisfaction", "our integrated approach",
+    "your work exceeded expectations",
 ]
 # Generic value-nouns that must NOT stand in for a concrete website detail.
 _GENERIC_NOUNS = {"quality", "innovation", "expertise", "commitment", "creativity",
@@ -316,10 +327,12 @@ def _flatten_signals(facts: dict) -> list:
         text = (text or "").strip()
         key = _norm(text)
         if text and key:
-            sig.append({"type": kind, "score": score, "text": text, "key": key,
-                        "evidence_id": evidence_id, "source_url": source_url,
-                        "supporting_quote": quote, "source_kind": source_kind,
-                        "confidence": confidence})
+            sig.append(enrich_signal({
+                "type": kind, "score": score, "text": text, "key": key,
+                "evidence_id": evidence_id, "source_url": source_url,
+                "supporting_quote": quote, "source_kind": source_kind,
+                "confidence": confidence,
+            }))
 
     score_for = {
         "measurable_result": 10, "result": 10, "case_study": 10,
@@ -344,9 +357,9 @@ def _flatten_signals(facts: dict) -> list:
             # Claim-level dedupe prevents the same John Jay metric being treated
             # as both a case study and a separate result.
             k = s["key"]
-            if k not in best or s["score"] > best[k]["score"]:
+            if k not in best or s["quality_score"] > best[k]["quality_score"]:
                 best[k] = s
-        return sorted(best.values(), key=lambda x: (-x["score"], -x["confidence"]))
+        return sorted(best.values(), key=lambda x: (-x["quality_score"], -x["confidence"]))
 
     for cs in facts.get("case_studies") or []:
         if isinstance(cs, dict):
@@ -377,9 +390,9 @@ def _flatten_signals(facts: dict) -> list:
     best = {}
     for s in sig:
         k = s["key"]
-        if k not in best or s["score"] > best[k]["score"]:
+        if k not in best or s["quality_score"] > best[k]["quality_score"]:
             best[k] = s
-    return sorted(best.values(), key=lambda x: -x["score"])
+    return sorted(best.values(), key=lambda x: -x["quality_score"])
 
 
 def _role_of(fmt: dict) -> str:
@@ -399,82 +412,78 @@ def _role_of(fmt: dict) -> str:
 
 
 _ROLE_PURPOSE = {
-    "first_line": ("Prove we actually researched THEM. Open with ONE specific named detail "
-                   "(a methodology, framework, named project, service, or award). No pitch, no greeting, "
-                   "no compliment about a value."),
+    "first_line": ("Prove we actually researched THEM. Use the strongest memorable achievement available, "
+                   "including a measurable case-study result, named project, product, methodology, or "
+                   "specific award. Preserve the name plus the detail/number that makes it remarkable. "
+                   "One natural sentence; no pitch or greeting."),
     "value_proposition": ("Connect our offer to their STRONGEST commercial proof — a measurable case study "
                           "or a named client result. Tie that proof to why our work helps them get more of it."),
-    "product_compliment": ("Start a human conversation about a DIFFERENT specific piece of their work — a "
-                           "named project, service, campaign, or case-study deliverable (never a value like "
-                           "clarity/quality). Say what is distinctive about it, then ask ONE genuine question "
-                           "about its demand, response, or strategic role."),
+    "product_compliment": ("Start a human conversation about a DIFFERENT named product/project. State the "
+                           "exact mechanism, technical feature, measurable detail, or outcome that makes it "
+                           "distinctive—never merely call it sophisticated/impressive—then ask ONE genuine "
+                           "question about its demand, response, or strategic role."),
     "reference": ("Continue the value-proposition thread from the previous email: expand that SAME proof with "
                   "the practical next steps we would run. Reusing the value-proposition evidence is expected."),
-    "pitch": ("Explain plainly WHO we can bring (their real target industries / client types), WHICH commercial "
-              "problems we solve, and the long-term outcome. Use audience + pain research, not case-study "
-              "wording. Plain language — never branded terms."),
+    "pitch": ("Explain plainly what kind of company THEY are, the 2–3 customer/company types we can bring "
+              "them, the relevant decision-maker titles inside those customers, which revenue problems WE "
+              "solve, and the long-term outcome. Never confuse job titles with customer categories or their "
+              "product benefit with the sales problem we solve. Plain language—never branded terms."),
     "other": ("Use a specific, checkable website detail; never generic praise."),
 }
 
 
 def _assign_evidence(facts: dict, formats: list) -> dict:
-    """Give each variable its own primary evidence so no two lean on the same
-    signal. first_line / value_proposition / product_compliment must be distinct;
-    reference deliberately reuses the value_proposition evidence; pitch uses the
-    audience + pains, not a single proof."""
+    """Build the strongest coherent evidence plan across all variables.
+
+    The old greedy policy reserved every measurable result for the value
+    proposition and could force the first line onto a weaker award. We now score
+    the complete core plan together, while keeping evidence distinct; reference
+    deliberately reuses the value-proposition proof.
+    """
     signals = _flatten_signals(facts)
     used_keys = set()
 
-    def take(prefer_types, strict=False):
-        # strict: try each preferred TYPE in order (a fresh angle beats a higher
-        # score); non-strict: highest-scoring unused signal within the preferred set.
-        if strict and prefer_types:
-            for t in prefer_types:
-                for s in signals:
-                    if s["key"] not in used_keys and s["type"] == t:
-                        used_keys.add(s["key"])
-                        return s
-            for s in signals:
-                if s["key"] not in used_keys:
-                    used_keys.add(s["key"])
-                    return s
-            return None
-        want = set(prefer_types) if prefer_types else None
-        for scope in (want, None):
-            for s in signals:
-                if s["key"] in used_keys:
-                    continue
-                if scope is None or s["type"] in scope:
-                    used_keys.add(s["key"])
-                    return s
-        return None
-
     roles = {f.get("name"): _role_of(f) for f in formats}
+    core_plan = plan_core_assignments(signals, list(roles.values()))
+    core_claimed = set()
+
+    def take_best(role):
+        available = [s for s in signals if s["key"] not in used_keys]
+        if not available:
+            return None
+        chosen = max(available, key=lambda s: role_signal_score(role, s))
+        used_keys.add(chosen["key"])
+        return chosen
+
     assign = {}
-    # Order matters: claim the strongest commercial proof for the value prop first,
-    # a distinctive approach for the first line, then a fresh angle for the compliment.
-    order = sorted(formats, key=lambda f: {"value_proposition": 0, "first_line": 1,
-                                           "product_compliment": 2, "reference": 3,
-                                           "pitch": 4, "other": 5}[roles[f.get("name")]])
-    vp_sig = None
-    for f in order:
+    vp_sig = core_plan.get("value_proposition")
+    if vp_sig:
+        used_keys.add(vp_sig["key"])
+    # Reserve every globally planned core signal before assigning extra variables.
+    for sig in core_plan.values():
+        used_keys.add(sig["key"])
+
+    for f in formats:
         name = f.get("name")
         role = roles[name]
         sig = None
-        if role == "value_proposition":
-            sig = take(("case_study", "result", "client"))
-            vp_sig = sig
-        elif role == "first_line":
-            sig = take(("framework", "award", "project", "service"), strict=True)
-        elif role == "product_compliment":
-            # a DIFFERENT angle: prefer a fresh named project/service over reusing a client
-            sig = take(("project", "service", "award", "framework", "client"), strict=True)
+        if role in core_plan and role not in core_claimed:
+            sig = core_plan[role]
+            core_claimed.add(role)
+            if role == "value_proposition":
+                vp_sig = sig
         elif role == "reference":
-            sig = vp_sig  # deliberate reuse; do NOT consume a new key
+            if vp_sig is None:
+                # A reference without a configured value proposition still gets
+                # the strongest commercially relevant proof.
+                available = [s for s in signals if s["key"] not in used_keys] or signals
+                vp_sig = max(available, key=lambda s: role_signal_score("value_proposition", s),
+                             default=None)
+            sig = vp_sig
         elif role == "pitch":
             sig = None  # built from audience below
         else:
-            sig = take(None)
+            sig = take_best(role)
         assign[name] = {
             "role": role,
             "purpose": _ROLE_PURPOSE[role],
@@ -486,6 +495,8 @@ def _assign_evidence(facts: dict, formats: list) -> dict:
             "supporting_quote": (sig or {}).get("supporting_quote", ""),
             "source_kind": (sig or {}).get("source_kind", ""),
             "confidence": (sig or {}).get("confidence", 0),
+            "signal_quality": (sig or {}).get("quality_score", 0),
+            "selection_score": role_signal_score(role, sig) if sig else 0,
             "reuse_ok": role == "reference",
         }
     # pitch audience packet
@@ -530,17 +541,6 @@ def _has_concrete_detail(text: str, facts: dict) -> bool:
     return False
 
 
-_ANCHOR_STOPWORDS = {
-    "about", "above", "across", "after", "again", "also", "annual", "approach",
-    "brand", "business", "campaign", "clarity", "client", "clients", "college",
-    "company", "completed", "creating", "customer", "customers", "design",
-    "developing", "fund", "growth", "help", "helped", "helping", "identity",
-    "increase", "increased", "industry", "leading", "methodology", "more",
-    "organization", "program", "project", "result", "results", "revenue",
-    "service", "services", "their", "through", "using", "with", "work", "your",
-}
-
-
 def _uses_assigned_evidence(text: str, assignment: dict) -> bool:
     """Require copy to carry a distinctive anchor from its own assigned proof.
 
@@ -548,28 +548,16 @@ def _uses_assigned_evidence(text: str, assignment: dict) -> bool:
     assigned to the John Jay result must retain John/Jay, its supported number,
     or another uncommon term from that evidence.
     """
-    evidence = " ".join([
-        str(assignment.get("evidence") or ""),
-        str(assignment.get("supporting_quote") or ""),
-    ]).strip()
-    if not evidence:
+    if not (assignment.get("evidence") or assignment.get("supporting_quote")):
         return True
-    normalized_text = _norm(text)
-    evidence_numbers = set(re.findall(r"\d+(?:[.,]\d+)?%?", evidence))
-    if any(number in text for number in evidence_numbers):
-        return True
-    candidates = {
-        token.lower()
-        for token in re.findall(r"[A-Za-z][A-Za-z0-9'-]{3,}", evidence)
-        if token.lower() not in _ANCHOR_STOPWORDS
-    }
-    return any(_norm(token) in normalized_text for token in candidates)
+    return bool(anchor_matches(text, assignment))
 
 
-def _qc_failures(vars_out: dict, assign: dict, facts: dict) -> dict:
+def _qc_failures(vars_out: dict, assign: dict, facts: dict, formats: list | None = None) -> dict:
     """Return {name: reason} for variables that must be regenerated."""
     fails = {}
     primary_seen = {}   # evidence_key -> first variable that used it
+    format_by_name = {f.get("name"): f for f in (formats or [])}
     for name, text in vars_out.items():
         t = (text or "").strip()
         if not t:
@@ -578,6 +566,14 @@ def _qc_failures(vars_out: dict, assign: dict, facts: dict) -> dict:
             continue
         low = t.lower()
         role = assign.get(name, {}).get("role", "other")
+        fmt = format_by_name.get(name, {})
+        words = re.findall(r"\b[\w'-]+\b", t)
+        if fmt.get("min_words") and len(words) < int(fmt["min_words"]):
+            fails[name] = f"below configured minimum of {int(fmt['min_words'])} words"
+            continue
+        if fmt.get("max_words") and len(words) > int(fmt["max_words"]):
+            fails[name] = f"above configured maximum of {int(fmt['max_words'])} words"
+            continue
         hit = next((p for p in _BANNED_PHRASES if p in low), None)
         if hit:
             fails[name] = f"uses banned filler '{hit}'"
@@ -603,6 +599,25 @@ def _qc_failures(vars_out: dict, assign: dict, facts: dict) -> dict:
                 and not _uses_assigned_evidence(t, assignment):
             fails[name] = "does not use a distinctive anchor from its assigned evidence"
             continue
+        # A project name alone is not a researched compliment. It must carry at
+        # least one feature/outcome from the supporting quote and ask a question.
+        if role == "product_compliment":
+            extra_details = (
+                evidence_terms(assignment.get("supporting_quote", ""))
+                - evidence_terms(assignment.get("evidence", ""))
+            )
+            if extra_details and not supporting_detail_matches(t, assignment):
+                fails[name] = "names the product but omits the concrete detail that makes it distinctive"
+                continue
+            if "?" not in t:
+                fails[name] = "product compliment must end with one genuine question"
+                continue
+        if role == "value_proposition" and re.match(r"^\s*and\b", t, re.I):
+            fails[name] = "starts mid-thought with 'And' instead of a complete value sentence"
+            continue
+        if role == "reference" and assignment.get("evidence") and "your work" in low:
+            fails[name] = "uses 'your work' instead of naming the assigned project or proof"
+            continue
         # generic value-noun compliment with no concrete anchor
         if role == "product_compliment" and any(g in low for g in _GENERIC_NOUNS) and not _has_concrete_detail(t, facts):
             fails[name] = "compliment is about a broad value, not a named piece of work"
@@ -622,7 +637,12 @@ def _augmented_formats(formats: list, assign: dict) -> list:
     aug = []
     for f in formats:
         a = assign.get(f.get("name"), {})
-        aug.append({**f,
+        compact = dict(f)
+        # Approved outputs are training memory, but two recent examples are enough
+        # to teach structure without repeatedly paying to send the whole library.
+        compact["examples"] = [str(x)[:1400] for x in (f.get("examples") or [])[-2:]]
+        compact["rules"] = [str(x)[:500] for x in (f.get("rules") or [])[:12]]
+        aug.append({**compact,
                     "_job": a.get("purpose", ""),
                     "_use_this_evidence": a.get("evidence", ""),
                     "_evidence_type": a.get("evidence_type", ""),
@@ -631,29 +651,120 @@ def _augmented_formats(formats: list, assign: dict) -> list:
     return aug
 
 
+def _compact_profile(profile: dict) -> dict:
+    """Keep the client facts the writer actually needs, with bounded list sizes."""
+    profile = profile or {}
+
+    def clip(value, depth=0):
+        if isinstance(value, str):
+            return value[:1200 if depth == 0 else 600]
+        if isinstance(value, list):
+            return [clip(x, depth + 1) for x in value[:8]]
+        if isinstance(value, dict):
+            return {str(k)[:80]: clip(v, depth + 1)
+                    for k, v in list(value.items())[:12]
+                    if v not in (None, "", [], {})}
+        return value
+
+    keys = (
+        "client_name", "one_liner", "service_brief", "main_offer",
+        "what_we_are_pitching", "target_outcome", "icp_summary", "industries",
+        "services", "positioning", "methodology", "proof_points", "target_titles",
+        "tone", "problem_library", "case_studies",
+    )
+    out = {}
+    for key in keys:
+        value = profile.get(key)
+        if value in (None, "", [], {}):
+            continue
+        if isinstance(value, list):
+            capped = value[:8] if key not in ("case_studies", "problem_library") else value[:4]
+            out[key] = clip(capped)
+        elif isinstance(value, str):
+            out[key] = value[:1800]
+        else:
+            out[key] = clip(value)
+    return out
+
+
+def _prospect_summary(facts: dict) -> dict:
+    """Small taxonomy packet used by the pitch; assigned evidence handles proof."""
+    return {
+        key: facts.get(key)
+        for key in (
+            "category", "description", "services", "target_industries",
+            "decision_makers", "commercial_challenges",
+        )
+        if facts.get(key)
+    }
+
+
+def _candidate_values(raw: dict, name: str) -> list[str]:
+    root = raw.get("candidates") if isinstance(raw.get("candidates"), dict) else raw
+    value = root.get(name) if isinstance(root, dict) else None
+    if isinstance(value, list):
+        return [str(x).strip() for x in value if str(x).strip()][:3]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+def _select_candidates(raw: dict, formats: list, assign: dict, facts: dict) -> tuple[dict, int]:
+    """Choose the strongest model candidate locally—no extra critic API call."""
+    selected, total = {}, 0
+    for fmt in formats:
+        name = fmt.get("name")
+        candidates = _candidate_values(raw if isinstance(raw, dict) else {}, name)
+        total += len(candidates)
+        role = assign.get(name, {}).get("role", "other")
+
+        def score(text):
+            local = local_candidate_score(text, role, assign.get(name, {}), fmt)
+            failure = _qc_failures({name: text}, {name: assign.get(name, {})},
+                                   facts, [fmt])
+            return local - (1000 if failure else 0)
+
+        selected[name] = max(candidates, key=score) if candidates else ""
+    return selected, total
+
+
 def _writer_system(cfg, rules, level_line) -> str:
-    return ("You write personalized cold-email variables. Work in this order and NEVER skip it: "
-            "(1) read the EVIDENCE BANK and each variable's assigned '_use_this_evidence'; "
-            "(2) write each variable to do its own distinct '_job', built around ITS assigned evidence. "
-            "Ground ONLY in verified facts — never invent a client, project, result, or award.\n"
-            "HARD RULES:\n"
-            "- Every variable must contain a concrete, website-specific detail: a named client, project, "
-            "service, framework, campaign, award, or a measurable number. A line that could be sent "
-            "unchanged to another company in the same industry is a FAILURE — rewrite it.\n"
-            "- Do NOT reuse the same primary evidence across the first line, value proposition, and "
-            "compliment. The reference intentionally continues the value proposition's evidence.\n"
-            "- Do NOT lean on generic value-nouns (quality, innovation, expertise, commitment, creativity, "
-            "leadership, excellence, clarity) as if they were research.\n"
-            "- NEVER claim something is 'award-winning' unless a specific award is named in the evidence.\n"
-            "- Say the specific project/service by name instead of 'your work' whenever it is available.\n"
-            "- BANNED PHRASES (do not use): " + "; ".join(_BANNED_PHRASES[:16]) + ".\n"
-            "- Explain our service in plain words (e.g. 'managing cold outreach and post-meeting sales "
-            "follow-up'), never as a branded label.\n"
-            "- If a variable has no supporting evidence, use its 'fallback' when provided; otherwise return "
-            "an empty string. Never pad with praise, never invent.\n"
+    return ("You are a senior B2B outbound copywriter. Each requested variable includes one verified "
+            "evidence assignment and a distinct job. Write TWO meaningfully different candidates per "
+            "variable, both fully compliant. Ground prospect claims only in that variable's assigned claim "
+            "and quote; never invent or generalize.\n"
+            "QUALITY BAR:\n"
+            "- Preserve the names, numbers, mechanisms, regulatory facts, and outcomes that make the "
+            "assigned evidence valuable. A project name followed by a generic adjective is a failure.\n"
+            "- First line: one natural, company-only sentence built around the strongest assigned achievement.\n"
+            "- Value proposition: first explain our actual service for this company category; then connect "
+            "their assigned proof to a commercial reason buyers should progress. Never start with 'And'.\n"
+            "- Product compliment: name the product/project, state exactly what makes it distinctive from "
+            "the quote, then ask one genuine question.\n"
+            "- Reference: name and continue the value proposition's proof in complete grammatical sentences.\n"
+            "- Pitch: separate the prospect's company category, target customer companies, decision-maker "
+            "titles, and the revenue problems we solve. Titles are not customer categories.\n"
+            "- Approved examples teach style and structure only. Never copy their company names, projects, "
+            "numbers, or claims into a different prospect's output.\n"
+            "- First line, value proposition, and compliment use different primary evidence; reference may "
+            "reuse value-proposition evidence. Avoid vague praise and branded labels.\n"
+            "- BANNED PHRASES: " + "; ".join(_BANNED_PHRASES) + ".\n"
+            "- If evidence is inadequate, return an empty candidate instead of guessing.\n"
+            'Return only JSON: {"candidates": {"<variable name>": ["candidate 1", "candidate 2"]}}.\n'
             + level_line +
-            "\nCLIENT PROFILE (our voice):\n" + json.dumps(cfg.profile or {}) +
+            "\nCLIENT PROFILE / OUR OFFER:\n" + json.dumps(_compact_profile(cfg.profile or {})) +
             "\nGLOBAL RULES (obey every line):\n" + "\n".join(rules))
+
+
+def _writer_user(lead: EnrichLead, facts: dict, formats: list) -> str:
+    return (
+        "LEAD:\n" + json.dumps({
+            "first_name": lead.first_name, "company": lead.company, "title": lead.title,
+        }) +
+        "\nPROSPECT TAXONOMY:\n" + json.dumps(_prospect_summary(facts)) +
+        "\nVARIABLE PLAN (follow each _job, exact format guidance, assigned claim, and quote):\n" +
+        json.dumps(formats)
+    )
 
 
 def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None) -> dict:
@@ -682,46 +793,51 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
                   "short sentences, everyday words, no jargon." if reading else "")
     assign = _assign_evidence(facts, formats)
     aug = _augmented_formats(formats, assign)
-    system = _writer_system(cfg, rules, level_line) + \
-        "\nVARIABLES (return JSON keyed by 'name'; honour each one's _job and _use_this_evidence):\n" \
-        + json.dumps(aug)
-    deep = getattr(cfg, "research_depth", "") == "deep"
-    wc = 24000 if deep else 14000
-    user = ("LEAD: " + json.dumps({"first_name": lead.first_name, "company": lead.company,
-                                   "title": lead.title}) +
-            "\nVALIDATED EVIDENCE BANK: " + json.dumps(facts.get("evidence") or []) +
-            "\nSOURCE-LABELLED RESEARCH:\n" + _research_packet(ctx.get("crawl", {}), wc))
+    system = _writer_system(cfg, rules, level_line)
+    # The evidence extractor already validated every assigned quote against its
+    # source page. Sending the entire crawl again was redundant and dominated cost.
+    user = _writer_user(lead, facts, aug)
+    calls = 0
+    prompt_chars = len(system) + len(user)
     try:
         model = (getattr(cfg, "writer_model", "") or ai.writer_model())
         out = ai._call_openai(system, user, model=model)
+        calls += 1
     except Exception as exc:
         return {"vars": {}, "source": "failed", "assignments": assign,
                 "error": f"Writer failed: {str(exc)[:240]}"}
 
-    vars_out = {f["name"]: out.get(f["name"], "") for f in formats}
+    vars_out, candidate_count = _select_candidates(out, formats, assign, facts)
     # Regenerate only failed variables once, then quarantine every remaining
     # failure. No fallback prose and no partially grounded result may be `done`.
-    fails = _qc_failures(vars_out, assign, facts)
+    fails = _qc_failures(vars_out, assign, facts, formats)
     if fails:
         fix_formats = [f for f in aug if f["name"] in fails]
         fix_system = (_writer_system(cfg, rules, level_line) +
-                      "\nThese variables FAILED review and MUST be rewritten to fix the stated "
-                      "problem. Use ONLY the assigned evidence and quote. If support is insufficient, "
-                      "return an empty string rather than praise.\nFAILURES:\n" +
-                      "\n".join(f"- {n}: {r}" for n, r in fails.items()) +
-                      "\nVARIABLES TO REWRITE:\n" + json.dumps(fix_formats))
+                      "\nREPAIR: the previous candidates failed the checks below. Correct every stated "
+                      "problem while preserving the assigned claim and concrete quote details.\nFAILURES:\n" +
+                      "\n".join(f"- {n}: {r}" for n, r in fails.items()))
+        fix_user = _writer_user(lead, facts, fix_formats)
         try:
-            fixed = ai._call_openai(fix_system, user, model=model)
-            for name in fails:
-                if isinstance(fixed, dict) and name in fixed:
-                    vars_out[name] = fixed.get(name, "")
+            prompt_chars += len(fix_system) + len(fix_user)
+            fixed = ai._call_openai(fix_system, fix_user, model=model)
+            calls += 1
+            repaired, repair_candidates = _select_candidates(
+                fixed, [f for f in formats if f["name"] in fails], assign, facts)
+            candidate_count += repair_candidates
+            vars_out.update(repaired)
         except Exception:
             pass
-    final_fails = _qc_failures(vars_out, assign, facts)
+    final_fails = _qc_failures(vars_out, assign, facts, formats)
     for name in final_fails:
         vars_out[name] = ""
     return {"vars": vars_out, "source": "openai", "assignments": assign,
-            "quality_failures": final_fails}
+            "quality_failures": final_fails,
+            "generation": {
+                "model": model, "calls": calls, "candidates_considered": candidate_count,
+                "prompt_chars": prompt_chars,
+                "full_research_resent": False,
+            }}
 
 
 _EMAIL_RE = re.compile(r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
@@ -882,7 +998,8 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
     lead.result = {**(lead.result or {}), **clean_vars,
                    "_facts": facts, "_writer": written["source"], "_research": research,
                    "_assignments": written.get("assignments") or {},
-                   "_quality_failures": written.get("quality_failures") or {}}
+                   "_quality_failures": written.get("quality_failures") or {},
+                   "_generation": written.get("generation") or {}}
     if written.get("error"):
         lead.result = {**lead.result, "_generation_error": written["error"]}
         lead.status = "generation_failed"

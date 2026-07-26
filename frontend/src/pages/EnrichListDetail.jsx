@@ -233,6 +233,16 @@ export default function EnrichListDetail() {
     } catch (e) { toast(e.message, "bad"); }
   };
 
+  const trainWithOutput = async (name, text) => {
+    const wsId = data?.list?.workspace_id;
+    if (!wsId || !String(text || "").trim()) return;
+    try {
+      const r = await api(`/api/enrich-lists/config/${wsId}/formats/${encodeURIComponent(name)}/examples`,
+        { method: "POST", body: { text } });
+      toast(`Saved as a ${pretty(name)} training example (${r.example_count} saved)`);
+    } catch (e) { toast(e.message, "bad"); }
+  };
+
   const columns = useMemo(() => [
     { accessorKey: "name", header: "Lead", size: 230,
       cell: ({ row }) => (
@@ -465,7 +475,9 @@ export default function EnrichListDetail() {
 
           <section className="rd-section">
             <div className="rd-section-head"><div><span>Ready for outreach</span><h3>Generated variables</h3></div>
-              <Sparkles size={17} className="rd-spark" /></div>
+              {openLead.generation?.model
+                ? <Badge tone="indigo">{openLead.generation.model} · {openLead.generation.candidates_considered || 0} candidates · {openLead.generation.calls || 1} call{openLead.generation.calls === 1 ? "" : "s"}</Badge>
+                : <Sparkles size={17} className="rd-spark" />}</div>
             {Object.keys(openLead.vars || {}).length === 0
               ? <div className="rd-empty"><Sparkles size={20} />No approved copy yet</div>
               : <div className="rd-output-list">
@@ -475,7 +487,13 @@ export default function EnrichListDetail() {
                   return (
                     <article key={k} className={`rd-output ${failure ? "failed" : ""}`}>
                       <div className="rd-output-head"><b>{pretty(k)}</b>
-                        {failure ? <Badge tone="red">Held</Badge> : <Badge tone="green">Grounded</Badge>}</div>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          {!failure && v && <button className="btn ghost sm" onClick={() => trainWithOutput(k, v)}
+                            title="Save this approved output as a style/structure example for future leads">
+                            Train with this
+                          </button>}
+                          {failure ? <Badge tone="red">Held</Badge> : <Badge tone="green">Grounded</Badge>}
+                        </div></div>
                       <p>{String(v) || "This variable was withheld because it did not pass quality review."}</p>
                       {failure && <div className="rd-failure"><AlertTriangle size={13} />{failure}</div>}
                       {assignment.evidence && (
@@ -505,6 +523,10 @@ export default function EnrichListDetail() {
                   ["Vision candidates", openLead.research.vision_candidates],
                   ["Signals collected", openLead.research.signals_collected],
                   ["Evidence validated", openLead.research.evidence_validated],
+                  ["Writer model", openLead.generation?.model],
+                  ["Writer calls", openLead.generation?.calls],
+                  ["Candidates considered", openLead.generation?.candidates_considered],
+                  ["Writer prompt chars", openLead.generation?.prompt_chars],
                   ["Page types", Object.entries(openLead.research.page_types || {})
                     .map(([k, v]) => `${pretty(k)} ${v}`).join(" · ")],
                   ["Signal types", (openLead.research.signal_types || []).map(pretty).join(", ")]]

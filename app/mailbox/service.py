@@ -416,10 +416,19 @@ def draft_followup(db, conv: DealConversation) -> dict:
                     f"THREAD (oldest→newest):\n{convo}\n\nWrite the next follow-up email body:")
             import os
             import requests
+            followup_model = ai.writer_model().lower()
+            followup_payload = {
+                "model": followup_model,
+                "messages": [{"role": "system", "content": system},
+                             {"role": "user", "content": user}],
+            }
+            if followup_model.startswith("gpt-5"):
+                followup_payload["reasoning_effort"] = "low"
+            else:
+                followup_payload["temperature"] = 0.5
             r = requests.post(ai.OPENAI_URL,
                 headers={"Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}", "Content-Type": "application/json"},
-                json={"model": ai.writer_model().lower(), "temperature": 0.5,
-                      "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]},
+                json=followup_payload,
                 timeout=60)
             r.raise_for_status()
             body = r.json()["choices"][0]["message"]["content"].strip()

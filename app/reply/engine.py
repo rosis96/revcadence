@@ -241,13 +241,20 @@ def _parse_llm_json(raw: str) -> dict:
 
 
 def _openai(prompt: str, system: str, api_key: str, model: str) -> dict:
+    selected = model.lower()
+    payload = {
+        "model": selected,  # capitalized ids silently failed
+        "response_format": {"type": "json_object"},
+        "messages": [{"role": "system", "content": system},
+                     {"role": "user", "content": prompt}],
+    }
+    if selected.startswith("gpt-5"):
+        payload["reasoning_effort"] = "low"
+    else:
+        payload["temperature"] = 0.6
     r = requests.post("https://api.openai.com/v1/chat/completions",
                       headers={"Authorization": f"Bearer {api_key}"},
-                      json={"model": model.lower(),  # legacy fix: capitalized ids silently failed
-                            "temperature": 0.6,
-                            "response_format": {"type": "json_object"},
-                            "messages": [{"role": "system", "content": system},
-                                         {"role": "user", "content": prompt}]},
+                      json=payload,
                       timeout=90)
     r.raise_for_status()
     return _parse_llm_json(r.json()["choices"][0]["message"]["content"])
@@ -272,7 +279,7 @@ def build_ai_cfg(rws) -> dict:
         "fallback": bool(rws.ai_fallback),
         "openai_key": decrypt(rws.openai_key_enc) or os.getenv("OPENAI_API_KEY", ""),
         "gemini_key": decrypt(rws.gemini_key_enc) or os.getenv("GEMINI_API_KEY", ""),
-        "openai_model": os.getenv("REPLY_OPENAI_MODEL", "gpt-4.1"),
+        "openai_model": os.getenv("REPLY_OPENAI_MODEL", "gpt-5-mini"),
         "gemini_model": os.getenv("REPLY_GEMINI_MODEL", "gemini-2.5-pro"),
     }
 

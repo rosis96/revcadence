@@ -11,23 +11,23 @@ import requests
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 
 # Model split (env-configurable — NEVER hardcode a model in a call path).
-# Extraction/ICP: cheap. Writer: gpt-4.1-mini (~6x cheaper input than gpt-4o,
-# materially better copy than gpt-4o-mini); override WRITER_MODEL=gpt-4.1 for
-# higher quality or gpt-4o to revert — no code change.
+# This workload is strongly input-heavy. gpt-5-mini is the cost/quality default:
+# lower input cost than gpt-4.1-mini, structured output support, and enough
+# reasoning for a tightly planned writing task. Premium models remain overrides.
 def extract_model() -> str:
-    return os.getenv("EXTRACT_MODEL", os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
+    return os.getenv("EXTRACT_MODEL", os.getenv("OPENAI_MODEL", "gpt-5-mini"))
 
 
 def writer_model() -> str:
-    return os.getenv("WRITER_MODEL", "gpt-4.1-mini")
+    return os.getenv("WRITER_MODEL", "gpt-5-mini")
 
 
 def competitor_model() -> str:
-    return os.getenv("COMPETITOR_MODEL", "gpt-4o-mini")
+    return os.getenv("COMPETITOR_MODEL", "gpt-5-mini")
 
 
 def vision_model() -> str:
-    return os.getenv("VISION_MODEL", "gpt-4.1-mini")
+    return os.getenv("VISION_MODEL", "gpt-5-mini")
 
 
 # Content budgets (env cost levers — input tokens dominate ~10:1).
@@ -76,17 +76,24 @@ def has_ai() -> bool:
 
 
 def _call_openai(system: str, user: str, model: str = "") -> dict:
+    chosen = (model or extract_model()).lower()
+    payload = {
+        "model": chosen,
+        "response_format": {"type": "json_object"},
+        "messages": [{"role": "system", "content": system},
+                     {"role": "user", "content": user}],
+    }
+    # GPT-5-family models use reasoning effort rather than sampling temperature.
+    # Low is enough because evidence planning/ranking is deterministic in code.
+    if chosen.startswith("gpt-5"):
+        payload["reasoning_effort"] = "low"
+    else:
+        payload["temperature"] = 0.2
     resp = requests.post(
         OPENAI_URL,
         headers={"Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",
                  "Content-Type": "application/json"},
-        json={
-            "model": (model or extract_model()).lower(),
-            "temperature": 0.2,
-            "response_format": {"type": "json_object"},
-            "messages": [{"role": "system", "content": system},
-                         {"role": "user", "content": user}],
-        },
+        json=payload,
         timeout=60,
     )
     resp.raise_for_status()
@@ -127,15 +134,23 @@ def analyze_site_images(company: str, images: list, limit: int = 3) -> list:
         })})
         content.append({"type": "image_url", "image_url": {"url": image["url"], "detail": "low"}})
     try:
+        selected_model = vision_model().lower()
+        vision_payload = {
+            "model": selected_model,
+            "response_format": {"type": "json_object"},
+            "messages": [{"role": "system", "content":
+                          "You are a conservative visual evidence extractor. Never guess."},
+                         {"role": "user", "content": content}],
+        }
+        if selected_model.startswith("gpt-5"):
+            vision_payload["reasoning_effort"] = "low"
+        else:
+            vision_payload["temperature"] = 0
         resp = requests.post(
             OPENAI_URL,
             headers={"Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",
                      "Content-Type": "application/json"},
-            json={"model": vision_model().lower(), "temperature": 0,
-                  "response_format": {"type": "json_object"},
-                  "messages": [{"role": "system", "content":
-                                "You are a conservative visual evidence extractor. Never guess."},
-                               {"role": "user", "content": content}]},
+            json=vision_payload,
             timeout=90,
         )
         resp.raise_for_status()

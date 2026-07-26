@@ -26,6 +26,15 @@ uvicorn app.main:app --reload
 
 No DATABASE_URL → SQLite file (dev). Set DATABASE_URL for Postgres.
 
+### Enrichment AI cost controls
+
+The default extraction, vision, and writing model is `gpt-5-mini`. The writer
+receives a compact, pre-ranked evidence plan rather than the full crawl, creates
+two candidates per variable in one request, and ranks them locally. A second AI
+request is made only for variables that fail deterministic quality checks.
+Override `EXTRACT_MODEL`, `WRITER_MODEL`, or `VISION_MODEL` when an eval shows a
+more expensive model produces enough additional value.
+
 ## Test
 
 ```bash
