@@ -54,6 +54,20 @@ export default function BrainChat() {
     } catch (e) { toast(e.message, "bad"); } finally { setBusy(false); }
   };
 
+  const buildFormats = async () => {
+    if (busy) return;
+    const instructions = messages.filter((m) => m.role === "user").map((m) => m.content).join("\n\n").trim();
+    if (!instructions) { toast("Explain your formats in the chat first", "bad"); return; }
+    if (!confirm("Build formats from this conversation? This replaces the current formats for this workspace (review/edit them on the Formats tab afterward).")) return;
+    setBusy(true);
+    try {
+      const r = await api(`/api/enrich-lists/config/${wsId}/build-formats`, { method: "POST", body: { instructions } });
+      await api(`/api/enrich-lists/config/${wsId}`, { method: "PUT", body: { formats: r.formats } });
+      toast(`Built ${r.count} formats — review on the Formats tab`);
+      setMessages((m) => [...m, { role: "assistant", content: `✅ Built ${r.count} format variables from what you explained and saved them. Open the Formats tab to review, tweak, and use them.`, learned: ["formats"] }]);
+    } catch (e) { toast(e.message, "bad"); } finally { setBusy(false); }
+  };
+
   const suggestions = [
     "What's our angle for a manufacturing CFO?",
     "Draft a cold email for a real-estate CEO using a relevant case study.",
@@ -62,9 +76,13 @@ export default function BrainChat() {
 
   return (
     <>
-      <PageHeader title="Ask the brain" desc="Chat with this client's knowledge base. Paste material, then hit “Save to brain” to store it."
-        actions={<button className="btn" disabled={busy || !messages.length} onClick={saveToBrain}
-          style={{ display: "flex", alignItems: "center", gap: 6 }}><Sparkles size={15} /> Save to brain</button>} />
+      <PageHeader title="Ask the brain" desc="Chat with this client's knowledge base. Save what you paste, or build formats from it."
+        actions={<div style={{ display: "flex", gap: 8 }}>
+          <button className="btn secondary" disabled={busy || !messages.length} onClick={buildFormats}
+            style={{ display: "flex", alignItems: "center", gap: 6 }}><Sparkles size={15} /> Build formats</button>
+          <button className="btn" disabled={busy || !messages.length} onClick={saveToBrain}
+            style={{ display: "flex", alignItems: "center", gap: 6 }}><Sparkles size={15} /> Save to brain</button>
+        </div>} />
       <div className="card" style={{ padding: 0, display: "flex", flexDirection: "column", height: "70vh", overflow: "hidden" }}>
         <div style={{ flex: 1, overflowY: "auto", padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
           {messages.length === 0 && (
