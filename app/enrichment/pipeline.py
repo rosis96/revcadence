@@ -673,32 +673,41 @@ def _assign_evidence(facts: dict, formats: list) -> dict:
     return assign
 
 
-def _has_concrete_detail(text: str, facts: dict) -> bool:
-    """A line is concrete if it names a real entity from the bank or carries a
-    number/percentage — not just a generic value-noun."""
+def _has_concrete_detail(text: str, facts: dict, site_text: str = "") -> bool:
+    """A line is concrete if it names a real entity from the bank OR echoes a
+    specific detail that actually appears in the crawled site text — not just a
+    generic value-noun."""
     low = (text or "").lower()
     if not low.strip():
         return False
+    ntext = _norm(text)
     for key in ("named_clients", "named_services", "frameworks", "distinctive_projects",
                 "awards", "partnerships"):
         for v in facts.get(key) or []:
             tok = _norm(v)
-            if len(tok) >= 4 and tok in _norm(text):
+            if len(tok) >= 4 and tok in ntext:
                 return True
     for cs in facts.get("case_studies") or []:
         if isinstance(cs, dict):
             for v in (cs.get("client"), cs.get("name")):
                 tok = _norm(v or "")
-                if len(tok) >= 4 and tok in _norm(text):
+                if len(tok) >= 4 and tok in ntext:
                     return True
     for ev in facts.get("evidence") or []:
         if not isinstance(ev, dict):
             continue
         claim = _norm(ev.get("claim", ""))
-        # A meaningful named phrase from a validated claim is a concrete anchor.
         tokens = [x for x in claim.split() if len(x) >= 4 and not x.isdigit()]
-        if any(tok in _norm(text) for tok in tokens[:8]):
+        if any(tok in ntext for tok in tokens[:8]):
             return True
+    # Grounded in the real crawled site: a specific, non-generic term (or a
+    # two-word phrase) from the copy that actually appears on the prospect's site.
+    if site_text:
+        st = _norm_for_match(site_text)
+        toks = [_norm_for_match(w) for w in re.findall(r"[A-Za-z][A-Za-z0-9&.+-]{4,}", text)]
+        for w in toks:
+            if w and w not in _GENERIC_TERMS and w not in _GENERIC_NOUNS and w in st:
+                return True
     return False
 
 
@@ -715,7 +724,7 @@ def _uses_assigned_evidence(text: str, assignment: dict) -> bool:
 
 
 def _qc_failures(vars_out: dict, assign: dict, facts: dict, formats: list | None = None,
-                 reading_level: str = "") -> dict:
+                 reading_level: str = "", site_text: str = "") -> dict:
     """Return {name: reason} for variables that must be regenerated."""
     fails = {}
     primary_seen = {}   # evidence_key -> first variable that used it
@@ -749,18 +758,19 @@ def _qc_failures(vars_out: dict, assign: dict, facts: dict, formats: list | None
         if hit:
             fails[name] = f"uses banned filler '{hit}'"
             continue
-        if not _has_concrete_detail(t, facts):
+        if not _has_concrete_detail(t, facts, site_text):
             # tolerate the pitch (it's audience/pain framing, not a single named proof)
             if role != "pitch":
                 fails[name] = "no concrete, website-specific detail (named entity or number)"
                 continue
-        # Numbers are high-risk claims. Every number in generated copy must occur
-        # in the validated evidence assigned to that variable.
+        # Numbers are high-risk claims. Every number in generated copy must occur in
+        # the assigned evidence OR verbatim in the crawled site text (never invented).
         assignment = assign.get(name, {})
         nums = set(re.findall(r"\d+(?:[.,]\d+)?%?", t))
         grounding = " ".join([
             str(assignment.get("evidence", "")),
             str(assignment.get("supporting_quote", "")),
+            site_text or "",
         ])
         unsupported = [n for n in nums if n not in grounding]
         if unsupported:
@@ -886,7 +896,7 @@ def _candidate_values(raw: dict, name: str) -> list[str]:
 
 
 def _select_candidates(raw: dict, formats: list, assign: dict, facts: dict,
-                       reading_level: str = "") -> tuple[dict, int]:
+                       reading_level: str = "", site_text: str = "") -> tuple[dict, int]:
     """Choose the strongest model candidate locally—no extra critic API call."""
     selected, total = {}, 0
     for fmt in formats:
@@ -898,7 +908,7 @@ def _select_candidates(raw: dict, formats: list, assign: dict, facts: dict,
         def score(text):
             local = local_candidate_score(text, role, assign.get(name, {}), fmt)
             failure = _qc_failures({name: text}, {name: assign.get(name, {})},
-                                   facts, [fmt], reading_level)
+                                   facts, [fmt], reading_level, site_text)
             return local - (1000 if failure else 0)
 
         selected[name] = max(candidates, key=score) if candidates else ""
@@ -952,12 +962,15 @@ def _reading_instruction(level: str) -> str:
     )
 
 
-def _writer_user(lead: EnrichLead, facts: dict, formats: list) -> str:
+def _writer_user(lead: EnrichLead, facts: dict, formats: list, site_excerpt: str = "") -> str:
     return (
         "LEAD:\n" + json.dumps({
             "first_name": lead.first_name, "company": lead.company, "title": lead.title,
         }) +
         "\nPROSPECT TAXONOMY:\n" + json.dumps(_prospect_summary(facts)) +
+        (("\nPROSPECT SITE TEXT (real crawled content — personalize from SPECIFIC details found here; "
+          "never invent, and do not copy numbers that are not present):\n" + site_excerpt)
+         if site_excerpt else "") +
         "\nVARIABLE PLAN (follow each _job, exact format guidance, assigned claim, and quote):\n" +
         json.dumps(formats)
     )
@@ -989,9 +1002,12 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
     assign = _assign_evidence(facts, formats)
     aug = _augmented_formats(formats, assign)
     system = _writer_system(cfg, rules, level_line)
-    # The evidence extractor already validated every assigned quote against its
-    # source page. Sending the entire crawl again was redundant and dominated cost.
-    user = _writer_user(lead, facts, aug)
+    # Give the writer the REAL crawled site text so it can personalize from specific
+    # details — the thin taxonomy alone starves it and QC then blanks everything.
+    deep = getattr(cfg, "research_depth", "") == "deep"
+    site_text = ctx.get("crawl", {}).get("text", "") or ""
+    site_excerpt = site_text[:16000 if deep else 9000]
+    user = _writer_user(lead, facts, aug, site_excerpt)
     calls = 0
     prompt_chars = len(system) + len(user)
     try:
@@ -1002,28 +1018,28 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
         return {"vars": {}, "source": "failed", "assignments": assign,
                 "error": f"Writer failed: {str(exc)[:240]}"}
 
-    vars_out, candidate_count = _select_candidates(out, formats, assign, facts, reading)
+    vars_out, candidate_count = _select_candidates(out, formats, assign, facts, reading, site_text)
     # Regenerate only failed variables once, then quarantine every remaining
     # failure. No fallback prose and no partially grounded result may be `done`.
-    fails = _qc_failures(vars_out, assign, facts, formats, reading)
+    fails = _qc_failures(vars_out, assign, facts, formats, reading, site_text)
     if fails:
         fix_formats = [f for f in aug if f["name"] in fails]
         fix_system = (_writer_system(cfg, rules, level_line) +
                       "\nREPAIR: the previous candidates failed the checks below. Correct every stated "
                       "problem while preserving the assigned claim and concrete quote details.\nFAILURES:\n" +
                       "\n".join(f"- {n}: {r}" for n, r in fails.items()))
-        fix_user = _writer_user(lead, facts, fix_formats)
+        fix_user = _writer_user(lead, facts, fix_formats, site_excerpt)
         try:
             prompt_chars += len(fix_system) + len(fix_user)
             fixed = ai._call_openai(fix_system, fix_user, model=model)
             calls += 1
             repaired, repair_candidates = _select_candidates(
-                fixed, [f for f in formats if f["name"] in fails], assign, facts, reading)
+                fixed, [f for f in formats if f["name"] in fails], assign, facts, reading, site_text)
             candidate_count += repair_candidates
             vars_out.update(repaired)
         except Exception:
             pass
-    final_fails = _qc_failures(vars_out, assign, facts, formats, reading)
+    final_fails = _qc_failures(vars_out, assign, facts, formats, reading, site_text)
     for name in final_fails:
         vars_out[name] = ""
     return {"vars": vars_out, "source": "openai", "assignments": assign,
