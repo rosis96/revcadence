@@ -695,6 +695,7 @@ async def build_icp(workspace_id: int,
 
     from ..enrichment import ai
     from ..enrichment.crawler import crawl_site
+    from ..enrichment.pipeline import _config
     if not ai.has_ai():
         raise HTTPException(422, "No OpenAI key set — connect AI before building the ICP.")
     material = (text or "").strip()
@@ -705,19 +706,28 @@ async def build_icp(workspace_id: int,
         crawl = crawl_site(website, max_pages=10, max_chars=24000)
         if crawl.get("text"):
             material = (material + "\n\n" + crawl["text"]).strip()
-    if not material.strip():
-        raise HTTPException(422, "Upload a PDF, paste text, or give a website to learn the ICP from.")
+    # use the TRAINED BRAIN too — so after training in chat you can just hit Build.
+    cfg = _config(ctx.db, workspace_id)
+    brain = cfg.profile or {}
+    brain_ctx = _json.dumps({k: brain.get(k) for k in
+                             ("client_name", "main_offer", "icp_summary", "industries", "services",
+                              "target_titles", "problem_library", "case_studies") if brain.get(k)})
+    if not material.strip() and brain_ctx in ("", "{}"):
+        raise HTTPException(422, "Nothing to learn from — train the brain (Ask the Brain), upload a PDF, paste text, or give a website.")
+    full = ((f"TRAINED CLIENT BRAIN:\n{brain_ctx}\n\n" if brain_ctx not in ("", "{}") else "")
+            + (f"ADDITIONAL MATERIAL:\n{material}" if material else ""))[:26000]
 
     system = (
         "You write a STRICT ICP (ideal customer profile) definition for a B2B outbound engine, from the "
-        "material provided. Ground ONLY in the material — never invent. Return JSON with EXACTLY these keys:\n"
+        "material provided (the trained CLIENT BRAIN and any additional material). Ground ONLY in what is "
+        "provided — never invent. Return JSON with EXACTLY these keys:\n"
         'procedure (list of str — the ordered steps to decide if a company is a fit), '
         'icp_categories (list of str — the specific company types that ARE a fit), '
         'hard_non_icp (list of str — signals that AUTO-REJECT a company), '
         'default (str — one of "ICP", "Non-ICP", "Needs Review" — what to return when unsure). '
         "Be concrete and specific to this business.")
     try:
-        out = ai._call_openai(system, "MATERIAL:\n" + material[:24000], model=ai.extract_model())
+        out = ai._call_openai(system, full, model=ai.extract_model())
     except Exception as e:
         raise HTTPException(502, f"AI extraction failed: {str(e)[:200]}")
     if not isinstance(out, dict):

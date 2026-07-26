@@ -360,7 +360,8 @@ export default function EnrichConfigPage({ tab }) {
             background: "linear-gradient(180deg,#fff,#f4f9ff)" }}>
             <h2 style={{ fontSize: 15, marginBottom: 4 }}>Build the ICP with AI</h2>
             <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 12 }}>
-              No JSON needed. <b>Upload the client's ICP document (PDF)</b>, paste a description, or give a
+              No JSON needed. Just click <b>Build ICP with AI</b> to use everything you've trained in the brain —
+              or add more: <b>upload the client's ICP document (PDF)</b>, paste a description, or give a
               website — the AI reads it and builds the ICP rules for you. Review below, then Save.</p>
             <div className="field" style={{ margin: 0 }}><label>Upload ICP document (PDF or text)</label>
               <input type="file" accept=".pdf,.txt,.md" onChange={(e) => setIcpB({ ...icpB, file: e.target.files[0] })} /></div>
@@ -372,7 +373,7 @@ export default function EnrichConfigPage({ tab }) {
               <input style={{ width: "100%" }} value={icpB.website}
                      onChange={(e) => setIcpB({ ...icpB, website: e.target.value })} placeholder="https://client.com" /></div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12 }}>
-              <button className="btn" disabled={icpB.busy || (!icpB.file && !icpB.text.trim() && !icpB.website.trim())}
+              <button className="btn" disabled={icpB.busy}
                 onClick={async () => {
                   setIcpB((b) => ({ ...b, busy: true }));
                   try {
