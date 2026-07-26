@@ -302,7 +302,8 @@ _BANNED_PHRASES = [
     "truly sets", "sets a high standard", "love how", "cutting-edge", "cutting edge",
     "top-notch", "best-in-class", "best in class", "technically sophisticated",
     "client satisfaction", "customer satisfaction", "our integrated approach",
-    "your work exceeded expectations",
+    "your work exceeded expectations", "leveraging this", "revenue ecosystem",
+    "opportunity progression", "differentiated capability", "utilize this",
 ]
 # Generic value-nouns that must NOT stand in for a concrete website detail.
 _GENERIC_NOUNS = {"quality", "innovation", "expertise", "commitment", "creativity",
@@ -553,7 +554,8 @@ def _uses_assigned_evidence(text: str, assignment: dict) -> bool:
     return bool(anchor_matches(text, assignment))
 
 
-def _qc_failures(vars_out: dict, assign: dict, facts: dict, formats: list | None = None) -> dict:
+def _qc_failures(vars_out: dict, assign: dict, facts: dict, formats: list | None = None,
+                 reading_level: str = "") -> dict:
     """Return {name: reason} for variables that must be regenerated."""
     fails = {}
     primary_seen = {}   # evidence_key -> first variable that used it
@@ -574,6 +576,15 @@ def _qc_failures(vars_out: dict, assign: dict, facts: dict, formats: list | None
         if fmt.get("max_words") and len(words) > int(fmt["max_words"]):
             fails[name] = f"above configured maximum of {int(fmt['max_words'])} words"
             continue
+        if (reading_level or "b2 business") == "b2 business":
+            sentence_lengths = [
+                len(re.findall(r"\b[\w'-]+\b", sentence))
+                for sentence in re.split(r"(?<=[.!?])\s+", t)
+                if sentence.strip()
+            ]
+            if sentence_lengths and max(sentence_lengths) > 40:
+                fails[name] = "contains a sentence longer than 40 words; use clear B2 sentence structure"
+                continue
         hit = next((p for p in _BANNED_PHRASES if p in low), None)
         if hit:
             fails[name] = f"uses banned filler '{hit}'"
@@ -641,6 +652,11 @@ def _augmented_formats(formats: list, assign: dict) -> list:
         # Approved outputs are training memory, but two recent examples are enough
         # to teach structure without repeatedly paying to send the whole library.
         compact["examples"] = [str(x)[:1400] for x in (f.get("examples") or [])[-2:]]
+        compact["avoid_examples"] = [{
+            "text": str(x.get("text") or "")[:1000],
+            "reason": str(x.get("reason") or "")[:500],
+        } for x in (f.get("rejected_examples") or [])[-2:] if isinstance(x, dict)]
+        compact.pop("rejected_examples", None)
         compact["rules"] = [str(x)[:500] for x in (f.get("rules") or [])[:12]]
         aug.append({**compact,
                     "_job": a.get("purpose", ""),
@@ -709,7 +725,8 @@ def _candidate_values(raw: dict, name: str) -> list[str]:
     return []
 
 
-def _select_candidates(raw: dict, formats: list, assign: dict, facts: dict) -> tuple[dict, int]:
+def _select_candidates(raw: dict, formats: list, assign: dict, facts: dict,
+                       reading_level: str = "") -> tuple[dict, int]:
     """Choose the strongest model candidate locally—no extra critic API call."""
     selected, total = {}, 0
     for fmt in formats:
@@ -721,7 +738,7 @@ def _select_candidates(raw: dict, formats: list, assign: dict, facts: dict) -> t
         def score(text):
             local = local_candidate_score(text, role, assign.get(name, {}), fmt)
             failure = _qc_failures({name: text}, {name: assign.get(name, {})},
-                                   facts, [fmt])
+                                   facts, [fmt], reading_level)
             return local - (1000 if failure else 0)
 
         selected[name] = max(candidates, key=score) if candidates else ""
@@ -746,6 +763,8 @@ def _writer_system(cfg, rules, level_line) -> str:
             "titles, and the revenue problems we solve. Titles are not customer categories.\n"
             "- Approved examples teach style and structure only. Never copy their company names, projects, "
             "numbers, or claims into a different prospect's output.\n"
+            "- avoid_examples are rejected anti-examples. Do not copy their wording or repeat the problem "
+            "stated in their reason.\n"
             "- First line, value proposition, and compliment use different primary evidence; reference may "
             "reuse value-proposition evidence. Avoid vague praise and branded labels.\n"
             "- BANNED PHRASES: " + "; ".join(_BANNED_PHRASES) + ".\n"
@@ -754,6 +773,23 @@ def _writer_system(cfg, rules, level_line) -> str:
             + level_line +
             "\nCLIENT PROFILE / OUR OFFER:\n" + json.dumps(_compact_profile(cfg.profile or {})) +
             "\nGLOBAL RULES (obey every line):\n" + "\n".join(rules))
+
+
+def _reading_instruction(level: str) -> str:
+    level = (level or "b2 business").strip().lower()
+    if level == "b2 business":
+        return (
+            "\nREADING LEVEL: write in clear, natural B2-level business English. Use simple vocabulary "
+            "and direct sentence structures. Prefer specific facts over sophisticated wording. Avoid "
+            "academic language, corporate jargon, vague flattery, exaggerated or poetic praise, and "
+            "unnecessarily complex sentences. First lines and product compliments should sound B1–B2 "
+            "when spoken aloud. Value propositions, references, and pitches should be B2. Use an advanced "
+            "industry term only when it appears in the prospect evidence and is needed for accuracy."
+        )
+    return (
+        f"\nREADING LEVEL: write so a {level} reader understands it easily — "
+        "short sentences, everyday words, no jargon."
+    )
 
 
 def _writer_user(lead: EnrichLead, facts: dict, formats: list) -> str:
@@ -788,9 +824,8 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
         return {"vars": {}, "source": "failed", "assignments": {},
                 "error": "OPENAI_API_KEY is not configured; generation was refused."}
 
-    reading = (getattr(cfg, "reading_level", "") or "").strip()
-    level_line = (f"\nREADING LEVEL: write so a {reading} reader understands it easily — "
-                  "short sentences, everyday words, no jargon." if reading else "")
+    reading = (getattr(cfg, "reading_level", "") or "b2 business").strip()
+    level_line = _reading_instruction(reading)
     assign = _assign_evidence(facts, formats)
     aug = _augmented_formats(formats, assign)
     system = _writer_system(cfg, rules, level_line)
@@ -807,10 +842,10 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
         return {"vars": {}, "source": "failed", "assignments": assign,
                 "error": f"Writer failed: {str(exc)[:240]}"}
 
-    vars_out, candidate_count = _select_candidates(out, formats, assign, facts)
+    vars_out, candidate_count = _select_candidates(out, formats, assign, facts, reading)
     # Regenerate only failed variables once, then quarantine every remaining
     # failure. No fallback prose and no partially grounded result may be `done`.
-    fails = _qc_failures(vars_out, assign, facts, formats)
+    fails = _qc_failures(vars_out, assign, facts, formats, reading)
     if fails:
         fix_formats = [f for f in aug if f["name"] in fails]
         fix_system = (_writer_system(cfg, rules, level_line) +
@@ -823,12 +858,12 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
             fixed = ai._call_openai(fix_system, fix_user, model=model)
             calls += 1
             repaired, repair_candidates = _select_candidates(
-                fixed, [f for f in formats if f["name"] in fails], assign, facts)
+                fixed, [f for f in formats if f["name"] in fails], assign, facts, reading)
             candidate_count += repair_candidates
             vars_out.update(repaired)
         except Exception:
             pass
-    final_fails = _qc_failures(vars_out, assign, facts, formats)
+    final_fails = _qc_failures(vars_out, assign, facts, formats, reading)
     for name in final_fails:
         vars_out[name] = ""
     return {"vars": vars_out, "source": "openai", "assignments": assign,

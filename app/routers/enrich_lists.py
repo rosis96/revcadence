@@ -3,7 +3,7 @@ Views + full-list counts are server-side so 50k+ lists stay browsable and the
 chips are always accurate. 'Select all in view' semantics: actions accept a
 view name and apply to the entire filtered set, not just a page."""
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func
 
 from ..auth import AuthContext, get_ctx
@@ -13,7 +13,15 @@ from ..enrichment.brain import (
     accumulate_brain as _accumulate_brain,
     merge_brain_list as _merge_brain_list,
 )
-from ..models.enrich import TERMINAL_STATUSES, EnrichConfig, EnrichLead, EnrichList
+from ..models.audit import AuditLog
+from ..models.enrich import (
+    TERMINAL_STATUSES,
+    EnrichConfig,
+    EnrichLead,
+    EnrichList,
+    WorkspaceTrainingRevision,
+)
+from ..models.identity import Workspace
 from ..models.jobs import Job
 
 router = APIRouter(prefix="/api/enrich-lists", tags=["enrichment-lists"])
@@ -587,6 +595,66 @@ class FormatExampleIn(BaseModel):
     text: str
 
 
+class FormatFeedbackIn(BaseModel):
+    text: str
+    verdict: str
+    reason: str = ""
+
+
+class TrainingPackageIn(BaseModel):
+    package: dict
+    expected_revision: str = ""
+    note: str = ""
+
+
+class TrainingEvaluationRunIn(BaseModel):
+    confirm_spend: bool = False
+    case_names: list[str] = Field(default_factory=list)
+
+
+def _training_admin(workspace_id: int, ctx: AuthContext):
+    ctx.require_workspace(workspace_id)
+    if not ctx.is_master:
+        raise HTTPException(403, "Workspace training imports and rollback require owner/admin access.")
+    workspace = ctx.db.get(Workspace, workspace_id)
+    if workspace is None or workspace.org_id != ctx.org_id:
+        raise HTTPException(404, "Workspace not found.")
+    return workspace
+
+
+def _save_training_revision(ctx: AuthContext, workspace_id: int, snapshot: dict,
+                            *, action: str, note: str) -> WorkspaceTrainingRevision:
+    """Save the pre-change state and bound retained history to 25 snapshots."""
+    from ..enrichment.training import revision_hash
+
+    latest = (
+        ctx.db.query(func.max(WorkspaceTrainingRevision.version))
+        .filter(WorkspaceTrainingRevision.workspace_id == workspace_id)
+        .scalar()
+    ) or 0
+    row = WorkspaceTrainingRevision(
+        workspace_id=workspace_id,
+        version=latest + 1,
+        action=action[:30],
+        note=(note or "")[:500],
+        revision_hash=revision_hash(snapshot),
+        snapshot=snapshot,
+        created_by=ctx.user.id,
+    )
+    ctx.db.add(row)
+    ctx.db.flush()
+    old = (
+        ctx.db.query(WorkspaceTrainingRevision)
+        .filter(WorkspaceTrainingRevision.workspace_id == workspace_id)
+        .order_by(WorkspaceTrainingRevision.version.desc())
+        .offset(25)
+        .all()
+    )
+    for item in old:
+        ctx.db.delete(item)
+    return row
+
+
 @router.post("/config/{workspace_id}/formats/{format_name}/examples")
 def add_format_example(workspace_id: int, format_name: str, body: FormatExampleIn,
                        ctx: AuthContext = Depends(get_ctx)):
@@ -620,6 +688,297 @@ def add_format_example(workspace_id: int, format_name: str, body: FormatExampleI
             "example_count": len(next(f["examples"] for f in formats if f.get("name") == format_name))}
 
 
+@router.post("/config/{workspace_id}/formats/{format_name}/feedback")
+def add_format_feedback(workspace_id: int, format_name: str, body: FormatFeedbackIn,
+                        ctx: AuthContext = Depends(get_ctx)):
+    """Remember both good outputs and rejected anti-examples with a reason."""
+    ctx.require_workspace(workspace_id)
+    from ..enrichment.pipeline import _config
+
+    text = " ".join((body.text or "").split()).strip()
+    verdict = (body.verdict or "").strip().lower()
+    reason = " ".join((body.reason or "").split()).strip()
+    if verdict not in ("approved", "rejected"):
+        raise HTTPException(422, "verdict must be approved or rejected.")
+    if len(text) < 8 or len(text) > 4000:
+        raise HTTPException(422, "Feedback text must be between 8 and 4,000 characters.")
+    if len(reason) > 1000:
+        raise HTTPException(422, "Feedback reason is too long.")
+    if verdict == "rejected" and len(reason) < 3:
+        raise HTTPException(422, "Explain briefly why this output should not be repeated.")
+
+    cfg = _config(ctx.db, workspace_id)
+    formats = [dict(f) for f in (cfg.formats or []) if isinstance(f, dict)]
+    target = next((f for f in formats if str(f.get("name") or "") == format_name), None)
+    if target is None:
+        raise HTTPException(404, "That format variable no longer exists.")
+    normalized = " ".join(text.casefold().split())
+    if verdict == "approved":
+        examples = [str(x).strip() for x in (target.get("examples") or []) if str(x).strip()]
+        if normalized not in {" ".join(x.casefold().split()) for x in examples}:
+            examples.append(text)
+        target["examples"] = examples[-20:]
+        count = len(target["examples"])
+    else:
+        rejected = [
+            dict(x) for x in (target.get("rejected_examples") or [])
+            if isinstance(x, dict) and str(x.get("text") or "").strip()
+        ]
+        rejected = [
+            x for x in rejected
+            if " ".join(str(x.get("text") or "").casefold().split()) != normalized
+        ]
+        from datetime import datetime
+        rejected.append({
+            "text": text,
+            "reason": reason,
+            "created_at": datetime.utcnow().isoformat(),
+        })
+        target["rejected_examples"] = rejected[-50:]
+        count = len(target["rejected_examples"])
+    cfg.formats = formats
+    ctx.db.add(AuditLog(
+        org_id=ctx.org_id, workspace_id=workspace_id, user_id=ctx.user.id,
+        action=f"training.feedback.{verdict}", object_type="enrichment_format",
+        data={"format": format_name, "reason": reason[:240]},
+    ))
+    ctx.db.commit()
+    return {"ok": True, "format": format_name, "verdict": verdict, "count": count}
+
+
+@router.get("/config/{workspace_id}/training/export")
+def export_training_package(workspace_id: int, ctx: AuthContext = Depends(get_ctx)):
+    """Export only sanitized writing/training configuration—never operational data."""
+    workspace = _training_admin(workspace_id, ctx)
+    from ..enrichment.pipeline import _config
+    from ..enrichment.training import export_bundle
+
+    cfg = _config(ctx.db, workspace_id)
+    ctx.db.commit()
+    return export_bundle(ctx.db, cfg, workspace.name)
+
+
+@router.post("/config/{workspace_id}/training/preview")
+def preview_training_package(workspace_id: int, body: TrainingPackageIn,
+                             ctx: AuthContext = Depends(get_ctx)):
+    workspace = _training_admin(workspace_id, ctx)
+    from ..enrichment.pipeline import _config
+    from ..enrichment.training import (
+        normalize_bundle,
+        revision_hash,
+        state_diff,
+        workspace_state,
+    )
+
+    cfg = _config(ctx.db, workspace_id)
+    ctx.db.commit()
+    current = workspace_state(ctx.db, cfg)
+    proposed = normalize_bundle(body.package, current)
+    return {
+        "workspace": {"id": workspace.id, "name": workspace.name},
+        "current_revision": revision_hash(current),
+        "proposed_revision": revision_hash(proposed),
+        "changes": state_diff(current, proposed),
+        "normalized_package": {
+            "schema": "revcadence.workspace-training",
+            "schema_version": 1,
+            **proposed,
+        },
+    }
+
+
+@router.post("/config/{workspace_id}/training/apply")
+def apply_training_package(workspace_id: int, body: TrainingPackageIn,
+                           ctx: AuthContext = Depends(get_ctx)):
+    workspace = _training_admin(workspace_id, ctx)
+    from ..enrichment.pipeline import _config
+    from ..enrichment.training import (
+        apply_config_state,
+        normalize_bundle,
+        replace_evaluations,
+        revision_hash,
+        state_diff,
+        workspace_state,
+    )
+
+    cfg = _config(ctx.db, workspace_id)
+    ctx.db.commit()
+    current = workspace_state(ctx.db, cfg)
+    current_hash = revision_hash(current)
+    if not body.expected_revision:
+        raise HTTPException(409, "Preview the package first and send its current_revision.")
+    if body.expected_revision != current_hash:
+        raise HTTPException(409, "Workspace training changed after preview. Preview again before applying.")
+    proposed = normalize_bundle(body.package, current)
+    changes = state_diff(current, proposed)
+    if not changes:
+        return {"ok": True, "changed": False, "revision": current_hash, "changes": []}
+
+    saved = _save_training_revision(
+        ctx, workspace_id, current, action="before_apply", note=body.note or "Training package apply",
+    )
+    apply_config_state(cfg, proposed)
+    replace_evaluations(ctx.db, workspace_id, proposed["evaluation_cases"])
+    ctx.db.add(AuditLog(
+        org_id=ctx.org_id, workspace_id=workspace_id, user_id=ctx.user.id,
+        action="training.package.apply", object_type="workspace",
+        object_id=workspace_id,
+        data={
+            "previous_revision": current_hash,
+            "new_revision": revision_hash(proposed),
+            "rollback_revision_id": saved.id,
+            "sections": [item["section"] for item in changes],
+        },
+    ))
+    ctx.db.commit()
+    return {
+        "ok": True,
+        "changed": True,
+        "revision": revision_hash(proposed),
+        "rollback_revision_id": saved.id,
+        "changes": changes,
+    }
+
+
+@router.get("/config/{workspace_id}/training/revisions")
+def training_revisions(workspace_id: int, ctx: AuthContext = Depends(get_ctx)):
+    _training_admin(workspace_id, ctx)
+    rows = (
+        ctx.db.query(WorkspaceTrainingRevision)
+        .filter(WorkspaceTrainingRevision.workspace_id == workspace_id)
+        .order_by(WorkspaceTrainingRevision.version.desc())
+        .limit(25)
+        .all()
+    )
+    return [{
+        "id": row.id,
+        "version": row.version,
+        "action": row.action,
+        "note": row.note or "",
+        "revision": row.revision_hash,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "created_by": row.created_by,
+    } for row in rows]
+
+
+@router.post("/config/{workspace_id}/training/evaluate")
+def run_training_evaluation(workspace_id: int, body: TrainingEvaluationRunIn,
+                            ctx: AuthContext = Depends(get_ctx)):
+    """Run up to five active golden cases through the live writer.
+
+    This is deliberately explicit because it spends OpenAI tokens. It never
+    changes leads or the workspace training configuration.
+    """
+    _training_admin(workspace_id, ctx)
+    if not body.confirm_spend:
+        raise HTTPException(422, "Set confirm_spend=true after confirming the live AI cost.")
+    from ..enrichment.pipeline import _config, _write_copy
+    from ..enrichment.training import score_evaluation_case
+    from ..models.enrich import WorkspaceEvaluationCase
+
+    query = (
+        ctx.db.query(WorkspaceEvaluationCase)
+        .filter(
+            WorkspaceEvaluationCase.workspace_id == workspace_id,
+            WorkspaceEvaluationCase.active == True,  # noqa: E712
+        )
+        .order_by(WorkspaceEvaluationCase.id)
+    )
+    names = [str(x).strip() for x in body.case_names if str(x).strip()]
+    if len(names) > 5:
+        raise HTTPException(422, "Run at most five evaluation cases at a time.")
+    if names:
+        query = query.filter(WorkspaceEvaluationCase.name.in_(names))
+    cases = query.limit(5).all()
+    if not cases:
+        raise HTTPException(422, "No active golden evaluation cases were selected.")
+
+    cfg = _config(ctx.db, workspace_id)
+    ctx.db.commit()
+    results = []
+    for case in cases:
+        transient = EnrichLead(
+            workspace_id=workspace_id,
+            list_id=0,
+            company=case.company or case.name,
+            website=case.website or "",
+        )
+        generated = _write_copy(transient, cfg, {"facts": case.facts or {}})
+        scored = score_evaluation_case(
+            case.expected_outputs or {},
+            generated.get("vars") or {},
+            generated.get("quality_failures") or {},
+        )
+        results.append({
+            "id": case.id,
+            "name": case.name,
+            "company": case.company or "",
+            **scored,
+            "generation": generated.get("generation") or {},
+            "writer_error": generated.get("error") or "",
+        })
+    passed = sum(1 for item in results if item["passed"])
+    ctx.db.add(AuditLog(
+        org_id=ctx.org_id, workspace_id=workspace_id, user_id=ctx.user.id,
+        action="training.evaluation.run", object_type="workspace", object_id=workspace_id,
+        data={"cases": len(results), "passed": passed,
+              "average_score": round(sum(x["score"] for x in results) / len(results))},
+    ))
+    ctx.db.commit()
+    return {
+        "cases": len(results),
+        "passed": passed,
+        "average_score": round(sum(x["score"] for x in results) / len(results)),
+        "results": results,
+    }
+
+
+@router.post("/config/{workspace_id}/training/rollback/{revision_id}")
+def rollback_training_package(workspace_id: int, revision_id: int,
+                              ctx: AuthContext = Depends(get_ctx)):
+    workspace = _training_admin(workspace_id, ctx)
+    from ..enrichment.pipeline import _config
+    from ..enrichment.training import (
+        apply_config_state,
+        replace_evaluations,
+        revision_hash,
+        workspace_state,
+    )
+
+    target = (
+        ctx.db.query(WorkspaceTrainingRevision)
+        .filter(
+            WorkspaceTrainingRevision.id == revision_id,
+            WorkspaceTrainingRevision.workspace_id == workspace_id,
+        )
+        .first()
+    )
+    if target is None:
+        raise HTTPException(404, "Training revision not found.")
+    cfg = _config(ctx.db, workspace_id)
+    ctx.db.commit()
+    current = workspace_state(ctx.db, cfg)
+    _save_training_revision(
+        ctx, workspace_id, current, action="before_rollback",
+        note=f"Before rollback to revision {target.version}",
+    )
+    restored = target.snapshot
+    apply_config_state(cfg, restored)
+    replace_evaluations(ctx.db, workspace_id, restored.get("evaluation_cases", []))
+    ctx.db.add(AuditLog(
+        org_id=ctx.org_id, workspace_id=workspace_id, user_id=ctx.user.id,
+        action="training.package.rollback", object_type="workspace", object_id=workspace_id,
+        data={"restored_revision_id": target.id, "restored_revision": revision_hash(restored)},
+    ))
+    ctx.db.commit()
+    return {
+        "ok": True,
+        "workspace": workspace.name,
+        "revision": revision_hash(restored),
+        "restored_revision_id": target.id,
+    }
+
+
 @router.get("/config/{workspace_id}")
 def get_config(workspace_id: int, ctx: AuthContext = Depends(get_ctx)):
     ctx.require_workspace(workspace_id)
@@ -633,7 +992,7 @@ def get_config(workspace_id: int, ctx: AuthContext = Depends(get_ctx)):
             "formats": cfg.formats or [], "rules": cfg.rules or "",
             "skip_title_gate": bool(cfg.skip_title_gate), "skip_icp": bool(cfg.skip_icp),
             "only_safe": bool(cfg.only_safe),
-            "reading_level": cfg.reading_level or "",
+            "reading_level": cfg.reading_level or "b2 business",
             "writer_model": cfg.writer_model or "",
             "research_depth": cfg.research_depth or "standard",
             # which models are actually used (writer override else env default)

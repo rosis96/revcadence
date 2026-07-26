@@ -237,9 +237,24 @@ export default function EnrichListDetail() {
     const wsId = data?.list?.workspace_id;
     if (!wsId || !String(text || "").trim()) return;
     try {
-      const r = await api(`/api/enrich-lists/config/${wsId}/formats/${encodeURIComponent(name)}/examples`,
-        { method: "POST", body: { text } });
-      toast(`Saved as a ${pretty(name)} training example (${r.example_count} saved)`);
+      const r = await api(`/api/enrich-lists/config/${wsId}/formats/${encodeURIComponent(name)}/feedback`,
+        { method: "POST", body: { text, verdict: "approved", reason: "" } });
+      toast(`Saved as a ${pretty(name)} training example (${r.count} approved)`);
+    } catch (e) { toast(e.message, "bad"); }
+  };
+
+  const rejectOutput = async (name, text) => {
+    const wsId = data?.list?.workspace_id;
+    if (!wsId || !String(text || "").trim()) return;
+    const reason = window.prompt(
+      "Why should the writer avoid this output? Be specific, for example: “too corporate”, “ignored the number”, or “sentence is too complex”.",
+    );
+    if (reason == null) return;
+    if (reason.trim().length < 3) { toast("Add a brief reason so the writer knows what to avoid.", "bad"); return; }
+    try {
+      const r = await api(`/api/enrich-lists/config/${wsId}/formats/${encodeURIComponent(name)}/feedback`,
+        { method: "POST", body: { text, verdict: "rejected", reason: reason.trim() } });
+      toast(`Saved as an anti-example (${r.count} rejected examples)`);
     } catch (e) { toast(e.message, "bad"); }
   };
 
@@ -491,6 +506,10 @@ export default function EnrichListDetail() {
                           {!failure && v && <button className="btn ghost sm" onClick={() => trainWithOutput(k, v)}
                             title="Save this approved output as a style/structure example for future leads">
                             Train with this
+                          </button>}
+                          {!failure && v && <button className="btn ghost sm" onClick={() => rejectOutput(k, v)}
+                            title="Save this as an anti-example and explain what the writer should avoid">
+                            Needs work
                           </button>}
                           {failure ? <Badge tone="red">Held</Badge> : <Badge tone="green">Grounded</Badge>}
                         </div></div>

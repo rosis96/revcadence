@@ -24,6 +24,7 @@ import Enrichment from "./pages/Enrichment";
 import EnrichLists from "./pages/EnrichLists";
 import EnrichListDetail from "./pages/EnrichListDetail";
 import EnrichConfigPage from "./pages/EnrichConfig";
+import TrainingBridge from "./pages/TrainingBridge";
 import Blueprints from "./pages/Blueprints";
 import BlueprintDetail from "./pages/BlueprintDetail";
 import AgreementDetail from "./pages/AgreementDetail";
@@ -65,6 +66,7 @@ const MODES = {
       ["/enrichment/icp", "ICP / Non-ICP", Target],
       ["/enrichment/formats", "Formats", AlignLeft],
       ["/enrichment/rules", "Rules", CheckCheck],
+      ["/enrichment/training", "Workspace Training", ShieldCheck],
     ],
   },
   reply: {
@@ -269,6 +271,7 @@ function Protected() {
         <Route path="/enrichment/icp" element={<EnrichConfigPage tab="icp" />} />
         <Route path="/enrichment/formats" element={<EnrichConfigPage tab="formats" />} />
         <Route path="/enrichment/rules" element={<EnrichConfigPage tab="rules" />} />
+        <Route path="/enrichment/training" element={<TrainingBridge />} />
         <Route path="/enrichment/companies" element={<Enrichment />} />
         <Route path="/reply" element={<ReplyDashboard />} />
         <Route path="/reply/inbox" element={<ReplyInbox />} />

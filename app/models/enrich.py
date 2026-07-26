@@ -9,7 +9,7 @@ Anything else ("", pending, running) = not finished; the pipeline resumes it.
 Completed work is never re-charged."""
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, JSON, String, Text
 
 from ..db import Base
 
@@ -75,7 +75,43 @@ class EnrichConfig(Base):
     skip_icp = Column(Integer, default=0)       # 1: don't reject Non-ICP — enrich all verified leads
     only_safe = Column(Integer, default=1)      # 1: catch_all/unknown stop as unsafe (default on)
     reoon_api_key_enc = Column(Text, default="")  # per-workspace Reoon key (encrypted); env fallback
-    reading_level = Column(String(40), default="")   # e.g. "6th grade" — controls writer simplicity
+    reading_level = Column(String(40), default="b2 business")  # default: clear natural B2 business English
     writer_model = Column(String(60), default="")    # override the OpenAI writer model (else env default)
     research_depth = Column(String(20), default="standard")  # standard | deep (crawl pages + content budget)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class WorkspaceTrainingRevision(Base):
+    """Immutable, sanitized workspace-training snapshot used for audit/rollback.
+
+    Snapshots contain enrichment configuration and golden evaluation cases only.
+    They never contain leads, mailbox data, credentials, or encrypted API keys.
+    """
+    __tablename__ = "workspace_training_revisions"
+
+    id = Column(Integer, primary_key=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False, index=True)
+    version = Column(Integer, nullable=False)
+    action = Column(String(30), default="apply")
+    note = Column(String(500), default="")
+    revision_hash = Column(String(64), nullable=False, index=True)
+    snapshot = Column(JSON, nullable=False)
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class WorkspaceEvaluationCase(Base):
+    """A sanitized golden case for repeatable writer evaluation."""
+    __tablename__ = "workspace_evaluation_cases"
+
+    id = Column(Integer, primary_key=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    company = Column(String(255), default="")
+    website = Column(Text, default="")
+    facts = Column(JSON, default=dict)
+    expected_outputs = Column(JSON, default=dict)
+    notes = Column(Text, default="")
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

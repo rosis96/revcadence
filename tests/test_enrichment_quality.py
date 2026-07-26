@@ -11,6 +11,7 @@ from app.enrichment.pipeline import (
     _flatten_signals,
     _qc_failures,
     _research_packet,
+    _reading_instruction,
     _validate_text_evidence,
 )
 
@@ -141,6 +142,25 @@ def main():
     augmented = _augmented_formats(product_formats, product_assign)
     check("only two recent approved examples enter the paid prompt",
           augmented[0]["examples"] == ["approved two", "approved three"])
+    check("B2 is the detailed default writing standard",
+          "B2-level business English" in _reading_instruction(""))
+    too_complex = {"value_proposition":
+                   "John Jay's Annual Fund revenue increased 60% while this concrete proof "
+                   "creates a detailed commercial narrative that enables multiple stakeholders "
+                   "throughout a complicated purchasing committee to understand the strategic implications "
+                   "and consequently move the opportunity forward with substantially greater organizational confidence."}
+    check("B2 QC rejects an overlong sentence",
+          "longer than 40 words" in
+          _qc_failures(too_complex, assignments, facts, formats, "b2 business")["value_proposition"])
+    rejected_formats = [{**product_formats[0], "rejected_examples": [
+        {"text": "Cambot is technically sophisticated.", "reason": "Too vague."},
+        {"text": "Leveraging this capability is impressive.", "reason": "Too corporate."},
+        {"text": "Cambot has innovative solutions.", "reason": "Generic filler."},
+    ]}]
+    rejected_augmented = _augmented_formats(rejected_formats, product_assign)
+    check("only two recent rejected examples enter the paid prompt",
+          [x["reason"] for x in rejected_augmented[0]["avoid_examples"]]
+          == ["Too corporate.", "Generic filler."])
 
     print(f"\n{sum(PASS)}/{len(PASS)} checks passed")
 

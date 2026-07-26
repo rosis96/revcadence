@@ -35,6 +35,24 @@ request is made only for variables that fail deterministic quality checks.
 Override `EXTRACT_MODEL`, `WRITER_MODEL`, or `VISION_MODEL` when an eval shows a
 more expensive model produces enough additional value.
 
+### Workspace Training Bridge
+
+Owners and admins can open **Outbound → Workspace Training** to export, preview,
+apply, evaluate, and roll back a workspace training package. Packages include
+only the Client Brain, ICP, formats, writing rules, approved/rejected examples,
+model controls, and sanitized golden evaluation cases. They never include
+leads, email addresses, mailbox data, verification keys, API credentials, or
+other production secrets.
+
+Every import requires a preview revision, writes an audit entry, and saves the
+previous state as a rollback snapshot. Golden-case evaluation is separately
+confirmed because it uses live OpenAI tokens; it processes at most five active
+cases and does not modify leads.
+
+The default writing standard is clear, natural B2 business English. Approved
+outputs teach style and structure; rejected outputs include a reason and enter
+the writer as bounded anti-examples.
+
 ## Test
 
 ```bash
