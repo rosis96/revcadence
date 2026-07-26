@@ -416,10 +416,10 @@ export default function EnrichConfigPage({ tab }) {
             background: "linear-gradient(180deg,#fff,#f4f9ff)" }}>
             <h2 style={{ fontSize: 15, marginBottom: 4 }}>Build formats with AI</h2>
             <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 12 }}>
-              No JSON needed. Describe how you want each variable written (or paste your old format rules), and
-              the AI designs the variables — <b>Personalized First Line, Value Proposition, Product Complimentary,
-              Reference, Pitch</b> — grounded in this client's brain. Review below, then Save. <b>Fill the Client
-              Profile first</b> for the best results.</p>
+              No JSON needed. Explain how you want the variables written — in as much or as little detail as you
+              like, and <b>it follows what you actually said</b> (detailed where you explained a lot, light where
+              you didn't; it won't invent rules or examples you didn't give). It grounds everything in this
+              client's brain. Review below, then Save. <b>Train the brain / fill the Client Profile first</b> for the best results.</p>
             <div className="field" style={{ margin: 0 }}><label>Your rules / how you want variables written <span style={{ color: "var(--muted)", fontWeight: 400 }}>(optional — paste your old formats/rules)</span></label>
               <textarea rows={5} style={{ width: "100%" }} value={fmtB.instructions}
                         onChange={(e) => setFmtB({ ...fmtB, instructions: e.target.value })}

@@ -839,17 +839,22 @@ def build_formats(workspace_id: int, body: BuildFormatsIn, ctx: AuthContext = De
     brain = cfg.profile or {}
 
     system = (
-        "You design the OUTPUT VARIABLES ('formats') that an AI cold-email writer will produce for THIS "
-        "client, in a lead-generation workflow. Use the CLIENT BRAIN (their offer, services, case studies, "
-        "per-industry problems, proof) and the OPERATOR INSTRUCTIONS to design excellent variables. "
-        "Return JSON {\"formats\": [ ... ]}. Each format = {\"label\": str (human name), \"name\": snake_case "
-        "slug, \"guidance\": str (exactly how to write this variable, grounded in the client's real offer/"
-        "problems/proof — specific, not generic), \"template\": str (optional; use {{placeholders}} for "
-        "fill-in parts, else \"\"), \"min_words\": int, \"max_words\": int, \"rules\": [str] (concrete do/"
-        "don'ts), \"examples\": [str] (1-2 strong sample outputs grounded in the brain), \"enabled\": true}. "
-        "Design the classic set unless the operator says otherwise: Personalized First Line, Value "
-        "Proposition, Product Complimentary, Reference, and Pitch — but adapt to the operator's instructions. "
-        "Ground guidance and examples ONLY in the CLIENT BRAIN + instructions; never invent client facts.")
+        "You design the OUTPUT VARIABLES ('formats') an AI cold-email writer will produce for THIS client, "
+        "using the CLIENT BRAIN and the OPERATOR INSTRUCTIONS. Follow two rules of CARE:\n"
+        "1) BE FAITHFUL to what the operator actually described. Build the variables THEY explain or ask "
+        "for. If they give no specific variables, propose the standard set (Personalized First Line, Value "
+        "Proposition, Product Complimentary, Reference, Pitch) — but never force a variable they didn't want.\n"
+        "2) MATCH DEPTH per variable to how much the operator explained it. Where they gave detailed "
+        "structure, rules, or examples, reflect that fully. Where they said little, keep THAT variable "
+        "light — short guidance, NO invented rigid template, NO fabricated rules or examples. Do NOT impose "
+        "one uniform format on every variable, and do NOT invent rules, templates, word limits, or examples "
+        "the operator didn't provide or clearly imply. Set min_words/max_words ONLY if a length was "
+        "specified, else null. Prefer 0-2 REAL examples grounded in the brain over made-up ones.\n"
+        "Return JSON {\"formats\": [ {\"label\": str, \"name\": snake_case slug, \"guidance\": str (how to "
+        "write it, grounded in the client's real offer/problems/proof), \"template\": str (optional; "
+        "{{placeholders}} or \"\"), \"min_words\": int|null, \"max_words\": int|null, \"rules\": [str], "
+        "\"examples\": [str], \"enabled\": true} ] }. Ground everything ONLY in the CLIENT BRAIN + operator "
+        "instructions; never invent client facts.")
     user = ("OPERATOR INSTRUCTIONS / RULES / SAMPLE FORMATS:\n" + (body.instructions or "(none — use best practice)")
             + "\n\nCLIENT BRAIN:\n" + _json.dumps(brain)[:14000])
     try:
