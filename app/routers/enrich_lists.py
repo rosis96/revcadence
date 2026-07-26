@@ -729,6 +729,84 @@ async def build_icp(workspace_id: int,
                        "rejects": len(icp["hard_non_icp"] or []), "steps": len(icp["procedure"] or [])}}
 
 
+class BrainChatMsg(BaseModel):
+    role: str
+    content: str
+
+
+class BrainChatIn(BaseModel):
+    messages: list[BrainChatMsg] = []
+
+
+@router.post("/config/{workspace_id}/brain-chat")
+def brain_chat(workspace_id: int, body: BrainChatIn, ctx: AuthContext = Depends(get_ctx)):
+    """The workspace's own ChatGPT: grounded in the Client Brain. Answers questions
+    and drafts outreach from the brain, and when you TEACH it new facts about the
+    client (a case study, service, metric...) it captures them into the brain
+    (accumulated, deduped) so the knowledge grows through conversation."""
+    ctx.require_workspace(workspace_id)
+    import json as _json
+    import os
+
+    import requests
+
+    from ..enrichment import ai
+    from ..enrichment.pipeline import _config
+    if not ai.has_ai():
+        raise HTTPException(422, "No OpenAI key set — connect AI to use the brain chat.")
+    if not body.messages:
+        raise HTTPException(422, "No message")
+    cfg = _config(ctx.db, workspace_id)
+    brain = cfg.profile or {}
+
+    system = (
+        "You are the private assistant for this client's workspace — an expert on the company described "
+        "in CLIENT BRAIN below. Help the user: answer questions, draft cold emails / follow-ups, and give "
+        "advice, using ONLY the brain plus what the user tells you. Never invent facts about the client.\n"
+        "If the user TEACHES you new information about the client (a case study, a service, a metric, "
+        "positioning, a problem they solve, a testimonial, an objection), capture it in 'learned' so it is "
+        "saved to the brain. Only include keys the user actually provided.\n"
+        "Return JSON: {\"reply\": <your message to the user>, \"learned\": {<any of: service_brief (str), "
+        "main_offer (str), one_liner (str), target_outcome (str), icp_summary (str), industries (list), "
+        "services (list), positioning (list), methodology (list), results_metrics (list), proof_points "
+        "(list), target_titles (list), case_studies (list of {client,industry,problem,solution,outcome,"
+        "metrics}), problem_library (list of {industry,pains,our_angle}), testimonials (list of "
+        "{quote,who}), objections (list of {objection,response})> or {} if nothing new}}.\n"
+        "CLIENT BRAIN:\n" + _json.dumps(brain)[:14000])
+
+    msgs = [{"role": "system", "content": system}]
+    for m in body.messages[-14:]:
+        msgs.append({"role": "assistant" if m.role == "assistant" else "user", "content": (m.content or "")[:6000]})
+    try:
+        r = requests.post(ai.OPENAI_URL,
+            headers={"Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}", "Content-Type": "application/json"},
+            json={"model": (cfg.writer_model or ai.writer_model()).lower(), "temperature": 0.4,
+                  "response_format": {"type": "json_object"}, "messages": msgs}, timeout=60)
+        r.raise_for_status()
+        out = _json.loads(r.json()["choices"][0]["message"]["content"])
+    except Exception as e:
+        raise HTTPException(502, f"Chat failed: {str(e)[:200]}")
+    reply = str(out.get("reply", "")).strip() or "…"
+    learned = out.get("learned") if isinstance(out.get("learned"), dict) else {}
+
+    updated = []
+    if learned:
+        merged = {**(cfg.profile or {})}
+        for k, v in learned.items():
+            if k in _BRAIN_LIST_KEYS and v:
+                merged[k] = _merge_brain_list(k, merged.get(k), v)
+                updated.append(k)
+            elif isinstance(v, str) and v.strip() and k in CLIENT_BRAIN_KEYS:
+                old = str(merged.get(k) or "")
+                if len(v.strip()) > len(old.strip()):
+                    merged[k] = v
+                    updated.append(k)
+        if updated:
+            cfg.profile = merged        # reassign so the JSON column change is detected
+            ctx.db.commit()
+    return {"reply": reply, "learned": updated}
+
+
 @router.post("/config/{workspace_id}/build-profile")
 def build_profile(workspace_id: int, body: BuildProfileIn, ctx: AuthContext = Depends(get_ctx)):
     """Train the workspace on ONE client: crawl their site + read any pasted

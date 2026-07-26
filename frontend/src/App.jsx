@@ -4,7 +4,7 @@ import {
   LayoutGrid, ListChecks, Database, CircleUser, Target, AlignLeft, CheckCheck, FileText,
   Mail, Inbox, FlaskConical, Settings2, SlidersHorizontal, Flag, Globe, Rows3, Building2,
   Contact, Activity as ActivityIcon, Cog, Wrench, ShieldCheck, ChevronDown, MoreHorizontal,
-  LogOut, Search, ClipboardList, Radar, Briefcase, Bell, KeyRound, Plug, BarChart3,
+  LogOut, Search, ClipboardList, Radar, Briefcase, Bell, KeyRound, Plug, BarChart3, Sparkles,
 } from "lucide-react";
 import { AuthProvider, useAuth } from "./auth";
 import { CommandPalette, ToastProvider, useApi, useClickOutside } from "./components";
@@ -15,6 +15,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Reports from "./pages/Reports";
 import Billing from "./pages/Billing";
+import BrainChat from "./pages/BrainChat";
 import Pipeline from "./pages/Pipeline";
 import Companies from "./pages/Companies";
 import CompanyDetail from "./pages/CompanyDetail";
@@ -60,6 +61,7 @@ const MODES = {
       ["/enrichment", "Lists", ListChecks],
       ["/enrichment/database", "Database", Database],
       ["/enrichment/profile", "Client Profile", CircleUser],
+      ["/enrichment/brain", "Ask the Brain", Sparkles],
       ["/enrichment/icp", "ICP / Non-ICP", Target],
       ["/enrichment/formats", "Formats", AlignLeft],
       ["/enrichment/rules", "Rules", CheckCheck],
@@ -263,6 +265,7 @@ function Protected() {
         <Route path="/enrichment/lists/:id" element={<EnrichListDetail />} />
         <Route path="/enrichment/database" element={<EnrichDatabase />} />
         <Route path="/enrichment/profile" element={<EnrichConfigPage tab="profile" />} />
+        <Route path="/enrichment/brain" element={<BrainChat />} />
         <Route path="/enrichment/icp" element={<EnrichConfigPage tab="icp" />} />
         <Route path="/enrichment/formats" element={<EnrichConfigPage tab="formats" />} />
         <Route path="/enrichment/rules" element={<EnrichConfigPage tab="rules" />} />
