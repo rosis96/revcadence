@@ -963,12 +963,24 @@ def _compact_profile(profile: dict) -> dict:
         "services", "positioning", "methodology", "proof_points", "target_titles",
         "tone", "problem_library", "case_studies",
     )
+    def _clean_list(items):
+        # Drop junk from a merge that exploded a string into single characters, plus
+        # any too-short/blank entries. Keeps real multi-word positioning/services.
+        out_items = []
+        for x in items:
+            if isinstance(x, str):
+                if len(x.strip()) < 3:
+                    continue
+            out_items.append(x)
+        return out_items
+
     out = {}
     for key in keys:
         value = profile.get(key)
         if value in (None, "", [], {}):
             continue
         if isinstance(value, list):
+            value = _clean_list(value)
             capped = value[:8] if key not in ("case_studies", "problem_library") else value[:4]
             out[key] = clip(capped)
         elif isinstance(value, str):
