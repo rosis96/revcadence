@@ -469,6 +469,14 @@ _BANNED_PHRASES = [
 _GENERIC_NOUNS = {"quality", "innovation", "expertise", "commitment", "creativity",
                   "leadership", "excellence", "clarity", "passion", "dedication",
                   "professionalism", "reliability", "vision"}
+# Market-statistic phrasing — real numbers but NOT company-specific proof, so they
+# give the writer no distinctive anchor. Deprioritized vs. named case studies.
+_GENERIC_STAT_MARKERS = (
+    "businesses using", "companies using", "organizations using", "firms using",
+    "on average", "studies show", "research shows", "industry average",
+    "report an average", "report a ", "customers report", "users report",
+    "typically ", "can reduce", "can save", "up to ", "average of",
+)
 
 
 def _norm(s: str) -> str:
@@ -513,6 +521,25 @@ def _flatten_signals(facts: dict) -> list:
             quote=ev.get("supporting_quote", ""), source_kind=ev.get("source_kind", "html"),
             confidence=float(ev.get("confidence") or 0))
     if evidence or facts.get("_evidence_version"):
+        # Specificity re-rank: a NAMED, company-specific proof (a real client/project/
+        # case study) must outrank a generic market statistic like "businesses using X
+        # report 20-30%". Generic stats carry a number so they score high, but they
+        # give the writer no distinctive anchor — which is exactly what got withheld.
+        name_tokens = set()
+        for k in ("named_clients", "named_services", "frameworks", "distinctive_projects", "awards"):
+            for v in facts.get(k) or []:
+                name_tokens.update(w for w in _norm_for_match(v).split() if len(w) >= 4)
+        for cs in facts.get("case_studies") or []:
+            if isinstance(cs, dict):
+                for v in (cs.get("client"), cs.get("name")):
+                    name_tokens.update(w for w in _norm_for_match(v or "").split() if len(w) >= 4)
+        for s in sig:
+            claim_words = set(_norm_for_match(s.get("text", "")).split())
+            low = str(s.get("text", "")).lower()
+            if name_tokens & claim_words:
+                s["quality_score"] = s.get("quality_score", 0) + 3      # names a real client/project
+            elif any(m in low for m in _GENERIC_STAT_MARKERS):
+                s["quality_score"] = s.get("quality_score", 0) - 8      # generic market stat, weak proof
         best = {}
         for s in sig:
             # Claim-level dedupe prevents the same John Jay metric being treated
@@ -1078,14 +1105,19 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
 
     vars_out, candidate_count = _select_candidates(out, formats, assign, facts, reading, site_text)
     vars_out = {k: _tidy_variable(v) for k, v in vars_out.items()}
-    # Regenerate only failed variables once, then quarantine every remaining
-    # failure. No fallback prose and no partially grounded result may be `done`.
-    fails = _qc_failures(vars_out, assign, facts, formats, reading, site_text)
-    if fails:
+    # Regenerate failed variables — up to TWO focused repair passes (banned filler and
+    # weak anchors often clear on a second, more explicit attempt) before quarantining.
+    for _attempt in range(2):
+        fails = _qc_failures(vars_out, assign, facts, formats, reading, site_text)
+        if not fails:
+            break
         fix_formats = [f for f in aug if f["name"] in fails]
         fix_system = (_writer_system(cfg, rules, level_line) +
-                      "\nREPAIR: the previous candidates failed the checks below. Correct every stated "
-                      "problem while preserving the assigned claim and concrete quote details.\nFAILURES:\n" +
+                      "\nREPAIR: the previous candidates failed the checks below. Correct EVERY stated "
+                      "problem while preserving the assigned claim and concrete quote details. If a check "
+                      "names a banned phrase, rewrite that idea in plain words (e.g. 'managing outreach and "
+                      "post-meeting follow-up'), never reuse the banned wording. Keep every sentence under "
+                      "30 words.\nFAILURES:\n" +
                       "\n".join(f"- {n}: {r}" for n, r in fails.items()))
         fix_user = _writer_user(lead, facts, fix_formats, site_excerpt)
         try:
@@ -1097,7 +1129,7 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
             candidate_count += repair_candidates
             vars_out.update({k: _tidy_variable(v) for k, v in repaired.items()})
         except Exception:
-            pass
+            break
     final_fails = _qc_failures(vars_out, assign, facts, formats, reading, site_text)
     for name in final_fails:
         vars_out[name] = ""
