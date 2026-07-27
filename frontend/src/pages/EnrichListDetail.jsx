@@ -74,6 +74,7 @@ export default function EnrichListDetail() {
   const [job, setJob] = useState(null);
   const [jobStatus, setJobStatus] = useState(null);
   const [openLead, setOpenLead] = useState(null);
+  const [showAllEvidence, setShowAllEvidence] = useState(false);
   const [outputs, setOutputs] = useState(null);
   const [dedupeOpen, setDedupeOpen] = useState(false);
   const [dedupeLists, setDedupeLists] = useState([]);
@@ -407,7 +408,7 @@ export default function EnrichListDetail() {
 
       {openLead && (
         <Drawer title={openLead.name || openLead.email} className="research-drawer"
-          onClose={() => setOpenLead(null)}>
+          onClose={() => { setOpenLead(null); setShowAllEvidence(false); }}>
           <div className="rd-hero">
             <div>
               <div className="rd-company">
@@ -474,7 +475,7 @@ export default function EnrichListDetail() {
             {(openLead.evidence || []).length === 0
               ? <div className="rd-empty"><FileSearch size={20} />No validated evidence yet</div>
               : <div className="rd-evidence-list">
-                {openLead.evidence.map((ev, i) => (
+                {(showAllEvidence ? openLead.evidence : openLead.evidence.slice(0, 8)).map((ev, i) => (
                   <article className="rd-evidence" key={ev.id || `${ev.claim}-${i}`}>
                     <div className="rd-evidence-top">
                       <span className="rd-type">{pretty(ev.type)}</span>
@@ -486,6 +487,10 @@ export default function EnrichListDetail() {
                     {ev.source_url && <a href={ev.source_url} target="_blank" rel="noreferrer">
                       {hostOf(ev.source_url)} <ExternalLink size={12} /></a>}
                   </article>))}
+                {openLead.evidence.length > 8 && (
+                  <button className="btn ghost sm" style={{ alignSelf: "flex-start" }}
+                    onClick={() => setShowAllEvidence((v) => !v)}>
+                    {showAllEvidence ? "Show less" : `Show all ${openLead.evidence.length} facts`}</button>)}
               </div>}
           </section>
 
