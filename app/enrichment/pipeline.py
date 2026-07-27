@@ -914,13 +914,15 @@ def _augmented_formats(formats: list, assign: dict) -> list:
         compact = dict(f)
         # Approved outputs are training memory, but two recent examples are enough
         # to teach structure without repeatedly paying to send the whole library.
-        compact["examples"] = [str(x)[:1400] for x in (f.get("examples") or [])[-2:]]
+        # Keep examples SHORT — they teach structure, not content. Long examples are
+        # a big hidden input cost, re-sent on every writer/repair call, every lead.
+        compact["examples"] = [str(x)[:450] for x in (f.get("examples") or [])[-2:]]
         compact["avoid_examples"] = [{
-            "text": str(x.get("text") or "")[:1000],
-            "reason": str(x.get("reason") or "")[:500],
+            "text": str(x.get("text") or "")[:300],
+            "reason": str(x.get("reason") or "")[:200],
         } for x in (f.get("rejected_examples") or [])[-2:] if isinstance(x, dict)]
         compact.pop("rejected_examples", None)
-        compact["rules"] = [str(x)[:500] for x in (f.get("rules") or [])[:12]]
+        compact["rules"] = [str(x)[:300] for x in (f.get("rules") or [])[:10]]
         aug.append({**compact,
                     "_job": a.get("purpose", ""),
                     "_use_this_evidence": a.get("evidence", ""),
@@ -1102,7 +1104,7 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
     # details — the thin taxonomy alone starves it and QC then blanks everything.
     deep = getattr(cfg, "research_depth", "") == "deep"
     site_text = ctx.get("crawl", {}).get("text", "") or ""
-    site_excerpt = site_text[:10000 if deep else 5000]
+    site_excerpt = site_text[:7000 if deep else 3500]
     user = _writer_user(lead, facts, aug, site_excerpt)
     calls = 0
     prompt_chars = len(system) + len(user)
@@ -1130,7 +1132,9 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
                       "post-meeting follow-up'), never reuse the banned wording. Keep every sentence under "
                       "30 words.\nFAILURES:\n" +
                       "\n".join(f"- {n}: {r}" for n, r in fails.items()))
-        fix_user = _writer_user(lead, facts, fix_formats, site_excerpt)
+        # Repairs are format fixes — the assigned evidence is already in fix_formats,
+        # so a short excerpt is enough. Don't re-send the full site text every retry.
+        fix_user = _writer_user(lead, facts, fix_formats, site_excerpt[:1200])
         try:
             prompt_chars += len(fix_system) + len(fix_user)
             fixed = ai._call_openai(fix_system, fix_user, model=model)
