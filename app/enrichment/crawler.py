@@ -3,10 +3,16 @@ services, pricing...), cleaned to text. Patterns carried over from the proven
 outbound_personalization pipeline (browser headers, content budgets)."""
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
+
+# How many internal pages to fetch at once WITHIN a single lead's crawl. The page
+# fetches are the slow, sequential part of each lead; overlapping them cuts per-lead
+# crawl time several-fold (independent of the worker pool running multiple leads).
+_FETCH_BATCH = 6
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -539,55 +545,52 @@ def crawl_site(website: str, html_override: str = "", on_progress=None,
     for path in _SEED_PATHS:
         add_candidate(urljoin(url, "/" + path), f"seed {path}")
 
-    # Evidence-first crawl. Re-sort as work/index pages reveal case-study links.
+    # Evidence-first crawl, fetched in PARALLEL batches. Highest-score pages first;
+    # each batch's HTTP fetches overlap (the slow part), then we parse in priority
+    # order. Cuts per-lead crawl time several-fold.
     total = home_rec["text_length"]
-    high_score_streak = 0
     while queue and len(result["pages"]) < max_pages and total < max_chars:
-        # Python's stable sort preserves the site's editorial/card order for
-        # equally strong pages. Alphabetical URL ordering buried flagship work.
+        # Stable sort preserves the site's editorial/card order for equal scores.
         queue.sort(key=lambda x: -x["score"])
-        pick = 0
-        if high_score_streak >= 5:
-            # Avoid spending the entire crawl on a large portfolio grid. Pull in
-            # the strongest methodology/service page, then resume case studies.
-            pick = next((i for i, q in enumerate(queue) if 20 <= q["score"] < 35), 0)
-        item = queue.pop(pick)
-        high_score_streak = high_score_streak + 1 if item["score"] >= 35 else 0
-        link = item["url"]
-        note(f"fetching {link}")
-        h2, _st, _fin = _fetch_static(link)
-        if not h2:
-            diag["pages_failed"] += 1
-            continue
-        final_link = (_fin or link).split("#")[0].split("?")[0].rstrip("/")
-        rec, s2 = _page_record(final_link, h2)
-        if do_render and diag["rendered_pages"] < _render_cap() and _render_recommended(h2, rec, s2):
-            note(f"rendering {link}")
-            rhtml = render_fetch(link)
-            if rhtml:
-                rec, s2 = _page_record(final_link, rhtml)
-                diag["rendered_pages"] += 1
-        # Free render fallback for high-value pages that are still thin.
-        if free_render_enabled() and free_used < _FREE_RENDER_CAP and rec["text_length"] < _THIN_CHARS \
-                and item["score"] >= 20:
-            jt = jina_fetch_text(final_link)
-            if jt and len(jt) > rec["text_length"]:
-                rec["text"] = jt
-                rec["text_length"] = len(jt)
-                diag["rendered_pages"] += 1
-                free_used += 1
-        if final_link in fetched_final:
+        remaining = max_pages - len(result["pages"])
+        batch = [queue.pop(0) for _ in range(min(_FETCH_BATCH, remaining, len(queue)))]
+        note(f"fetching {len(batch)} pages")
+        with ThreadPoolExecutor(max_workers=len(batch)) as ex:
+            fetched = list(ex.map(lambda it: (it, _fetch_static(it["url"])), batch))
+        for item, (h2, _st, _fin) in fetched:
+            if len(result["pages"]) >= max_pages or total >= max_chars:
+                break
+            if not h2:
+                diag["pages_failed"] += 1
+                continue
+            final_link = (_fin or item["url"]).split("#")[0].split("?")[0].rstrip("/")
+            rec, s2 = _page_record(final_link, h2)
+            if do_render and diag["rendered_pages"] < _render_cap() and _render_recommended(h2, rec, s2):
+                rhtml = render_fetch(item["url"])
+                if rhtml:
+                    rec, s2 = _page_record(final_link, rhtml)
+                    diag["rendered_pages"] += 1
+            # Free render fallback for high-value pages that are still thin.
+            if free_render_enabled() and free_used < _FREE_RENDER_CAP \
+                    and rec["text_length"] < _THIN_CHARS and item["score"] >= 20:
+                jt = jina_fetch_text(final_link)
+                if jt and len(jt) > rec["text_length"]:
+                    rec["text"] = jt
+                    rec["text_length"] = len(jt)
+                    diag["rendered_pages"] += 1
+                    free_used += 1
+            if final_link in fetched_final:
+                if follow_all:
+                    add_links(s2, final_link)
+                continue
+            fetched_final.add(final_link)
+            rec["discovery_hint"] = item["hint"]
+            rec["score"] += min(item["score"], 30)
+            page_records.append(rec)
+            total += rec["text_length"]
+            result["pages"].append(final_link)
             if follow_all:
                 add_links(s2, final_link)
-            continue
-        fetched_final.add(final_link)
-        rec["discovery_hint"] = item["hint"]
-        rec["score"] += min(item["score"], 30)
-        page_records.append(rec)
-        total += rec["text_length"]
-        result["pages"].append(final_link)
-        if follow_all:
-            add_links(s2, final_link)
 
     # Preserve pages and provenance. Backward-compatible `text` is now ranked by
     # research value instead of network order, preventing navigation/about copy
