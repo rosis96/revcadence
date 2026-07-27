@@ -1426,6 +1426,22 @@ def update_icp_from_chat(workspace_id: int, body: UpdateIcpIn, ctx: AuthContext 
     if not src:
         raise HTTPException(422, "Nothing to add to the ICP.")
 
+    # If the saved ICP is free-form PROSE (not our structured JSON), never restructure
+    # it into JSON — that would discard the operator's written guidance. Append the new
+    # instruction to the prose verbatim instead.
+    existing = (cfg.icp_definition or "").strip()
+    is_structured = False
+    if existing:
+        try:
+            is_structured = isinstance(_json.loads(existing), dict)
+        except Exception:
+            is_structured = False
+    if existing and not is_structured:
+        cfg.icp_definition = existing + "\n" + src
+        ctx.db.commit()
+        return {"icp": None, "appended_prose": True,
+                "added": {"note": "Appended to your written ICP guidance."}}
+
     try:
         cur = _json.loads(cfg.icp_definition) if cfg.icp_definition else {}
         if not isinstance(cur, dict):

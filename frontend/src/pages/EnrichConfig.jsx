@@ -410,15 +410,16 @@ export default function EnrichConfigPage({ tab }) {
           </div>
 
           <div className="card" style={{ padding: 18 }}>
-            <h2 style={{ fontSize: 15, marginBottom: 4 }}>ICP definition <span style={{ color: "var(--muted)", fontWeight: 400, fontSize: 12.5 }}>(advanced / source)</span></h2>
+            <h2 style={{ fontSize: 15, marginBottom: 4 }}>ICP definition <span style={{ color: "var(--muted)", fontWeight: 400, fontSize: 12.5 }}>(source of truth)</span></h2>
             <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 10 }}>
-              The AI fills this above, or edit it directly. Keys: <b>procedure</b> steps,
-              <b> icp_categories</b> allowed fits, <b>hard_non_icp</b> auto-rejects, <b>default</b> when unsure.
-              Changes here judge leads immediately.</p>
-            <textarea rows={14} style={{ width: "100%", fontFamily: "monospace", fontSize: 12.5 }}
+              <b>Plain English works best.</b> Just describe, in your own words, how to decide fit — how to
+              reason, what's a fit, what to reject, and what to do when unsure. Paste your whole ICP guide here
+              and Save; the classifier reads it as-is. (Structured JSON with <b>procedure</b> / <b>icp_categories</b> /
+              <b>hard_non_icp</b> / <b>default</b> also works, but you don't need it.) Changes judge leads immediately.</p>
+            <textarea rows={16} style={{ width: "100%", fontSize: 13, lineHeight: 1.5 }}
                       value={cfg.icp_definition}
                       onChange={(e) => setCfg({ ...cfg, icp_definition: e.target.value })}
-                      placeholder='{"procedure": ["Step 1: ..."], "icp_categories": ["B2B consulting firms."], "hard_non_icp": ["B2C only."], "default": "Needs Review"}' />
+                      placeholder={"Describe how to decide fit in plain English, e.g.\n\nWork out what the company SELLS before who they sell to. We're a fit for B2B service providers, agencies, and consultancies whose work needs conversations or proposals. Never reject on the industries they serve. Reject consumer/DTC brands, local consumer services, schools, government, and nonprofits. When the site doesn't say enough, return Needs Review — don't reject on missing info."} />
           </div>
           <div className="toolbar" style={{ marginTop: 14 }}>
             <button className="btn" disabled={busy} onClick={() => save({ icp_definition: cfg.icp_definition })}>Save ICP</button>

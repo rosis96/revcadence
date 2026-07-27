@@ -87,6 +87,11 @@ export default function BrainChat() {
     setBusy(true);
     try {
       const r = await api(`/api/enrich-lists/config/${wsId}/update-icp`, { method: "POST", body: { messages } });
+      if (r.appended_prose) {
+        toast("Added to your written ICP guidance");
+        setMessages((m) => [...m, { role: "assistant", content: "✅ Appended this to your written ICP guidance (kept your prose intact). Review it on the ICP / Non-ICP tab.", learned: ["icp"] }]);
+        return;
+      }
       const a = r.added || {}, parts = [];
       if (a.categories?.length) parts.push(`${a.categories.length} fit type(s)`);
       if (a.rejects?.length) parts.push(`${a.rejects.length} reject rule(s)`);
