@@ -301,20 +301,27 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
     if ai.has_ai():
         # Structured ICP brain (legacy ICP_JSON): procedure steps, allowed
         # categories, hard_non_icp auto-rejects, default-when-unsure.
-        icp_block = cfg.icp_definition or "B2B companies selling high-value services to other businesses."
+        raw_icp = (cfg.icp_definition or "").strip()
+        icp_block = raw_icp or "B2B companies selling high-value services to other businesses."
+        recognized = {"procedure", "icp_categories", "hard_non_icp", "default"}
         try:
-            icp = json.loads(cfg.icp_definition or "")
-            icp_block = ""
-            if icp.get("procedure"):
-                icp_block += "PROCEDURE (follow in order):\n" + "\n".join(icp["procedure"]) + "\n"
-            if icp.get("icp_categories"):
-                icp_block += "ICP CATEGORIES (allowed fits):\n- " + "\n- ".join(icp["icp_categories"]) + "\n"
-            if icp.get("hard_non_icp"):
-                icp_block += "HARD NON-ICP (auto-reject if any matches):\n- " + "\n- ".join(icp["hard_non_icp"]) + "\n"
-            if icp.get("default"):
-                icp_block += f"WHEN UNSURE, RETURN: {icp['default']}\n"
+            icp = json.loads(raw_icp) if raw_icp else None
+            if isinstance(icp, dict) and set(icp) <= recognized:
+                # Our simple structured schema — format it into clean guidance.
+                icp_block = ""
+                if icp.get("procedure"):
+                    icp_block += "PROCEDURE (follow in order):\n" + "\n".join(icp["procedure"]) + "\n"
+                if icp.get("icp_categories"):
+                    icp_block += "ICP CATEGORIES (allowed fits):\n- " + "\n- ".join(icp["icp_categories"]) + "\n"
+                if icp.get("hard_non_icp"):
+                    icp_block += "HARD NON-ICP (auto-reject if any matches):\n- " + "\n- ".join(icp["hard_non_icp"]) + "\n"
+                if icp.get("default"):
+                    icp_block += f"WHEN UNSURE, RETURN: {icp['default']}\n"
+            # else: richer/unknown JSON or plain prose — hand the WHOLE definition to
+            # the classifier verbatim so no guidance (reasoning, rules) is ever dropped.
+            # (icp_block already holds raw_icp.)
         except Exception:
-            pass  # plain-text ICP definition — use as-is
+            pass  # plain-text ICP definition — use as-is (icp_block = raw_icp)
         system = ("You are an ICP classifier and EVIDENCE extractor. Read the source-labelled website pages and build an "
                   "EVIDENCE BANK of concrete, company-specific signals — NOT themes. Ground everything ONLY "
                   "in the provided pages: copy names/numbers verbatim, and LEAVE A FIELD EMPTY when the "
