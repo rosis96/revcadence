@@ -11,26 +11,26 @@ import requests
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 
 # Model split (env-configurable — NEVER hardcode a model in a call path).
-# This workload is strongly input-heavy. gpt-5-mini is the cost/quality default:
-# lower input cost than gpt-4.1-mini, structured output support, and enough
-# reasoning for a tightly planned writing task. Premium models remain overrides.
+# Cost-optimized on the GPT-5.6 line: Terra (balanced intelligence/cost) for the
+# quality-critical extraction that finds named facts; Luna (cost-optimized) for the
+# tightly-constrained writing and vision. Both are far cheaper than gpt-4o and still
+# strong. All overridable via env / the per-workspace writer dropdown.
 def extract_model() -> str:
-    # Fact extraction is the quality-critical step (it finds the named services,
-    # clients and metrics that make copy specific). Default to the stronger gpt-4o
-    # so it can't silently downgrade if EXTRACT_MODEL is ever unset. Still overridable.
-    return os.getenv("EXTRACT_MODEL", "gpt-4o")
+    # Fact extraction is quality-critical (it finds the named services/clients/metrics
+    # that make copy specific) — use the balanced Terra, not the cost model.
+    return os.getenv("EXTRACT_MODEL", "gpt-5.6-terra")
 
 
 def writer_model() -> str:
-    return os.getenv("WRITER_MODEL", "gpt-5-mini")
+    return os.getenv("WRITER_MODEL", "gpt-5.6-luna")
 
 
 def competitor_model() -> str:
-    return os.getenv("COMPETITOR_MODEL", "gpt-5-mini")
+    return os.getenv("COMPETITOR_MODEL", "gpt-5.6-luna")
 
 
 def vision_model() -> str:
-    return os.getenv("VISION_MODEL", "gpt-5-mini")
+    return os.getenv("VISION_MODEL", "gpt-5.6-luna")
 
 
 # Content budgets (env cost levers — input tokens dominate ~10:1).
