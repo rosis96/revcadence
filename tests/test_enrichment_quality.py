@@ -6,7 +6,7 @@ No network or AI calls are made.
 from app.enrichment import crawler
 from app.enrichment.crawler import _discover_sitemap, crawl_site
 from app.enrichment.pipeline import (
-    _augmented_formats,
+    _format_defs,
     _assign_evidence,
     _flatten_signals,
     _qc_failures,
@@ -139,7 +139,7 @@ def main():
           ["product_complimentary"])
     check("specific mechanism plus question passes product QC",
           not _qc_failures(strong_product, product_assign, product_facts, product_formats))
-    augmented = _augmented_formats(product_formats, product_assign)
+    augmented = _format_defs(product_formats)
     check("only two recent approved examples enter the paid prompt",
           augmented[0]["examples"] == ["approved two", "approved three"])
     check("B2 is the detailed default writing standard",
@@ -158,7 +158,7 @@ def main():
         {"text": "Leveraging this capability is impressive.", "reason": "Too corporate."},
         {"text": "Cambot has innovative solutions.", "reason": "Generic filler."},
     ]}]
-    rejected_augmented = _augmented_formats(rejected_formats, product_assign)
+    rejected_augmented = _format_defs(rejected_formats)
     check("only two recent rejected examples enter the paid prompt",
           [x["reason"] for x in rejected_augmented[0]["avoid_examples"]]
           == ["Too corporate.", "Generic filler."])

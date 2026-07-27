@@ -906,30 +906,40 @@ def _qc_failures(vars_out: dict, assign: dict, facts: dict, formats: list | None
     return fails
 
 
-def _augmented_formats(formats: list, assign: dict) -> list:
-    """Attach each variable's assigned evidence + distinct purpose for the writer."""
-    aug = []
+def _format_defs(formats: list) -> list:
+    """The STATIC per-variable definition (how to write each). Identical across every
+    lead in a workspace, so it belongs in the CACHED system prompt — not re-billed
+    per lead. Examples/rules kept short (they teach structure, not content)."""
+    defs = []
     for f in formats:
-        a = assign.get(f.get("name"), {})
-        compact = dict(f)
-        # Approved outputs are training memory, but two recent examples are enough
-        # to teach structure without repeatedly paying to send the whole library.
-        # Keep examples SHORT — they teach structure, not content. Long examples are
-        # a big hidden input cost, re-sent on every writer/repair call, every lead.
-        compact["examples"] = [str(x)[:450] for x in (f.get("examples") or [])[-2:]]
-        compact["avoid_examples"] = [{
-            "text": str(x.get("text") or "")[:300],
-            "reason": str(x.get("reason") or "")[:200],
-        } for x in (f.get("rejected_examples") or [])[-2:] if isinstance(x, dict)]
-        compact.pop("rejected_examples", None)
-        compact["rules"] = [str(x)[:300] for x in (f.get("rules") or [])[:10]]
-        aug.append({**compact,
-                    "_job": a.get("purpose", ""),
-                    "_use_this_evidence": a.get("evidence", ""),
-                    "_evidence_type": a.get("evidence_type", ""),
-                    "_source_url": a.get("source_url", ""),
-                    "_supporting_quote": a.get("supporting_quote", "")})
-    return aug
+        d = {
+            "name": f.get("name"), "label": f.get("label"),
+            "guidance": f.get("guidance"), "template": f.get("template"),
+            "min_words": f.get("min_words"), "max_words": f.get("max_words"),
+            "rules": [str(x)[:300] for x in (f.get("rules") or [])[:10]],
+            "examples": [str(x)[:450] for x in (f.get("examples") or [])[-2:]],
+            "avoid_examples": [{
+                "text": str(x.get("text") or "")[:300],
+                "reason": str(x.get("reason") or "")[:200],
+            } for x in (f.get("rejected_examples") or [])[-2:] if isinstance(x, dict)],
+        }
+        defs.append({k: v for k, v in d.items() if v not in (None, "", [], {})})
+    return defs
+
+
+def _assignment_plan(formats: list, assign: dict) -> list:
+    """The PER-LEAD part: which evidence each variable must use. Small and unique per
+    lead — the only variable-related content that goes in the uncached user message."""
+    plan = []
+    for f in formats:
+        name = f.get("name")
+        a = assign.get(name, {})
+        item = {"name": name, "_job": a.get("purpose", ""),
+                "_use_this_evidence": a.get("evidence", ""),
+                "_evidence_type": a.get("evidence_type", ""),
+                "_supporting_quote": a.get("supporting_quote", "")}
+        plan.append({k: v for k, v in item.items() if v not in (None, "", [], {})})
+    return plan
 
 
 def _compact_profile(profile: dict) -> dict:
@@ -1010,7 +1020,13 @@ def _select_candidates(raw: dict, formats: list, assign: dict, facts: dict,
     return selected, total
 
 
-def _writer_system(cfg, rules, level_line) -> str:
+def _writer_system(cfg, rules, level_line, format_defs=None) -> str:
+    # STATIC per-workspace context (offer, rules, and — now — the variable
+    # definitions) all live here so OpenAI prompt-caching discounts them across the
+    # whole batch. Only per-lead evidence goes in the user message.
+    defs_block = ("\nVARIABLE DEFINITIONS (how to write each variable — static reference; the per-lead "
+                  "evidence to use is in the user message, keyed by name):\n" + json.dumps(format_defs)
+                  if format_defs else "")
     return ("You are a senior B2B outbound copywriter. Each requested variable includes one verified "
             "evidence assignment and a distinct job. Write TWO meaningfully different candidates per "
             "variable, both fully compliant. Ground prospect claims only in that variable's assigned claim "
@@ -1040,7 +1056,8 @@ def _writer_system(cfg, rules, level_line) -> str:
             'Return only JSON: {"candidates": {"<variable name>": ["candidate 1", "candidate 2"]}}.\n'
             + level_line +
             "\nCLIENT PROFILE / OUR OFFER:\n" + json.dumps(_compact_profile(cfg.profile or {})) +
-            "\nGLOBAL RULES (obey every line):\n" + "\n".join(rules))
+            "\nGLOBAL RULES (obey every line):\n" + "\n".join(rules)
+            + defs_block)
 
 
 def _reading_instruction(level: str) -> str:
@@ -1069,8 +1086,8 @@ def _writer_user(lead: EnrichLead, facts: dict, formats: list, site_excerpt: str
         (("\nPROSPECT SITE TEXT (real crawled content — personalize from SPECIFIC details found here; "
           "never invent, and do not copy numbers that are not present):\n" + site_excerpt)
          if site_excerpt else "") +
-        "\nVARIABLE PLAN (follow each _job, exact format guidance, assigned claim, and quote):\n" +
-        json.dumps(formats)
+        "\nVARIABLE PLAN for THIS lead (each item's _use_this_evidence + _job; follow the matching "
+        "definition from the system prompt by name):\n" + json.dumps(formats)
     )
 
 
@@ -1098,14 +1115,17 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
     reading = (getattr(cfg, "reading_level", "") or "b2 business").strip()
     level_line = _reading_instruction(reading)
     assign = _assign_evidence(facts, formats)
-    aug = _augmented_formats(formats, assign)
-    system = _writer_system(cfg, rules, level_line)
+    # Static variable DEFINITIONS go in the cached system prompt; only the per-lead
+    # assignment (which evidence to use) goes in the uncached user message.
+    format_defs = _format_defs(formats)
+    plan = _assignment_plan(formats, assign)
+    system = _writer_system(cfg, rules, level_line, format_defs)
     # Give the writer the REAL crawled site text so it can personalize from specific
     # details — the thin taxonomy alone starves it and QC then blanks everything.
     deep = getattr(cfg, "research_depth", "") == "deep"
     site_text = ctx.get("crawl", {}).get("text", "") or ""
     site_excerpt = site_text[:7000 if deep else 3500]
-    user = _writer_user(lead, facts, aug, site_excerpt)
+    user = _writer_user(lead, facts, plan, site_excerpt)
     calls = 0
     prompt_chars = len(system) + len(user)
     try:
@@ -1124,17 +1144,19 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
         fails = _qc_failures(vars_out, assign, facts, formats, reading, site_text)
         if not fails:
             break
-        fix_formats = [f for f in aug if f["name"] in fails]
-        fix_system = (_writer_system(cfg, rules, level_line) +
+        fix_plan = [p for p in plan if p["name"] in fails]
+        # Keep the SAME cached system prefix (full defs) so caching still hits; append
+        # the repair instruction after it.
+        fix_system = (_writer_system(cfg, rules, level_line, format_defs) +
                       "\nREPAIR: the previous candidates failed the checks below. Correct EVERY stated "
                       "problem while preserving the assigned claim and concrete quote details. If a check "
                       "names a banned phrase, rewrite that idea in plain words (e.g. 'managing outreach and "
                       "post-meeting follow-up'), never reuse the banned wording. Keep every sentence under "
                       "30 words.\nFAILURES:\n" +
                       "\n".join(f"- {n}: {r}" for n, r in fails.items()))
-        # Repairs are format fixes — the assigned evidence is already in fix_formats,
+        # Repairs are format fixes — the assigned evidence is already in the plan,
         # so a short excerpt is enough. Don't re-send the full site text every retry.
-        fix_user = _writer_user(lead, facts, fix_formats, site_excerpt[:1200])
+        fix_user = _writer_user(lead, facts, fix_plan, site_excerpt[:1200])
         try:
             prompt_chars += len(fix_system) + len(fix_user)
             fixed = ai._call_openai(fix_system, fix_user, model=model)
