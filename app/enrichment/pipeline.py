@@ -360,7 +360,12 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
                     '"evidence": [ {"type": "case_study"|"measurable_result"|"named_client"|'
                     '"methodology"|"named_service"|"project"|"award"|"industry"|"buyer"|"challenge", '
                     '"claim": str, "source_url": str (copy the PAGE URL), '
-                    '"supporting_quote": str (short exact quote copied from that page)} ]}}')
+                    '"supporting_quote": str (short exact quote copied from that page)} ] }}\n'
+                    'BE SELECTIVE, NOT EXHAUSTIVE: return AT MOST 12 evidence items — only the STRONGEST, most '
+                    'distinctive proof (prioritize case studies WITH a measurable result, recognizable named '
+                    'clients, awards, named frameworks). Do NOT list every minor project or repeat the same '
+                    'client. Cap every other list to its ~8 most valuable entries. Extra items are discarded '
+                    'downstream and only waste output tokens.')
         research_chars = 18000 if deep else 10000
         packet = _research_packet(crawl, research_chars)
         try:
@@ -393,6 +398,13 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
             for item in visual:
                 item = {**item, "id": f"ev_{len(evidence) + 1}"}
                 evidence.append(item)
+            # Keep only the strongest evidence — we assign ~5 to variables and the
+            # rest is unused. Capping keeps the stored ledger (and any re-use) lean.
+            if len(evidence) > 24:
+                ranked = _flatten_signals({**facts, "evidence": evidence, "_evidence_version": 2})
+                keep_ids = {s.get("evidence_id") for s in ranked[:24] if s.get("evidence_id")}
+                kept = [e for e in evidence if e.get("id") in keep_ids]
+                evidence = kept or evidence[:24]
             facts["evidence"] = evidence
             facts["_evidence_version"] = 2
             out["facts"] = facts
