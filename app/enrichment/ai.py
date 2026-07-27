@@ -11,13 +11,13 @@ import requests
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 
 # Model split (env-configurable — NEVER hardcode a model in a call path).
-# Default to gpt-4o everywhere: it is the PROVEN model behind the good results
-# (Athenaworks, 7-Eleven). The GPT-5.6 "cost" line looked cheaper per token but in
-# practice cost MORE (reasoning/hidden tokens) and wrote worse, so it is not the
-# default. Cost is controlled by the token cuts (caching, capped evidence, smaller
-# windows, vision off), not by downgrading the model. All overridable via env / UI.
+# This is the PROVEN split from the old ~$1/100 system: cheap gpt-4o-mini for the
+# light "pull the facts" extraction, and quality gpt-4o for the WRITING — the only
+# place that needs the strong model. Spending gpt-4o on extraction (and generating
+# 60+ facts) was the cost bloat; the writer is where quality actually comes from.
+# Cost is further controlled by token cuts (caching, capped evidence, vision off).
 def extract_model() -> str:
-    return os.getenv("EXTRACT_MODEL", "gpt-4o")
+    return os.getenv("EXTRACT_MODEL", "gpt-4o-mini")
 
 
 def writer_model() -> str:
