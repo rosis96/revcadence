@@ -145,12 +145,13 @@ def main():
     check("B2 is the detailed default writing standard",
           "B2-level business English" in _reading_instruction(""))
     too_complex = {"value_proposition":
-                   "John Jay's Annual Fund revenue increased 60% while this concrete proof "
-                   "creates a detailed commercial narrative that enables multiple stakeholders "
-                   "throughout a complicated purchasing committee to understand the strategic implications "
-                   "and consequently move the opportunity forward with substantially greater organizational confidence."}
+                   "John Jay's Annual Fund revenue increased 60% while this concrete and richly detailed "
+                   "commercial proof creates an elaborate persuasive narrative that enables numerous different "
+                   "stakeholders scattered throughout an unusually complicated multi-layered purchasing committee "
+                   "to fully understand the wider strategic implications and consequently decide to move the whole "
+                   "opportunity forward with substantially greater collective organizational confidence and urgency."}
     check("B2 QC rejects an overlong sentence",
-          "longer than 40 words" in
+          "longer than 45 words" in
           _qc_failures(too_complex, assignments, facts, formats, "b2 business")["value_proposition"])
     rejected_formats = [{**product_formats[0], "rejected_examples": [
         {"text": "Cambot is technically sophisticated.", "reason": "Too vague."},

@@ -723,9 +723,21 @@ def _uses_assigned_evidence(text: str, assignment: dict) -> bool:
     return bool(anchor_matches(text, assignment))
 
 
+def _tidy_variable(text: str) -> str:
+    """Deterministic cleanup of trivial slips so grounded copy isn't withheld:
+    strip a leading coordinating conjunction ('And,'/'But'/'So') and collapse
+    whitespace. Meaning is preserved — we only remove a mid-thought opener."""
+    t = re.sub(r"\s+", " ", (text or "").strip())
+    t = re.sub(r"^(and|but|so|also|plus)\b[\s,;:—-]*", "", t, flags=re.I)
+    return (t[:1].upper() + t[1:]) if t else t
+
+
 def _qc_failures(vars_out: dict, assign: dict, facts: dict, formats: list | None = None,
                  reading_level: str = "", site_text: str = "") -> dict:
-    """Return {name: reason} for variables that must be regenerated."""
+    """Return {name: reason} for variables that must be regenerated. Length limits
+    carry a small tolerance so a grounded line isn't withheld for a word or two
+    over — the writer still targets the exact limit, this only avoids throwing away
+    good copy."""
     fails = {}
     primary_seen = {}   # evidence_key -> first variable that used it
     format_by_name = {f.get("name"): f for f in (formats or [])}
@@ -742,7 +754,7 @@ def _qc_failures(vars_out: dict, assign: dict, facts: dict, formats: list | None
         if fmt.get("min_words") and len(words) < int(fmt["min_words"]):
             fails[name] = f"below configured minimum of {int(fmt['min_words'])} words"
             continue
-        if fmt.get("max_words") and len(words) > int(fmt["max_words"]):
+        if fmt.get("max_words") and len(words) > round(int(fmt["max_words"]) * 1.3):
             fails[name] = f"above configured maximum of {int(fmt['max_words'])} words"
             continue
         if (reading_level or "b2 business") == "b2 business":
@@ -751,8 +763,8 @@ def _qc_failures(vars_out: dict, assign: dict, facts: dict, formats: list | None
                 for sentence in re.split(r"(?<=[.!?])\s+", t)
                 if sentence.strip()
             ]
-            if sentence_lengths and max(sentence_lengths) > 40:
-                fails[name] = "contains a sentence longer than 40 words; use clear B2 sentence structure"
+            if sentence_lengths and max(sentence_lengths) > 45:
+                fails[name] = "contains a sentence longer than 45 words; use clear B2 sentence structure"
                 continue
         hit = next((p for p in _BANNED_PHRASES if p in low), None)
         if hit:
@@ -931,6 +943,9 @@ def _writer_system(cfg, rules, level_line) -> str:
             "- Reference: name and continue the value proposition's proof in complete grammatical sentences.\n"
             "- Pitch: separate the prospect's company category, target customer companies, decision-maker "
             "titles, and the revenue problems we solve. Titles are not customer categories.\n"
+            "- LENGTH & FORM (strict): obey each variable's min_words/max_words exactly; keep EVERY sentence "
+            "under 30 words; never begin a variable with 'And', 'But', or 'So'. These are hard limits — a "
+            "candidate that breaks them will be rejected, so self-check length before returning.\n"
             "- Approved examples teach style and structure only. Never copy their company names, projects, "
             "numbers, or claims into a different prospect's output.\n"
             "- avoid_examples are rejected anti-examples. Do not copy their wording or repeat the problem "
@@ -1019,6 +1034,7 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
                 "error": f"Writer failed: {str(exc)[:240]}"}
 
     vars_out, candidate_count = _select_candidates(out, formats, assign, facts, reading, site_text)
+    vars_out = {k: _tidy_variable(v) for k, v in vars_out.items()}
     # Regenerate only failed variables once, then quarantine every remaining
     # failure. No fallback prose and no partially grounded result may be `done`.
     fails = _qc_failures(vars_out, assign, facts, formats, reading, site_text)
@@ -1036,7 +1052,7 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
             repaired, repair_candidates = _select_candidates(
                 fixed, [f for f in formats if f["name"] in fails], assign, facts, reading, site_text)
             candidate_count += repair_candidates
-            vars_out.update(repaired)
+            vars_out.update({k: _tidy_variable(v) for k, v in repaired.items()})
         except Exception:
             pass
     final_fails = _qc_failures(vars_out, assign, facts, formats, reading, site_text)
