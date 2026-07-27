@@ -10,6 +10,7 @@ _pipeline_one. Cheapest-first funnel — ORDER IS DELIBERATE, DO NOT REORDER:
 Resume semantics: leads already in a TERMINAL status are never re-processed.
 """
 import json
+import os
 import re
 import unicodedata
 from datetime import datetime
@@ -294,7 +295,7 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
     # generic — the citeable facts (named projects, clients, metrics) are on inner
     # pages and behind JS.
     crawl = crawl_site(lead.website, html_override=(lead.data or {}).get("html_override", ""),
-                       max_pages=30 if deep else 16, max_chars=76000 if deep else 52000,
+                       max_pages=16 if deep else 8, max_chars=40000 if deep else 22000,
                        follow_all=True, render=True)
     if crawl.get("error") or not crawl.get("text"):
         return {"error": crawl.get("error") or "no website content", "crawl": crawl}
@@ -360,12 +361,15 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
                     '"methodology"|"named_service"|"project"|"award"|"industry"|"buyer"|"challenge", '
                     '"claim": str, "source_url": str (copy the PAGE URL), '
                     '"supporting_quote": str (short exact quote copied from that page)} ]}}')
-        research_chars = 32000 if deep else 18000
+        research_chars = 18000 if deep else 10000
         packet = _research_packet(crawl, research_chars)
         try:
-            vision_limit = 4 if deep else 2
-            visual = ai.analyze_site_images(lead.company, crawl.get("image_candidates") or [],
-                                            limit=vision_limit)
+            # Vision is the most expensive call and rarely adds facts the text
+            # doesn't already have — skip it on standard runs, keep a small budget
+            # only for deep research. (Set VISION_MAX to override.)
+            vision_limit = int(os.getenv("VISION_MAX", "2" if deep else "0"))
+            visual = (ai.analyze_site_images(lead.company, crawl.get("image_candidates") or [],
+                                             limit=vision_limit) if vision_limit else [])
             visual_context = ("\n\nVALIDATED VISUAL OBSERVATIONS (keep source_kind=image):\n"
                               + json.dumps(visual)) if visual else ""
             user = (f"Company: {lead.company}\nSite: {crawl.get('url')}\n"
@@ -1098,7 +1102,7 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
     # details — the thin taxonomy alone starves it and QC then blanks everything.
     deep = getattr(cfg, "research_depth", "") == "deep"
     site_text = ctx.get("crawl", {}).get("text", "") or ""
-    site_excerpt = site_text[:16000 if deep else 9000]
+    site_excerpt = site_text[:10000 if deep else 5000]
     user = _writer_user(lead, facts, aug, site_excerpt)
     calls = 0
     prompt_chars = len(system) + len(user)
