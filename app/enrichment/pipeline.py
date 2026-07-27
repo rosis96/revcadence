@@ -723,13 +723,56 @@ def _uses_assigned_evidence(text: str, assignment: dict) -> bool:
     return bool(anchor_matches(text, assignment))
 
 
+# Clause boundaries used to break a run-on into readable B2 sentences. Phrase
+# markers only (not any comma) so we don't chop comma-separated lists like
+# "7-Eleven, KFC, Starbucks" into fragments.
+_CLAUSE_MARKERS = ("; ", ", and ", ", but ", ", which ", ", so ", ", helping ",
+                   ", while ", ", because ", ", allowing ", ", enabling ",
+                   ", plus ", ", then ", ", giving ", ", supporting ")
+
+
+def _split_long_sentences(text: str, limit: int = 38) -> str:
+    """Break any sentence longer than `limit` words into shorter B2 sentences at a
+    natural clause boundary nearest the middle (falling back to a hard word split
+    only if no clause marker exists). Preserves every word, name, and number."""
+    def split_sentence(s: str) -> list:
+        words = s.split()
+        if len(words) <= limit:
+            return [s]
+        low = s.lower()
+        mid = len(s) // 2
+        best, best_dist = None, 10 ** 9
+        for m in _CLAUSE_MARKERS:
+            i = low.find(m)
+            while i != -1:
+                if abs(i - mid) < best_dist:
+                    best_dist, best = abs(i - mid), (i, len(m))
+                i = low.find(m, i + 1)
+        if best is None:
+            first = " ".join(words[:limit]).rstrip(",;:") + "."
+            rest = " ".join(words[limit:])
+        else:
+            i, mlen = best
+            first = s[:i].rstrip(",;:") + "."
+            rest = s[i + mlen:].strip()
+        rest = (rest[:1].upper() + rest[1:]) if rest else rest
+        return [first] + (split_sentence(rest) if rest else [])
+    parts = re.split(r"(?<=[.!?])\s+", (text or "").strip())
+    out = []
+    for s in parts:
+        if s.strip():
+            out.extend(split_sentence(s.strip()))
+    return " ".join(out)
+
+
 def _tidy_variable(text: str) -> str:
-    """Deterministic cleanup of trivial slips so grounded copy isn't withheld:
-    strip a leading coordinating conjunction ('And,'/'But'/'So') and collapse
-    whitespace. Meaning is preserved — we only remove a mid-thought opener."""
+    """Deterministic cleanup so grounded copy isn't withheld for trivial slips:
+    strip a leading conjunction ('And,'/'But'/'So'), collapse whitespace, and break
+    any run-on sentence into clean B2 sentences. Meaning is fully preserved."""
     t = re.sub(r"\s+", " ", (text or "").strip())
     t = re.sub(r"^(and|but|so|also|plus)\b[\s,;:—-]*", "", t, flags=re.I)
-    return (t[:1].upper() + t[1:]) if t else t
+    t = (t[:1].upper() + t[1:]) if t else t
+    return _split_long_sentences(t, 38)
 
 
 def _qc_failures(vars_out: dict, assign: dict, facts: dict, formats: list | None = None,
