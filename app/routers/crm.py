@@ -566,6 +566,9 @@ def reports_summary(workspace_id: int | None = None, days: int = 90,
         "range_days": days,
         "kpis": {
             "open_pipeline_value": round(sum(d.value or 0 for d in open_deals)),
+            # The metric the outbound engine DIRECTLY generated — make this the hero,
+            # not $0 won revenue (which lags and reads as "not working yet").
+            "meetings_booked_value": round(sum(d.value or 0 for d in booked)),
             "won_revenue": round(sum(d.value or 0 for d in won_deals)),
             "won_revenue_in_range": round(sum(d.value or 0 for d in won_range)),
             "active_deals": len(open_deals),
@@ -585,6 +588,44 @@ def reports_summary(workspace_id: int | None = None, days: int = 90,
         "top_open_deals": [{"id": d.id, "name": d.name or "(unnamed)", "value": round(d.value or 0),
                             "stage": name_of.get(d.stage_id, "")} for d in top],
     }
+
+
+class AcvIn(BaseModel):
+    workspace_id: int
+    acv_default: float = 0.0
+    backfill_zero: bool = False   # also set existing $0 deals to the new ACV
+
+
+@router.get("/settings/acv")
+def get_acv(workspace_id: int, ctx: AuthContext = Depends(get_ctx)):
+    from ..models.identity import Workspace
+    ctx.require_workspace(workspace_id)
+    w = ctx.db.get(Workspace, workspace_id)
+    return {"acv_default": float((w.settings or {}).get("acv_default") or 0) if w else 0.0}
+
+
+@router.put("/settings/acv")
+def set_acv(body: AcvIn, ctx: AuthContext = Depends(get_ctx)):
+    """Set the workspace's default deal value. New opportunities inherit it; with
+    backfill_zero, existing $0 deals are updated too so the pipeline total shows a
+    real projected figure instead of zeros."""
+    from ..models.identity import Workspace
+    ctx.require_workspace(body.workspace_id)
+    w = ctx.db.get(Workspace, body.workspace_id)
+    if not w:
+        raise HTTPException(404, "Workspace not found")
+    acv = max(0.0, float(body.acv_default or 0))
+    w.settings = {**(w.settings or {}), "acv_default": acv}
+    updated = 0
+    if body.backfill_zero and acv > 0:
+        zeros = (ctx.db.query(Deal)
+                 .filter(Deal.workspace_id == body.workspace_id,
+                         (Deal.value == 0) | (Deal.value.is_(None))).all())
+        for d in zeros:
+            d.value = acv
+            updated += 1
+    ctx.db.commit()
+    return {"ok": True, "acv_default": acv, "backfilled": updated}
 
 
 @router.get("/setup/checklist")

@@ -113,10 +113,11 @@ async def form_capture(request: Request, key: str = ""):
             deal = dq.order_by(Deal.id.desc()).first()
         existed = deal is not None
         if deal is None:
+            from ..reply.sync import workspace_acv
             deal = Deal(workspace_id=wid, name=f"Inbound — {who}",
                         company_id=company.id if company else None,
                         contact_id=contact.id if contact else None,
-                        stage_id=_first_stage_id(db, wid), value=0.0,
+                        stage_id=_first_stage_id(db, wid), value=workspace_acv(db, wid),
                         source="inbound_form", lead_intent="inbound",
                         next_step="Respond within 10 minutes")
             db.add(deal); db.flush()

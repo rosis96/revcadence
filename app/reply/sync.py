@@ -7,6 +7,18 @@ contact-LinkedIn / company-LinkedIn out of a raw Bison/Instantly payload
 from datetime import datetime
 
 
+def workspace_acv(db, workspace_id) -> float:
+    """Per-workspace default deal value (Average Contract Value). New opportunities
+    from replies/inbound inherit this so the pipeline shows real projected dollars
+    instead of a demoralizing $0. Stored on workspace.settings['acv_default']."""
+    from ..models.identity import Workspace
+    try:
+        w = db.get(Workspace, workspace_id)
+        return float((w.settings or {}).get("acv_default") or 0) if w else 0.0
+    except Exception:
+        return 0.0
+
+
 def _deep_get(obj, keys):
     """First non-empty value for any of `keys` anywhere in a nested dict/list."""
     stack = [obj]
@@ -122,7 +134,7 @@ def sync_interested_to_opportunity(db, lead) -> dict:
                                  Stage.name == "Opportunity").order_by(Stage.sort_order).first()
     deal = Deal(workspace_id=lead.workspace_id,
                 name=f"{lead.company or lead.name or lead.email} — opportunity",
-                contact_id=cid, company_id=synced.get("company_id"),
+                contact_id=cid, company_id=synced.get("company_id"), value=workspace_acv(db, lead.workspace_id),
                 stage_id=opp.id if opp else None, lead_intent=lead.intent, source="reply")
     db.add(deal)
     db.flush()
@@ -248,6 +260,7 @@ def sync_booked_to_deal(db, lead) -> dict:
     deal = Deal(workspace_id=lead.workspace_id,
                 name=f"{lead.company or lead.name or lead.email} — meeting",
                 contact_id=synced.get("contact_id"), company_id=synced.get("company_id"),
+                value=workspace_acv(db, lead.workspace_id),
                 stage_id=stage.id if stage else None, lead_intent=lead.intent, source="reply")
     db.add(deal)
     db.flush()
