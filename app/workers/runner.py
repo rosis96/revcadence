@@ -95,6 +95,25 @@ def poll_mailboxes(db):
             print(f"[worker] mailbox poll error ws={b.workspace_id}: {e}")
 
 
+_DIGEST_HOUR_UTC = int(os.getenv("DIGEST_HOUR_UTC", "13"))   # ~morning US
+
+
+def send_daily_digests(db):
+    """Once a day: post each opted-in workspace its executive briefing to Slack."""
+    from ..digest import build_digest, digest_text, send_slack_digest
+    from ..models.identity import Workspace
+    for w in db.query(Workspace).all():
+        s = w.settings or {}
+        if not (s.get("digest_enabled") and s.get("slack_webhook")):
+            continue
+        try:
+            d = build_digest(db, w.id, hours=24)
+            text = digest_text(s.get("digest_client_name") or w.name, d, os.getenv("PUBLIC_BASE_URL", ""))
+            send_slack_digest(s["slack_webhook"], text)
+        except Exception as e:  # noqa: BLE001
+            print(f"[worker] digest error ws={w.id}: {e}")
+
+
 def main():
     init_db()
     print(f"[worker] started · db={engine.dialect.name} · handlers={sorted(HANDLERS)}")
@@ -105,6 +124,7 @@ def main():
               "by the web service will NEVER be seen. Fix the service variables. ***")
     last_mailbox_poll = 0.0
     last_followup_tick = 0.0
+    last_digest_date = None
     while True:
         db = SessionLocal()
         try:
@@ -115,6 +135,10 @@ def main():
             if time.time() - last_followup_tick >= _FOLLOWUP_TICK_SECONDS:
                 run_followups(db)
                 last_followup_tick = time.time()
+            _now = datetime.utcnow()
+            if _now.hour >= _DIGEST_HOUR_UTC and last_digest_date != _now.date():
+                send_daily_digests(db)
+                last_digest_date = _now.date()
             job = _claim(db)
             if job:
                 print(f"[worker] running job {job.id} kind={job.kind} attempt={job.attempts}")

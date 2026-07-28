@@ -39,6 +39,30 @@ export default function Reports() {
     } catch (e) { toast(e.message, "bad"); } finally { setSavingAcv(false); }
   };
 
+  // Morning briefing (Slack digest) settings
+  const [dg, setDg] = useState({ slack_webhook: "", client_name: "", enabled: false, set: false });
+  const [dgBusy, setDgBusy] = useState(false);
+  useEffect(() => {
+    if (wsParam) api(`/api/digest/settings?workspace_id=${wsParam}`)
+      .then((r) => setDg({ slack_webhook: "", client_name: r.client_name || "", enabled: !!r.enabled, set: !!r.slack_webhook_set }))
+      .catch(() => {});
+  }, [wsParam]);
+  const saveDigest = async () => {
+    setDgBusy(true);
+    try {
+      await api("/api/digest/settings", { method: "PUT", body: {
+        workspace_id: Number(wsParam), client_name: dg.client_name, enabled: dg.enabled,
+        ...(dg.slack_webhook ? { slack_webhook: dg.slack_webhook } : {}) } });
+      toast("Morning briefing saved"); setDg((d) => ({ ...d, set: d.set || !!d.slack_webhook, slack_webhook: "" }));
+    } catch (e) { toast(e.message, "bad"); } finally { setDgBusy(false); }
+  };
+  const testDigest = async () => {
+    setDgBusy(true);
+    try { const r = await api(`/api/digest/send-test?workspace_id=${wsParam}`, { method: "POST" });
+      toast(r.sent ? "Test briefing sent to Slack ✓" : "Slack rejected the message — check the webhook", r.sent ? "" : "bad");
+    } catch (e) { toast(e.message, "bad"); } finally { setDgBusy(false); }
+  };
+
   if (error) return <ErrorBox msg={error} retry={reload} />;
   if (loading && !data) return <Spinner />;
   if (!data) return null;
@@ -85,6 +109,34 @@ export default function Reports() {
               placeholder="5000" style={{ width: 110, padding: "7px 10px", borderRadius: 8, border: "1px solid #d9e2ec" }} />
             <button className="btn ghost sm" disabled={savingAcv} onClick={() => saveAcv(false)}>Save</button>
             <button className="btn sm" disabled={savingAcv} onClick={() => saveAcv(true)}>Save & apply to open deals</button>
+          </div>
+        </div>)}
+
+      {wsParam && (
+        <div className="card" style={{ padding: 16, marginBottom: 18 }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+            <div>
+              <h2 style={{ fontSize: 15, margin: 0 }}>Morning briefing</h2>
+              <p style={{ color: "var(--muted)", fontSize: 12.5, margin: "3px 0 0" }}>
+                A daily Slack message so this client sees RevCadence tied to hot leads every morning —
+                e.g. “Good morning! RevCadence generated 3 positive replies worth $15,000 yesterday.”</p>
+            </div>
+            <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, whiteSpace: "nowrap" }}>
+              <input type="checkbox" checked={dg.enabled} onChange={(e) => setDg({ ...dg, enabled: e.target.checked })} />
+              Send daily
+            </label>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 }}>
+            <div className="field" style={{ margin: 0 }}><label>Client name (greeting)</label>
+              <input value={dg.client_name} onChange={(e) => setDg({ ...dg, client_name: e.target.value })}
+                placeholder="Ascendly" style={{ width: "100%" }} /></div>
+            <div className="field" style={{ margin: 0 }}><label>Slack Incoming Webhook URL {dg.set && <span style={{ color: "#15803d" }}>· connected</span>}</label>
+              <input value={dg.slack_webhook} onChange={(e) => setDg({ ...dg, slack_webhook: e.target.value })}
+                placeholder={dg.set ? "•••• saved — paste to replace" : "https://hooks.slack.com/services/…"} style={{ width: "100%" }} /></div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button className="btn" disabled={dgBusy} onClick={saveDigest}>Save briefing</button>
+            <button className="btn ghost" disabled={dgBusy || !dg.set} onClick={testDigest}>Send test to Slack</button>
           </div>
         </div>)}
 

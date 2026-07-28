@@ -1,5 +1,6 @@
 """CRM endpoints on the unified object model. Every read/write goes through the
 workspace scope — a client user physically cannot see another workspace's data."""
+import os
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -626,6 +627,74 @@ def set_acv(body: AcvIn, ctx: AuthContext = Depends(get_ctx)):
             updated += 1
     ctx.db.commit()
     return {"ok": True, "acv_default": acv, "backfilled": updated}
+
+
+# ---------------------------------------------------------------- executive digest
+class DigestSettingsIn(BaseModel):
+    workspace_id: int
+    slack_webhook: str | None = None
+    client_name: str | None = None
+    enabled: bool | None = None
+
+
+@router.get("/digest/preview")
+def digest_preview(workspace_id: int, hours: int = 24, ctx: AuthContext = Depends(get_ctx)):
+    from ..digest import build_digest, digest_text
+    from ..models.identity import Workspace
+    ctx.require_workspace(workspace_id)
+    w = ctx.db.get(Workspace, workspace_id)
+    s = (w.settings or {}) if w else {}
+    d = build_digest(ctx.db, workspace_id, hours=hours)
+    text = digest_text(s.get("digest_client_name") or (w.name if w else ""), d,
+                       os.getenv("PUBLIC_BASE_URL", ""))
+    return {**d, "text": text}
+
+
+@router.get("/digest/settings")
+def get_digest_settings(workspace_id: int, ctx: AuthContext = Depends(get_ctx)):
+    from ..models.identity import Workspace
+    ctx.require_workspace(workspace_id)
+    w = ctx.db.get(Workspace, workspace_id)
+    s = (w.settings or {}) if w else {}
+    return {"slack_webhook_set": bool(s.get("slack_webhook")),
+            "client_name": s.get("digest_client_name") or "",
+            "enabled": bool(s.get("digest_enabled"))}
+
+
+@router.put("/digest/settings")
+def set_digest_settings(body: DigestSettingsIn, ctx: AuthContext = Depends(get_ctx)):
+    from ..models.identity import Workspace
+    ctx.require_workspace(body.workspace_id)
+    w = ctx.db.get(Workspace, body.workspace_id)
+    if not w:
+        raise HTTPException(404, "Workspace not found")
+    s = {**(w.settings or {})}
+    if body.slack_webhook is not None:
+        s["slack_webhook"] = body.slack_webhook.strip()
+    if body.client_name is not None:
+        s["digest_client_name"] = body.client_name.strip()
+    if body.enabled is not None:
+        s["digest_enabled"] = bool(body.enabled)
+    w.settings = s
+    ctx.db.commit()
+    return {"ok": True}
+
+
+@router.post("/digest/send-test")
+def send_test_digest(workspace_id: int, hours: int = 24, ctx: AuthContext = Depends(get_ctx)):
+    from ..digest import build_digest, digest_text, send_slack_digest
+    from ..models.identity import Workspace
+    ctx.require_workspace(workspace_id)
+    w = ctx.db.get(Workspace, workspace_id)
+    s = (w.settings or {}) if w else {}
+    hook = s.get("slack_webhook") or ""
+    if not hook:
+        raise HTTPException(422, "No Slack webhook set for this workspace.")
+    d = build_digest(ctx.db, workspace_id, hours=hours)
+    text = digest_text(s.get("digest_client_name") or (w.name if w else ""), d,
+                       os.getenv("PUBLIC_BASE_URL", ""))
+    ok = send_slack_digest(hook, text)
+    return {"sent": ok, "text": text}
 
 
 @router.get("/setup/checklist")
