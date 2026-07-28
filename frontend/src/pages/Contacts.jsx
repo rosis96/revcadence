@@ -93,23 +93,32 @@ export default function Contacts() {
 
   const shown = useMemo(() => filterByStatus(data, filter), [data, filter]);
 
-  const columns = useMemo(() => [
-    { accessorKey: "name", header: "Name", size: 230,
-      cell: ({ row }) => (
-        <div className="co"><Avatar name={row.original.name || row.original.email} size={26} />
-          <div><div className="lead-nm">{row.original.name || "—"}</div>
-            <div className="lead-sub">{row.original.email}</div></div>
-        </div>) },
-    { id: "status", header: "Status", size: 160, accessorFn: (r) => r.status?.label || "",
-      cell: ({ row }) => <PipelinePill status={row.original.status} /> },
-    { accessorKey: "company_name", header: "Company", size: 190, cell: ({ getValue }) => getValue() || "—" },
-    { accessorKey: "title", header: "Title", size: 190, cell: ({ getValue }) => getValue() || "—" },
-    { accessorKey: "source", header: "Source", size: 130,
-      cell: ({ getValue }) => <Badge>{getValue() || "—"}</Badge> },
-    { accessorKey: "revenue_score", header: "Score", size: 90,
-      cell: ({ getValue }) => (getValue() != null
-        ? <Badge tone={scoreTone(getValue())}>{getValue()}</Badge> : <Badge>—</Badge>) },
-  ], []);
+  const columns = useMemo(() => {
+    // Enterprise feel: drop any column that's empty for EVERY visible row, so the
+    // table never reads as a wall of dashes. Name + Status always show.
+    const has = (key) => shown.some((r) => r[key] != null && r[key] !== "");
+    const cols = [
+      { accessorKey: "name", header: "Name", size: 230,
+        cell: ({ row }) => (
+          <div className="co"><Avatar name={row.original.name || row.original.email} size={26} />
+            <div><div className="lead-nm">{row.original.name || "—"}</div>
+              <div className="lead-sub">{row.original.email}</div></div>
+          </div>) },
+      { id: "status", header: "Status", size: 160, accessorFn: (r) => r.status?.label || "",
+        cell: ({ row }) => <PipelinePill status={row.original.status} /> },
+    ];
+    if (has("company_name"))
+      cols.push({ accessorKey: "company_name", header: "Company", size: 190, cell: ({ getValue }) => getValue() || "—" });
+    if (has("title"))
+      cols.push({ accessorKey: "title", header: "Title", size: 190, cell: ({ getValue }) => getValue() || "—" });
+    if (has("source"))
+      cols.push({ accessorKey: "source", header: "Source", size: 130, cell: ({ getValue }) => <Badge>{getValue() || "—"}</Badge> });
+    if (has("revenue_score"))
+      cols.push({ accessorKey: "revenue_score", header: "Score", size: 90,
+        cell: ({ getValue }) => (getValue() != null
+          ? <Badge tone={scoreTone(getValue())}>{getValue()}</Badge> : <Badge>—</Badge>) });
+    return cols;
+  }, [shown]);
 
   if (error) return <ErrorBox msg={error} retry={reload} />;
 
