@@ -355,9 +355,19 @@ def build_reply_formats(rws_id: int, body: BuildReplyFormatsIn, ctx: AuthContext
 
 
 # ================================================================ leads console
+# Hot-first ordering for the unified inbox: booked meetings and engaged/interested
+# replies float to the top; dead leads sink. This is what makes a client land on
+# money, not noise.
+_HOT_TIER = {
+    "Wants a call/meeting": 40, "Price-based interest": 32, "Basic interest": 30,
+    "Referral / wrong contact": 20, "Not ready / skeptical": 18,
+    "Out of office": 6, "Not interested": 2,
+}
+
+
 @router.get("/leads")
 def reply_leads(status: str = "", q: str = "", page: int = 1, workspace_id: int | None = None,
-                ctx: AuthContext = Depends(get_ctx)):
+                sort: str = "", ctx: AuthContext = Depends(get_ctx)):
     # Honor the workspace selector: a specific workspace shows ONLY its leads.
     # "All workspaces" (workspace_id omitted) shows the master rollup + Unrouted.
     ws_ids = ctx.workspace_ids_for_query(workspace_id)
@@ -397,7 +407,26 @@ def reply_leads(status: str = "", q: str = "", page: int = 1, workspace_id: int 
         q2 = base.filter(ReplyLead.stage.in_(BOOKED_STAGES))
     elif status == "stopped":
         q2 = base.filter(ReplyLead.action == "stop")
-    rows = q2.order_by(ReplyLead.id.desc()).offset((max(page, 1) - 1) * 50).limit(50).all()
+    if sort == "priority":
+        # Hottest first: booked > engaged/interested > everything else, then recency.
+        from sqlalchemy import case, desc
+        tier = case(
+            (ReplyLead.stage.in_(BOOKED_STAGES), 60),
+            (ReplyLead.action == "stop", 0),
+            (ReplyLead.intent_bucket == "Wants a call/meeting", _HOT_TIER["Wants a call/meeting"]),
+            (ReplyLead.intent_bucket == "Price-based interest", _HOT_TIER["Price-based interest"]),
+            (ReplyLead.intent_bucket == "Basic interest", _HOT_TIER["Basic interest"]),
+            (ReplyLead.replied == True, 28),  # noqa: E712  we replied → engaged
+            (ReplyLead.intent_bucket == "Referral / wrong contact", _HOT_TIER["Referral / wrong contact"]),
+            (ReplyLead.intent_bucket == "Not ready / skeptical", _HOT_TIER["Not ready / skeptical"]),
+            (ReplyLead.intent_bucket == "Out of office", _HOT_TIER["Out of office"]),
+            (ReplyLead.intent_bucket == "Not interested", _HOT_TIER["Not interested"]),
+            else_=10,
+        )
+        q2 = q2.order_by(desc(tier), ReplyLead.updated_at.desc(), ReplyLead.id.desc())
+    else:
+        q2 = q2.order_by(ReplyLead.id.desc())
+    rows = q2.offset((max(page, 1) - 1) * 50).limit(50).all()
 
     from ..reply.sync import _deep_get
 
@@ -407,6 +436,7 @@ def reply_leads(status: str = "", q: str = "", page: int = 1, workspace_id: int 
     return {"counts": counts, "leads": [{
         "id": l.id, "name": l.name, "email": l.email, "company": l.company,
         "website": _website(l), "workspace": l.reply_workspace, "platform": l.platform,
+        "campaign": l.campaign or "",
         "intent": l.intent, "intent_bucket": l.intent_bucket or intent_bucket(l.intent),
         "intent_reason": l.intent_reason or "",
         "confidence": l.confidence, "action": l.action, "stage": l.stage,

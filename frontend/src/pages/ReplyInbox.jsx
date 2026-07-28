@@ -49,7 +49,10 @@ export default function ReplyInbox() {
   const toggleAi = () => setAiOpen((v) => { localStorage.setItem("rc_ai_panel", v ? "0" : "1"); return !v; });
   const toast = useToast();
   const status = tab === "pinned" ? "" : tab;
-  const { data, error, loading, reload } = useApi("/api/reply/leads", { status, q, workspace_id: wsParam });
+  // Hot-first: booked meetings and engaged/interested replies float to the top, so
+  // the client lands on money, not noise. Unified across every account/campaign.
+  const { data, error, loading, reload } = useApi(
+    "/api/reply/leads", { status, q, sort: "priority", workspace_id: wsParam });
 
   const leads = data?.leads || [];
   const counts = data?.counts || {};
@@ -172,6 +175,7 @@ export default function ReplyInbox() {
                   <span className="cv-meta">
                     {l.intent && <StatusPill tone={INTENT_TONE(l.intent)}>{l.intent.replaceAll("_", " ")}</StatusPill>}
                     {STAGE_LABEL[l.stage] && <Badge tone={STAGE_TONE[l.stage] || "gray"}>{STAGE_LABEL[l.stage]}</Badge>}
+                    {(l.campaign || l.workspace) && <Badge tone="gray">{l.campaign || l.workspace}</Badge>}
                     {pins.has(l.id) && <Badge tone="indigo">pinned</Badge>}
                   </span>
                 </span>
