@@ -63,6 +63,16 @@ export default function ReplyInbox() {
     return s;
   }, [leads, tab, pins, bucket]);
   const selIds = Object.keys(sel).filter((k) => sel[k]);
+  // A HOT reply that still needs a human decision — the "what do I do right now?"
+  // set. These get an Action-needed badge and one-click buttons in the row.
+  const HOT_BUCKETS = new Set(["Wants a call/meeting", "Price-based interest", "Basic interest"]);
+  const needsAction = (l) => HOT_BUCKETS.has(l.intent_bucket)
+    && !["booked", "meeting_completed", "won", "lost"].includes(l.stage) && !l.reviewed;
+  const quickStage = async (e, id, stage, msg) => {
+    e.stopPropagation();
+    try { await api(`/api/reply/leads/${id}/action`, { method: "POST", body: { stage } }); toast(msg); reload(); }
+    catch (err) { toast(err.message, "bad"); }
+  };
   const [classifying, setClassifying] = useState(false);
   // AI reads each whole conversation and assigns a clean intent bucket.
   const classifyAI = async () => {
@@ -173,11 +183,17 @@ export default function ReplyInbox() {
                   </span>
                   <span className="cv-snip">{l.company ? `${l.company} · ` : ""}{l.email}</span>
                   <span className="cv-meta">
+                    {needsAction(l) && <Badge tone="amber">Action needed</Badge>}
                     {l.intent && <StatusPill tone={INTENT_TONE(l.intent)}>{l.intent.replaceAll("_", " ")}</StatusPill>}
                     {STAGE_LABEL[l.stage] && <Badge tone={STAGE_TONE[l.stage] || "gray"}>{STAGE_LABEL[l.stage]}</Badge>}
                     {(l.campaign || l.workspace) && <Badge tone="gray">{l.campaign || l.workspace}</Badge>}
                     {pins.has(l.id) && <Badge tone="indigo">pinned</Badge>}
                   </span>
+                  {needsAction(l) && (
+                    <span className="cv-actions" style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                      <button className="btn sm" onClick={(e) => quickStage(e, l.id, "booked", "Meeting booked → pushed to CRM")}>Book meeting</button>
+                      <button className="btn ghost sm" onClick={(e) => quickStage(e, l.id, "interested", "Marked interested")}>Interested</button>
+                    </span>)}
                 </span>
               </button>
             ))}
