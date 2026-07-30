@@ -73,6 +73,12 @@ export default function ReplyInbox() {
     try { await api(`/api/reply/leads/${id}/action`, { method: "POST", body: { stage } }); toast(msg); reload(); }
     catch (err) { toast(err.message, "bad"); }
   };
+  // Dismiss a row from the queue without touching the CRM.
+  const quickIgnore = async (e, id) => {
+    e.stopPropagation();
+    try { await api(`/api/reply/leads/${id}/action`, { method: "POST", body: { reviewed: true } }); toast("Dismissed"); reload(); }
+    catch (err) { toast(err.message, "bad"); }
+  };
   const [classifying, setClassifying] = useState(false);
   // AI reads each whole conversation and assigns a clean intent bucket.
   const classifyAI = async () => {
@@ -189,11 +195,15 @@ export default function ReplyInbox() {
                     {(l.campaign || l.workspace) && <Badge tone="gray">{l.campaign || l.workspace}</Badge>}
                     {pins.has(l.id) && <Badge tone="indigo">pinned</Badge>}
                   </span>
-                  {needsAction(l) && (
-                    <span className="cv-actions" style={{ display: "flex", gap: 6, marginTop: 4 }}>
-                      <button className="btn sm" onClick={(e) => quickStage(e, l.id, "booked", "Meeting booked → pushed to CRM")}>Book meeting</button>
-                      <button className="btn ghost sm" onClick={(e) => quickStage(e, l.id, "interested", "Marked interested")}>Interested</button>
-                    </span>)}
+                </span>
+                {/* Hover quick-actions — one-click triage on any row */}
+                <span className="conv-hover-actions">
+                  <button className="row-act-btn green" title="Book meeting & push to CRM"
+                    onClick={(e) => quickStage(e, l.id, "booked", "Meeting booked → pushed to CRM")}>Book</button>
+                  <button className="row-act-btn blue" title="Push to CRM as interested"
+                    onClick={(e) => quickStage(e, l.id, "interested", "Pushed to CRM")}>Push</button>
+                  <button className="row-act-btn" title="Dismiss from queue"
+                    onClick={(e) => quickIgnore(e, l.id)}>Ignore</button>
                 </span>
               </button>
             ))}

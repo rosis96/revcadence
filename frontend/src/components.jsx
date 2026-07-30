@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "./api";
+import { api, money } from "./api";
 
 /* Phase 0 design system: all new primitives live in src/ui/ and are re-exported
    here so pages keep a single import path. */
@@ -37,6 +37,20 @@ export const Empty = ({ icon = "○", title, hint }) => (
 
 export function Badge({ children, tone = "" }) {
   return <span className={`badge ${tone}`}>{children}</span>;
+}
+
+// Deal value with EST fallback: real value renders exact; a $0/blank deal shows the
+// workspace ACV default framed as an estimate, so pipeline never reads as unconfigured.
+export function MoneyEst({ value, acv = 0 }) {
+  const n = Number(value) || 0;
+  if (n > 0) return <span className="val-exact">{money(n)}</span>;
+  if (acv > 0)
+    return (
+      <span className="val-estimated" title={`Estimated from default ACV (${money(acv)})`}>
+        {money(acv)}<span className="est-tag">EST</span>
+      </span>
+    );
+  return <span className="val-none">—</span>;
 }
 
 // Semantic status pill (reusable across Lists/Database/CRM). tone: green/blue/red/amber/gray/indigo

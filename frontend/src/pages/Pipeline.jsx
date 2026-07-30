@@ -4,7 +4,7 @@ import { Plus, Rows3 } from "lucide-react";
 import { api, money, timeAgo } from "../api";
 import { useAuth } from "../auth";
 import {
-  Badge, Button, DataTable, Drawer, ErrorBox, Modal, PageHeader, Spinner, Tabs,
+  Badge, Button, DataTable, Drawer, ErrorBox, Modal, MoneyEst, PageHeader, Spinner, Tabs,
   Timeline, useApi,
 } from "../components";
 
@@ -174,7 +174,10 @@ function DealDrawer({ dealId, onClose, onChanged }) {
 
 export default function Pipeline() {
   const { wsParam, me } = useAuth();
+  const nav = useNavigate();
   const { data: board, error, loading, reload } = useApi("/api/deals/board", { workspace_id: wsParam });
+  const { data: acvData } = useApi(wsParam ? "/api/settings/acv" : null, { workspace_id: wsParam });
+  const acv = Number(acvData?.acv_default) || 0;
   const params = new URLSearchParams(window.location.hash.split("?")[1] || "");
   const [openDeal, setOpenDeal] = useState(params.get("open") ? Number(params.get("open")) : null);
   const [dragOver, setDragOver] = useState(null);
@@ -205,11 +208,11 @@ export default function Pipeline() {
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600 }}>
           <span className="dot" style={{ background: row.original.stage_color }} />{row.original.stage_name}
         </span>) },
-    { accessorKey: "value", header: "Value", size: 110, cell: ({ getValue }) => money(getValue()) },
+    { accessorKey: "value", header: "Value", size: 120, cell: ({ getValue }) => <MoneyEst value={getValue()} acv={acv} /> },
     { accessorKey: "lead_intent", header: "Intent", size: 140,
       cell: ({ getValue }) => (getValue() ? <Badge tone="indigo">{getValue()}</Badge> : "—") },
     { accessorKey: "updated_at", header: "Updated", size: 110, cell: ({ getValue }) => timeAgo(getValue()) },
-  ], []);
+  ], [acv]);
 
   if (loading) return <Spinner />;
   if (error) return <ErrorBox msg={error} retry={reload} />;
@@ -257,7 +260,7 @@ export default function Pipeline() {
                 <div className="nm">{d.name || d.company_name || "Untitled deal"}</div>
                 <div className="co">{d.company_name}{d.contact_name ? ` · ${d.contact_name}` : ""}</div>
                 <div className="row">
-                  <span className="val">{money(d.value)}</span>
+                  <span className="val"><MoneyEst value={d.value} acv={acv} /></span>
                   {d.lead_intent && <Badge tone="indigo">{d.lead_intent}</Badge>}
                 </div>
                 <div className="co" style={{ marginTop: 4 }}>{timeAgo(d.updated_at)}</div>

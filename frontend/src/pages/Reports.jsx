@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { ErrorBox, PageHeader, Spinner, useApi, useToast } from "../components";
+import { ErrorBox, MoneyEst, PageHeader, Spinner, useApi, useToast } from "../components";
 
 const money = (n) => "$" + (Math.round(n || 0)).toLocaleString();
 const RANGES = [[30, "30 days"], [90, "90 days"], [180, "6 months"], [365, "12 months"]];
@@ -13,7 +13,7 @@ function Kpi({ label, value, sub, accent }) {
   return (
     <div className="card" style={{ padding: 16, minWidth: 0 }}>
       <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-.02em", color: accent || "var(--ink, #16263c)" }}>{value}</div>
+      <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-.02em", fontVariantNumeric: "tabular-nums", color: accent || "var(--ink, #16263c)" }}>{value}</div>
       {sub && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 3 }}>{sub}</div>}
     </div>
   );
@@ -177,7 +177,7 @@ export default function Reports() {
                   <div style={{ fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.name}</div>
                   <div style={{ color: "var(--muted)", fontSize: 12 }}>{d.stage}</div>
                 </div>
-                <div style={{ fontWeight: 700 }}>{money(d.value)}</div>
+                <div style={{ fontWeight: 700 }}><MoneyEst value={d.value} acv={Number(acv) || 0} /></div>
               </div>
             ))}
         </div>
