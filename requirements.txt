@@ -14,3 +14,4 @@ reportlab==4.2.5
 python-multipart==0.0.20
 dnspython==2.6.1
 pypdf==6.0.0
+google-auth==2.32.0

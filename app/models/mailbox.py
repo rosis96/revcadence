@@ -15,7 +15,7 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, JSON, Str
 
 from ..db import Base
 
-MAILBOX_PROVIDERS = ("gmail", "outlook", "smtp")
+MAILBOX_PROVIDERS = ("gmail", "outlook", "smtp", "google_workspace")
 CONVERSATION_STATES = ("active", "paused", "won", "lost", "stopped")
 MESSAGE_STATES = ("draft", "scheduled", "sent", "received", "failed", "cancelled")
 

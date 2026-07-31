@@ -22,6 +22,8 @@ PROVIDER_DEFAULTS = {
     "gmail":   {"smtp_host": "smtp.gmail.com",       "smtp_port": 587, "imap_host": "imap.gmail.com",           "imap_port": 993},
     "outlook": {"smtp_host": "smtp.office365.com",   "smtp_port": 587, "imap_host": "outlook.office365.com",    "imap_port": 993},
     "smtp":    {"smtp_host": "",                     "smtp_port": 587, "imap_host": "",                         "imap_port": 993},
+    # Gmail API over HTTPS (domain-wide delegation) — no SMTP/IMAP ports used.
+    "google_workspace": {"smtp_host": "", "smtp_port": 587, "imap_host": "", "imap_port": 993},
 }
 
 
@@ -57,6 +59,12 @@ def connect_mailbox(db, workspace_id, user_id, *, provider, email, secret, from_
 
 
 def test_connection(conn: MailboxConnection) -> tuple[bool, str]:
+    if conn.provider == "google_workspace":
+        from . import gmail_api
+        if not gmail_api.enabled():
+            return False, ("Google Workspace isn't configured on the server yet "
+                           "(GOOGLE_WORKSPACE_SA_JSON). Add it, then Test again.")
+        return gmail_api.gmail_test(conn.email)
     if not conn.app_password_enc:
         return False, "No password stored"
     try:
@@ -140,8 +148,12 @@ def send_message(db, conv: DealConversation, body_text: str, *, subject=None,
         subj = f"Re: {subj}"
     msg, message_id, in_reply_to, references = build_mime(mailbox, conv, conv.prospect_email, subj, body_text, last)
 
-    secret = decrypt(mailbox.app_password_enc)
-    transport.smtp_send(mailbox.smtp_host, mailbox.smtp_port, mailbox.username, secret, msg)
+    if mailbox.provider == "google_workspace":
+        from . import gmail_api
+        gmail_api.gmail_send(mailbox.email, msg)
+    else:
+        secret = decrypt(mailbox.app_password_enc)
+        transport.smtp_send(mailbox.smtp_host, mailbox.smtp_port, mailbox.username, secret, msg)
 
     cm = ConversationMessage(
         conversation_id=conv.id, workspace_id=conv.workspace_id, deal_id=conv.deal_id,
@@ -238,8 +250,12 @@ def poll_and_sync(db, workspace_id) -> dict:
     mailbox = workspace_mailbox(db, workspace_id)
     if not mailbox or mailbox.status != "connected":
         return {"skipped": "no connected mailbox"}
-    secret = decrypt(mailbox.app_password_enc)
-    incoming = transport.imap_fetch_unseen(mailbox.imap_host, mailbox.imap_port, mailbox.username, secret)
+    if mailbox.provider == "google_workspace":
+        from . import gmail_api
+        incoming = gmail_api.gmail_fetch_since(mailbox.email, days=2, limit=50)
+    else:
+        secret = decrypt(mailbox.app_password_enc)
+        incoming = transport.imap_fetch_unseen(mailbox.imap_host, mailbox.imap_port, mailbox.username, secret)
     matched, candidates, ignored = 0, 0, 0
     for m in incoming:
         if (m.get("from_email") or "").lower() == mailbox.email.lower():
@@ -286,9 +302,13 @@ def backfill(db, workspace_id, days=60, limit=200) -> dict:
     mailbox = workspace_mailbox(db, workspace_id)
     if not mailbox or mailbox.status != "connected":
         return {"skipped": "no connected mailbox"}
-    secret = decrypt(mailbox.app_password_enc)
-    msgs = transport.imap_fetch_since(mailbox.imap_host, mailbox.imap_port, mailbox.username,
-                                      secret, days=days, limit=limit, folder="INBOX")
+    if mailbox.provider == "google_workspace":
+        from . import gmail_api
+        msgs = gmail_api.gmail_fetch_since(mailbox.email, days=days, limit=limit)
+    else:
+        secret = decrypt(mailbox.app_password_enc)
+        msgs = transport.imap_fetch_since(mailbox.imap_host, mailbox.imap_port, mailbox.username,
+                                          secret, days=days, limit=limit, folder="INBOX")
     matched, candidates = 0, 0
     contacts_touched = set()
     for m in msgs:

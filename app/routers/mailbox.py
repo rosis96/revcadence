@@ -39,15 +39,27 @@ def get_mailbox(workspace_id: int | None = None, ctx: AuthContext = Depends(get_
 
 class MailboxIn(BaseModel):
     workspace_id: int
-    provider: str = "gmail"          # gmail | outlook | smtp
+    provider: str = "gmail"          # gmail | outlook | smtp | google_workspace
     email: str
-    app_password: str                # app password (not the account password)
+    app_password: str = ""           # app password (blank for google_workspace)
     from_name: str = ""
     username: str = ""
     smtp_host: str = ""
     smtp_port: int | None = None
     imap_host: str = ""
     imap_port: int | None = None
+
+
+@router.get("/mailbox/google-workspace")
+def google_workspace_info(ctx: AuthContext = Depends(get_ctx)):
+    """What the frontend needs to show the domain-wide-delegation connect flow:
+    whether the server has a service account configured, and the client_id +
+    scopes a Workspace admin must authorize (Admin console -> Security -> API
+    controls -> Domain-wide delegation)."""
+    from ..mailbox import gmail_api
+    return {"enabled": gmail_api.enabled(), "client_id": gmail_api.client_id(),
+            "scopes": gmail_api.SCOPES,
+            "admin_url": "https://admin.google.com/ac/owl/domainwidedelegation"}
 
 
 @router.post("/mailbox/connect")
