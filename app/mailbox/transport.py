@@ -7,13 +7,41 @@ OAuth/aggregator transport later means replacing only this file.
 import email
 import imaplib
 import smtplib
+import socket
 from email.message import EmailMessage
+
+
+# ---------------------------------------------------------------------------
+# Force IPv4. Many container hosts publish no IPv6 route, but Gmail/Outlook
+# resolve to an AAAA (IPv6) record first — Python then tries IPv6 and fails with
+# "[Errno 101] Network is unreachable" before it ever reaches IPv4. Resolving the
+# A record ourselves and connecting to it (while keeping the hostname for TLS
+# SNI/cert checks) avoids that whole class of failure.
+# ---------------------------------------------------------------------------
+def _ipv4_addr(host: str, port: int) -> tuple:
+    infos = socket.getaddrinfo(host, int(port), socket.AF_INET, socket.SOCK_STREAM)
+    if not infos:
+        raise OSError(f"No IPv4 address found for {host}")
+    return infos[0][4]   # (ip, port)
+
+
+class _SMTP4(smtplib.SMTP):
+    """smtplib.SMTP that dials over IPv4 only (hostname preserved for TLS)."""
+    def _get_socket(self, host, port, timeout):
+        return socket.create_connection(_ipv4_addr(host, port), timeout, self.source_address)
+
+
+class _IMAP4_SSL4(imaplib.IMAP4_SSL):
+    """imaplib.IMAP4_SSL that dials over IPv4 only (hostname preserved for SNI)."""
+    def _create_socket(self, timeout=None):
+        sock = socket.create_connection(_ipv4_addr(self.host, self.port), timeout)
+        return self.ssl_context.wrap_socket(sock, server_hostname=self.host)
 
 
 def smtp_test(host: str, port: int, username: str, password: str) -> tuple[bool, str]:
     """Verify we can authenticate for sending. Returns (ok, error)."""
     try:
-        with smtplib.SMTP(host, int(port), timeout=20) as s:
+        with _SMTP4(host, int(port), timeout=20) as s:
             s.starttls()
             s.login(username, password)
         return True, ""
@@ -23,7 +51,7 @@ def smtp_test(host: str, port: int, username: str, password: str) -> tuple[bool,
 
 def smtp_send(host: str, port: int, username: str, password: str, msg: EmailMessage) -> None:
     """Send a fully-built MIME message. Raises on failure."""
-    with smtplib.SMTP(host, int(port), timeout=30) as s:
+    with _SMTP4(host, int(port), timeout=30) as s:
         s.starttls()
         s.login(username, password)
         s.send_message(msg)
