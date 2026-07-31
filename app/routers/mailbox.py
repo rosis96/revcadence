@@ -62,6 +62,17 @@ def google_workspace_info(ctx: AuthContext = Depends(get_ctx)):
             "admin_url": "https://admin.google.com/ac/owl/domainwidedelegation"}
 
 
+@router.get("/mailbox/microsoft")
+def microsoft_info(ctx: AuthContext = Depends(get_ctx)):
+    """Microsoft 365 (Graph app-only) connect info: whether it's configured, the
+    app client_id, the application permissions to grant, and the admin-consent URL
+    a Workspace/tenant admin visits once."""
+    from ..mailbox import graph_api
+    return {"enabled": graph_api.enabled(), "client_id": graph_api.client_id(),
+            "scopes": graph_api.SCOPES_DISPLAY,
+            "admin_url": graph_api.admin_consent_url()}
+
+
 @router.post("/mailbox/connect")
 def connect(body: MailboxIn, ctx: AuthContext = Depends(get_ctx)):
     ctx.require_workspace(body.workspace_id)

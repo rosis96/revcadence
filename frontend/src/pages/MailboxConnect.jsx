@@ -1,8 +1,8 @@
-// Settings → Email: connect ONE mailbox. Two ways:
-//  • Google Workspace (domain-wide delegation) — sends via the Gmail API over
-//    HTTPS, so it works even where the host blocks SMTP/IMAP. No app password;
-//    the Workspace admin authorizes our client_id once.
-//  • App password over SMTP+IMAP (Gmail/Outlook/custom).
+// Settings → Email: connect ONE mailbox, Instantly-style. Three providers:
+//  • Google Workspace  → Gmail API over HTTPS (domain-wide delegation, no password)
+//  • Microsoft 365      → Graph API over HTTPS (app-only + admin consent, no password)
+//  • Any Provider       → app password over SMTP/IMAP
+// The HTTPS paths work even where the host blocks SMTP/IMAP (Railway).
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Mail, CheckCircle2, AlertCircle, Plug, Sparkles, ArrowRight, Copy, ShieldCheck } from "lucide-react";
@@ -10,19 +10,12 @@ import { api } from "../api";
 import { useAuth } from "../auth";
 import { Badge, Button, ConfirmDialog, PageHeader, Spinner, useApi, useToast } from "../components";
 
-const PROVIDERS = [
-  { key: "google_workspace", label: "Google Workspace (recommended · no password)" },
-  { key: "gmail", label: "Gmail (app password)" },
-  { key: "outlook", label: "Microsoft 365 / Outlook (app password)" },
-  { key: "smtp", label: "Other (custom SMTP/IMAP)" },
+// The three picker cards. `flow` drives which guided body shows.
+const CARDS = [
+  { key: "google_workspace", name: "Google", sub: "Gmail / Workspace", badge: "G", color: "#ea4335", flow: "google" },
+  { key: "microsoft_graph", name: "Microsoft", sub: "Office 365 / Outlook", badge: "M", color: "#0078d4", flow: "microsoft" },
+  { key: "smtp", name: "Any Provider", sub: "IMAP / SMTP", badge: "@", color: "#6b7280", flow: "smtp" },
 ];
-
-const HELP = {
-  google_workspace: "Sends and reads over the Gmail API (works even when SMTP/IMAP are blocked). Your Workspace admin authorizes RevCadence once with the Client ID below — then just enter the mailbox address. No app password.",
-  gmail: "Gmail needs an App Password (Google Account → Security → 2-Step Verification → App passwords). Use that 16-character password below, not your normal login.",
-  outlook: "Microsoft 365 needs SMTP AUTH enabled for the mailbox, and an app password if security defaults require it. Use the mailbox address and app password below.",
-  smtp: "Enter your provider's SMTP and IMAP host/port, the login username, and an app password.",
-};
 
 export default function MailboxConnect() {
   const { wsParam, me } = useAuth();
@@ -31,36 +24,34 @@ export default function MailboxConnect() {
   const nav = useNavigate();
   const { data: existing, loading, reload } = useApi("/api/mailbox", { workspace_id: wsParam });
   const { data: gw } = useApi("/api/mailbox/google-workspace");
+  const { data: ms } = useApi("/api/mailbox/microsoft");
   const [form, setForm] = useState({ provider: "google_workspace", email: "", app_password: "", from_name: "",
     username: "", smtp_host: "", smtp_port: "", imap_host: "", imap_port: "" });
   const [fu, setFu] = useState(null);
   const [confirmDisc, setConfirmDisc] = useState(false);
-  const isGW = form.provider === "google_workspace";
+  const [busy, setBusy] = useState(false);
+  const [importing, setImporting] = useState(false);
+
+  const card = CARDS.find((c) => c.key === form.provider) || CARDS[0];
+  const isAPI = form.provider === "google_workspace" || form.provider === "microsoft_graph";
 
   useEffect(() => {
     if (existing) setFu({ default_autopilot: !!existing.default_autopilot,
       default_interval_days: existing.default_interval_days || 4,
       default_max_followups: existing.default_max_followups || 4 });
   }, [existing?.id, existing?.default_autopilot]);
-  const saveFu = async () => {
-    try {
-      await api("/api/mailbox/followup-defaults", { method: "PUT", body: { workspace_id: wsId, ...fu } });
-      toast("Follow-up defaults saved"); reload();
-    } catch (e) { toast(e.message, "bad"); }
-  };
-  const [busy, setBusy] = useState(false);
-  const [importing, setImporting] = useState(false);
-
   useEffect(() => { if (existing) setForm((f) => ({ ...f, provider: existing.provider, email: existing.email, from_name: existing.from_name || "" })); }, [existing]);
 
-  const copy = async (text) => {
-    try { await navigator.clipboard.writeText(text); toast("Copied"); } catch { toast("Copy failed", "bad"); }
+  const saveFu = async () => {
+    try { await api("/api/mailbox/followup-defaults", { method: "PUT", body: { workspace_id: wsId, ...fu } }); toast("Follow-up defaults saved"); reload(); }
+    catch (e) { toast(e.message, "bad"); }
   };
+  const copy = async (t) => { try { await navigator.clipboard.writeText(t); toast("Copied"); } catch { toast("Copy failed", "bad"); } };
 
   const connect = async () => {
     if (!wsId) { toast("Pick a workspace first (top bar)", "bad"); return; }
     if (!form.email) { toast("Mailbox address is required", "bad"); return; }
-    if (!isGW && !form.app_password) { toast("App password is required", "bad"); return; }
+    if (!isAPI && !form.app_password) { toast("App password is required", "bad"); return; }
     setBusy(true);
     try {
       const r = await api("/api/mailbox/connect", { method: "POST", body: {
@@ -92,19 +83,40 @@ export default function MailboxConnect() {
       <input type={type} value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} placeholder={ph} /></div>
   );
 
+  // A reusable guided-authorization block for the two HTTPS providers.
+  const AuthSteps = ({ info, title, adminLabel, notConfiguredEnv, scopesLabel }) => (
+    <div className="card" style={{ padding: 14, marginBottom: 12, background: "#fbfbfe" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600, fontSize: 13, marginBottom: 4 }}>
+        <ShieldCheck size={16} style={{ color: "var(--accent,#635BFF)" }} /> {title}
+      </div>
+      <span className="pill green" style={{ marginBottom: 10 }}><span className="dot" /> You only need to do this once per domain</span>
+      {info && !info.enabled && (
+        <div className="error-box" style={{ fontSize: 12.5, margin: "8px 0" }}>
+          Not configured on the server yet. Set <code>{notConfiguredEnv}</code> on the backend, then reload.
+        </div>
+      )}
+      <ol style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 12.5, color: "var(--ink-2,#3b4557)", lineHeight: 1.7 }}>
+        <li>Open <a href={info?.admin_url || "#"} target="_blank" rel="noreferrer">{adminLabel}</a>.</li>
+        <li>Client ID:&nbsp;<code style={{ fontSize: 12 }}>{info?.client_id || "—"}</code>
+          {info?.client_id && <button className="btn ghost sm" style={{ marginLeft: 6 }} onClick={() => copy(info.client_id)}><Copy size={12} /> Copy</button>}</li>
+        <li>{scopesLabel}:<br /><code style={{ fontSize: 11.5 }}>{(info?.scopes || []).join(", ")}</code>
+          {info?.scopes?.length > 0 && <button className="btn ghost sm" style={{ marginLeft: 6 }} onClick={() => copy((info.scopes || []).join(","))}><Copy size={12} /> Copy</button>}</li>
+        <li>Approve, then enter the mailbox address below and Connect.</li>
+      </ol>
+    </div>
+  );
+
   return (
-    <div style={{ maxWidth: 640 }}>
+    <div style={{ maxWidth: 660 }}>
       <PageHeader title="Email" desc="Connect one mailbox. RevCadence sends from your real address and keeps every reply in the same thread on the Deal." />
       {loading && <Spinner />}
 
       {importing && (
-        <div className="card" style={{ padding: 16, marginBottom: 14, display: "flex", alignItems: "center", gap: 12,
-             background: "linear-gradient(180deg,#f6f5ff,#fff)", borderColor: "#d6d3ff" }}>
+        <div className="card" style={{ padding: 16, marginBottom: 14, display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(180deg,#f6f5ff,#fff)", borderColor: "#d6d3ff" }}>
           <Sparkles size={20} style={{ color: "var(--accent,#635BFF)" }} />
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 600 }}>Importing your last 60 days of conversations…</div>
-            <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
-              We're matching them to your contacts and deals. Known threads appear in the Revenue Inbox in a minute or two.</div>
+            <div style={{ fontSize: 12.5, color: "var(--muted)" }}>We're matching them to your contacts and deals. Known threads appear in the Revenue Inbox in a minute or two.</div>
           </div>
           <Button icon={ArrowRight} onClick={() => nav("/revenue-inbox")}>Open Revenue Inbox</Button>
         </div>
@@ -124,66 +136,65 @@ export default function MailboxConnect() {
 
       {existing?.status === "connected" && fu && (
         <div className="card" style={{ padding: 16, marginBottom: 14 }}>
-          <h3 style={{ fontSize: 14, margin: "0 0 6px", display: "flex", alignItems: "center", gap: 8 }}>
-            <Sparkles size={16} /> Follow-up autopilot defaults</h3>
-          <p style={{ fontSize: 12.5, color: "var(--muted)", margin: "0 0 12px" }}>
-            New deals in this workspace inherit these. When on, the AI follows up in the same email
-            thread automatically — stopping the moment the prospect replies. (Existing deals keep their own setting.)</p>
+          <h3 style={{ fontSize: 14, margin: "0 0 6px", display: "flex", alignItems: "center", gap: 8 }}><Sparkles size={16} /> Follow-up autopilot defaults</h3>
+          <p style={{ fontSize: 12.5, color: "var(--muted)", margin: "0 0 12px" }}>New deals in this workspace inherit these. When on, the AI follows up in the same email thread automatically — stopping the moment the prospect replies.</p>
           <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, marginBottom: 10 }}>
-            <input type="checkbox" checked={fu.default_autopilot}
-              onChange={(e) => setFu({ ...fu, default_autopilot: e.target.checked })} />
+            <input type="checkbox" checked={fu.default_autopilot} onChange={(e) => setFu({ ...fu, default_autopilot: e.target.checked })} />
             Turn on autopilot for new deals by default
           </label>
           <div style={{ display: "flex", gap: 14, alignItems: "flex-end" }}>
             <label style={{ fontSize: 12.5 }}>Days between follow-ups
-              <input type="number" min="1" max="60" value={fu.default_interval_days} style={{ width: 90, display: "block", marginTop: 4 }}
-                onChange={(e) => setFu({ ...fu, default_interval_days: Number(e.target.value) || 4 })} /></label>
+              <input type="number" min="1" max="60" value={fu.default_interval_days} style={{ width: 90, display: "block", marginTop: 4 }} onChange={(e) => setFu({ ...fu, default_interval_days: Number(e.target.value) || 4 })} /></label>
             <label style={{ fontSize: 12.5 }}>Max follow-ups
-              <input type="number" min="0" max="12" value={fu.default_max_followups} style={{ width: 90, display: "block", marginTop: 4 }}
-                onChange={(e) => setFu({ ...fu, default_max_followups: Number(e.target.value) || 0 })} /></label>
+              <input type="number" min="0" max="12" value={fu.default_max_followups} style={{ width: 90, display: "block", marginTop: 4 }} onChange={(e) => setFu({ ...fu, default_max_followups: Number(e.target.value) || 0 })} /></label>
             <Button variant="secondary" onClick={saveFu}>Save defaults</Button>
           </div>
         </div>
       )}
 
       <div className="card" style={{ padding: 18 }}>
-        <h3 style={{ fontSize: 14, margin: "0 0 12px", display: "flex", alignItems: "center", gap: 8 }}><Mail size={16} /> {existing ? "Reconnect / update" : "Connect a mailbox"}</h3>
-        <div className="field"><label>Provider</label>
-          <select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })}>
-            {PROVIDERS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
-          </select></div>
-        <div style={{ fontSize: 12.5, color: "var(--muted)", background: "var(--bg)", borderRadius: 8, padding: "10px 12px", margin: "0 0 12px" }}>{HELP[form.provider]}</div>
+        <h3 style={{ fontSize: 14, margin: "0 0 12px", display: "flex", alignItems: "center", gap: 8 }}><Mail size={16} /> {existing ? "Reconnect / update" : "Connect existing accounts"}</h3>
 
-        {isGW && (
-          <div className="card" style={{ padding: 14, marginBottom: 12, background: "#fbfbfe" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600, fontSize: 13, marginBottom: 8 }}>
-              <ShieldCheck size={16} style={{ color: "var(--accent,#635BFF)" }} /> One-time admin authorization
-            </div>
-            {gw && !gw.enabled && (
-              <div className="error-box" style={{ fontSize: 12.5, marginBottom: 10 }}>
-                Google Workspace isn't configured on the server yet. Set <code>GOOGLE_WORKSPACE_SA_JSON</code> on the backend, then reload.
-              </div>
-            )}
-            <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: "var(--ink-2,#3b4557)", lineHeight: 1.7 }}>
-              <li>Open <a href={gw?.admin_url || "https://admin.google.com/ac/owl/domainwidedelegation"} target="_blank" rel="noreferrer">Google Admin → Domain-wide delegation</a> and click <b>Add new</b>.</li>
-              <li>Client ID:&nbsp;
-                <code style={{ fontSize: 12 }}>{gw?.client_id || "—"}</code>
-                {gw?.client_id && <button className="btn ghost sm" style={{ marginLeft: 6 }} onClick={() => copy(gw.client_id)}><Copy size={12} /> Copy</button>}
-              </li>
-              <li>OAuth scopes (paste comma-separated):<br />
-                <code style={{ fontSize: 11.5 }}>{(gw?.scopes || []).join(", ")}</code>
-                {gw?.scopes?.length > 0 && <button className="btn ghost sm" style={{ marginLeft: 6 }} onClick={() => copy(gw.scopes.join(","))}><Copy size={12} /> Copy</button>}
-              </li>
-              <li>Click <b>Authorize</b>, then enter the mailbox address below and Connect.</li>
-            </ol>
+        {/* Provider picker (Instantly-style cards) */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
+          {CARDS.map((c) => {
+            const on = form.provider === c.key;
+            return (
+              <button key={c.key} onClick={() => setForm((f) => ({ ...f, provider: c.key }))}
+                style={{ textAlign: "left", cursor: "pointer", padding: "12px 14px", borderRadius: 12,
+                  border: `1px solid ${on ? "var(--primary,#2563eb)" : "var(--border,#e2e4e9)"}`,
+                  background: on ? "var(--primary-soft,#eff6ff)" : "#fff",
+                  display: "flex", alignItems: "center", gap: 10, transition: "border-color .15s, background .15s" }}>
+                <span style={{ width: 30, height: 30, borderRadius: 8, background: c.color, color: "#fff", fontWeight: 800,
+                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{c.badge}</span>
+                <span><span style={{ display: "block", fontWeight: 650, fontSize: 13.5 }}>{c.name}</span>
+                  <span style={{ display: "block", fontSize: 11.5, color: "var(--muted)" }}>{c.sub}</span></span>
+              </button>
+            );
+          })}
+        </div>
+
+        {card.flow === "google" && (
+          <AuthSteps info={gw} title="Authorize RevCadence in Google Admin"
+            adminLabel="Google Admin → Security → Domain-wide delegation → Add new"
+            notConfiguredEnv="GOOGLE_WORKSPACE_SA_JSON" scopesLabel="OAuth scopes (paste comma-separated)" />
+        )}
+        {card.flow === "microsoft" && (
+          <AuthSteps info={ms} title="Grant admin consent in Microsoft 365"
+            adminLabel="Microsoft admin consent (opens Microsoft login)"
+            notConfiguredEnv="MS_GRAPH_CLIENT_ID / MS_GRAPH_CLIENT_SECRET" scopesLabel="Application permissions to approve" />
+        )}
+        {card.flow === "smtp" && (
+          <div style={{ fontSize: 12.5, color: "var(--muted)", background: "var(--bg)", borderRadius: 8, padding: "10px 12px", marginBottom: 12 }}>
+            Enter your provider's SMTP/IMAP host + port, the login username, and an app password. (Note: hosts that block outbound SMTP can't use this path — prefer Google or Microsoft above.)
           </div>
         )}
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           {F("email", "Mailbox address", "you@company.com", "email")}
           {F("from_name", "From name", "Your Name")}
-          {!isGW && F("app_password", "App password", "16-character app password", "password")}
-          {!isGW && F("username", "Login username (optional)", "defaults to the address")}
+          {!isAPI && F("app_password", "App password", "16-character app password", "password")}
+          {!isAPI && F("username", "Login username (optional)", "defaults to the address")}
         </div>
         {form.provider === "smtp" && (
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
@@ -197,16 +208,13 @@ export default function MailboxConnect() {
           <Button icon={Plug} loading={busy} onClick={connect}>{existing ? "Reconnect" : "Connect mailbox"}</Button>
         </div>
         <p style={{ fontSize: 11.5, color: "var(--muted2)", marginTop: 10 }}>
-          {isGW
-            ? "Access is granted by your Workspace admin and used only to send/receive on your behalf. Nothing is sent automatically — the AI drafts, you approve."
-            : "Your password is encrypted at rest and only used to send/receive on your behalf. Nothing is sent automatically — the AI drafts, you approve."}</p>
+          {isAPI ? "Access is granted by your admin and used only to send/receive on your behalf. Nothing is sent automatically — the AI drafts, you approve."
+                 : "Your password is encrypted at rest and only used to send/receive on your behalf. Nothing is sent automatically — the AI drafts, you approve."}</p>
       </div>
 
       {confirmDisc && (
-        <ConfirmDialog title="Disconnect mailbox"
-          message={`Disconnect ${existing?.email}? You can reconnect it anytime.`}
-          confirmLabel="Disconnect" danger
-          onConfirm={disconnect} onClose={() => setConfirmDisc(false)} />
+        <ConfirmDialog title="Disconnect mailbox" message={`Disconnect ${existing?.email}? You can reconnect it anytime.`}
+          confirmLabel="Disconnect" danger onConfirm={disconnect} onClose={() => setConfirmDisc(false)} />
       )}
     </div>
   );

@@ -22,8 +22,9 @@ PROVIDER_DEFAULTS = {
     "gmail":   {"smtp_host": "smtp.gmail.com",       "smtp_port": 587, "imap_host": "imap.gmail.com",           "imap_port": 993},
     "outlook": {"smtp_host": "smtp.office365.com",   "smtp_port": 587, "imap_host": "outlook.office365.com",    "imap_port": 993},
     "smtp":    {"smtp_host": "",                     "smtp_port": 587, "imap_host": "",                         "imap_port": 993},
-    # Gmail API over HTTPS (domain-wide delegation) — no SMTP/IMAP ports used.
+    # HTTPS API providers (no SMTP/IMAP ports used).
     "google_workspace": {"smtp_host": "", "smtp_port": 587, "imap_host": "", "imap_port": 993},
+    "microsoft_graph":  {"smtp_host": "", "smtp_port": 587, "imap_host": "", "imap_port": 993},
 }
 
 
@@ -65,6 +66,12 @@ def test_connection(conn: MailboxConnection) -> tuple[bool, str]:
             return False, ("Google Workspace isn't configured on the server yet "
                            "(GOOGLE_WORKSPACE_SA_JSON). Add it, then Test again.")
         return gmail_api.gmail_test(conn.email)
+    if conn.provider == "microsoft_graph":
+        from . import graph_api
+        if not graph_api.enabled():
+            return False, ("Microsoft 365 isn't configured on the server yet "
+                           "(MS_GRAPH_CLIENT_ID/SECRET). Add it, then Test again.")
+        return graph_api.graph_test(conn.email)
     if not conn.app_password_enc:
         return False, "No password stored"
     try:
@@ -151,6 +158,9 @@ def send_message(db, conv: DealConversation, body_text: str, *, subject=None,
     if mailbox.provider == "google_workspace":
         from . import gmail_api
         gmail_api.gmail_send(mailbox.email, msg)
+    elif mailbox.provider == "microsoft_graph":
+        from . import graph_api
+        graph_api.graph_send(mailbox.email, msg)
     else:
         secret = decrypt(mailbox.app_password_enc)
         transport.smtp_send(mailbox.smtp_host, mailbox.smtp_port, mailbox.username, secret, msg)
@@ -253,6 +263,9 @@ def poll_and_sync(db, workspace_id) -> dict:
     if mailbox.provider == "google_workspace":
         from . import gmail_api
         incoming = gmail_api.gmail_fetch_since(mailbox.email, days=2, limit=50)
+    elif mailbox.provider == "microsoft_graph":
+        from . import graph_api
+        incoming = graph_api.graph_fetch_since(mailbox.email, days=2, limit=50)
     else:
         secret = decrypt(mailbox.app_password_enc)
         incoming = transport.imap_fetch_unseen(mailbox.imap_host, mailbox.imap_port, mailbox.username, secret)
@@ -305,6 +318,9 @@ def backfill(db, workspace_id, days=60, limit=200) -> dict:
     if mailbox.provider == "google_workspace":
         from . import gmail_api
         msgs = gmail_api.gmail_fetch_since(mailbox.email, days=days, limit=limit)
+    elif mailbox.provider == "microsoft_graph":
+        from . import graph_api
+        msgs = graph_api.graph_fetch_since(mailbox.email, days=days, limit=limit)
     else:
         secret = decrypt(mailbox.app_password_enc)
         msgs = transport.imap_fetch_since(mailbox.imap_host, mailbox.imap_port, mailbox.username,
