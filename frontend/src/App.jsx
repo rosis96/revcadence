@@ -88,7 +88,6 @@ const MODES = {
       ["/companies", "Companies", Building2],
       ["/contacts", "Contacts", Contact],
       ["/onboarding", "Onboarding", ClipboardList],
-      ["/activity", "Activity", ActivityIcon],
     ],
   },
 };
@@ -107,7 +106,7 @@ const BUILD_NAV = [
   ["/settings/email", "Email Accounts", Mail],
   ["/reply/workspaces", "Extra Channels", Flag],
 ];
-const SYSTEM_NAV = [["/jobs", "Jobs", Cog], ["/settings", "Settings", Wrench],
+const SYSTEM_NAV = [["/activity", "Activity", ActivityIcon], ["/jobs", "Jobs", Cog], ["/settings", "Settings", Wrench],
   ["/settings/developers", "Developers", KeyRound], ["/settings/crm", "CRM Integrations", Plug]];
 const NAV = [...COMMON_NAV, ...Object.values(MODES).flatMap((m) => m.nav), ...BUILD_NAV, ...SYSTEM_NAV];
 const NavIcon = ({ ic: Ic }) => <span className="icon"><Ic size={I} /></span>;

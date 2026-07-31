@@ -88,6 +88,19 @@ def activate(company_id: int, body: ActivateIn, ctx: AuthContext = Depends(get_c
     return _out(p)
 
 
+@router.delete("/{company_id}")
+def remove_client(company_id: int, ctx: AuthContext = Depends(get_ctx)):
+    """Remove a company from the Clients space ONLY — deletes its client profile
+    but keeps the company, its contacts, and its deals fully intact. Use this to
+    drop a mistakenly-added client without losing the underlying record."""
+    p = _get(ctx, company_id)
+    if not p:
+        raise HTTPException(404, "No client profile to remove")
+    ctx.db.delete(p)
+    ctx.db.commit()
+    return {"ok": True}
+
+
 class FieldIn(BaseModel):
     section: str
     field: str

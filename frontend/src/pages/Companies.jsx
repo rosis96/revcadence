@@ -5,7 +5,7 @@ import { Building2, Plus, Trash2 } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import {
-  Avatar, Badge, Button, DataTable, ErrorBox, Modal, PageHeader, fitTone, useApi, useToast,
+  Avatar, Badge, Button, ConfirmDialog, DataTable, ErrorBox, Modal, PageHeader, fitTone, useApi, useToast,
 } from "../components";
 
 export function NewCompanyModal({ onClose, onCreated, workspaceId, workspaces }) {
@@ -103,6 +103,7 @@ export default function Companies() {
   const { wsParam, me } = useAuth();
   const [modal, setModal] = useState(false);
   const [filter, setFilter] = useState("__booked");
+  const [confirmRows, setConfirmRows] = useState(null);
   const nav = useNavigate();
   const toast = useToast();
   const { data, error, loading, reload } = useApi("/api/companies", { workspace_id: wsParam });
@@ -126,7 +127,6 @@ export default function Companies() {
   ], []);
 
   const bulkDelete = async (rows) => {
-    if (!confirm(`Delete ${rows.length} company(ies) with all contacts, deals, documents & profiles? This can't be undone.`)) return;
     for (const c of rows) {
       try { await api(`/api/companies/${c.id}`, { method: "DELETE" }); }
       catch (err) { toast(`${c.name}: ${err.message}`, "bad"); }
@@ -146,7 +146,7 @@ export default function Companies() {
         id="companies" columns={columns} data={shown} loading={loading}
         searchPlaceholder="Search companies…" getRowId={(r) => String(r.id)}
         onRowClick={(r) => nav(`/companies/${r.id}`)}
-        bulkActions={[{ label: "Delete", icon: Trash2, onClick: bulkDelete }]}
+        bulkActions={[{ label: "Delete", icon: Trash2, onClick: (rows) => setConfirmRows(rows) }]}
         emptyIcon={Building2} emptyTitle="No companies"
         emptyHint="Create one or import via enrichment."
         emptyAction={<Button icon={Plus} onClick={() => setModal(true)}>New company</Button>}
@@ -154,6 +154,12 @@ export default function Companies() {
       {modal && (
         <NewCompanyModal workspaceId={wsParam} workspaces={me.workspaces} onClose={() => setModal(false)}
           onCreated={(id) => { setModal(false); nav(`/companies/${id}`); }} />
+      )}
+      {confirmRows && (
+        <ConfirmDialog title="Delete companies"
+          message={`Delete ${confirmRows.length} company(ies) with all their contacts, deals, documents and profiles? This can't be undone.`}
+          confirmLabel="Delete" danger
+          onConfirm={() => bulkDelete(confirmRows)} onClose={() => setConfirmRows(null)} />
       )}
     </>
   );

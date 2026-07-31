@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, money } from "../api";
-import { Badge, Breadcrumbs, Button, ErrorBox, JourneyTimeline, Modal, PageHeader, RowCard, Spinner, Timeline, fitTone, scoreTone, useApi } from "../components";
+import { Badge, Breadcrumbs, Button, ConfirmDialog, ErrorBox, JourneyTimeline, Modal, PageHeader, RowCard, Spinner, Timeline, fitTone, scoreTone, useApi, useToast } from "../components";
 import { StatusPill } from "./Companies";
 
 // Public blueprint/agreement URL — prefer a blueprint.<domain> host on engine.<domain>.
@@ -28,6 +28,29 @@ export default function CompanyDetail() {
   const [upHtml, setUpHtml] = useState("");
   const [upFileName, setUpFileName] = useState("");
   const [copied, setCopied] = useState("");
+  const toast = useToast();
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [dealForm, setDealForm] = useState(null);      // {name, value} when the New deal modal is open
+  const [contactForm, setContactForm] = useState(null); // {first_name,...} when Add contact is open
+
+  const createDeal = async () => {
+    try {
+      await api("/api/deals", { method: "POST", body: {
+        workspace_id: c.workspace_id, company_id: c.id,
+        name: dealForm.name || `${c.name} — deal`,
+        value: Number(dealForm.value) || 0 } });
+      setDealForm(null); toast("Deal created — it's now on the pipeline"); reload();
+    } catch (e) { toast(e.message, "bad"); }
+  };
+  const addContact = async () => {
+    try {
+      await api("/api/contacts", { method: "POST", body: {
+        workspace_id: c.workspace_id, company_id: c.id,
+        first_name: contactForm.first_name, last_name: contactForm.last_name,
+        email: contactForm.email, title: contactForm.title } });
+      setContactForm(null); toast("Contact added"); reload();
+    } catch (e) { toast(e.message, "bad"); }
+  };
 
   const enrich = async () => {
     setBusy("enrich");
@@ -43,9 +66,8 @@ export default function CompanyDetail() {
     catch (e) { alert(e.message); }
   };
   const removeCompany = async () => {
-    if (!confirm(`Delete "${c.name}" and all its contacts, deals, documents & profile? This can't be undone.`)) return;
-    try { await api(`/api/companies/${id}`, { method: "DELETE" }); nav("/companies"); }
-    catch (e) { alert(e.message); }
+    try { await api(`/api/companies/${id}`, { method: "DELETE" }); toast("Company deleted"); nav("/companies"); }
+    catch (e) { toast(e.message, "bad"); }
   };
   // Build a blueprint straight from a Fathom call transcript for THIS company.
   const buildFromTranscript = async () => {
@@ -121,7 +143,7 @@ export default function CompanyDetail() {
             <Button variant="secondary" onClick={() => nav(`/companies/${id}/profile`)}>Client Profile</Button>
             <Button onClick={() => setFathom(true)}>Blueprint from transcript</Button>
             <Button variant="secondary" onClick={() => setUpload(true)}>Upload blueprint</Button>
-            <Button variant="danger" onClick={removeCompany}>Delete</Button>
+            <Button variant="danger" onClick={() => setConfirmDel(true)}>Delete</Button>
           </>
         } />
 
@@ -308,8 +330,12 @@ export default function CompanyDetail() {
         </div>
 
         <div>
-          <div className="section" style={{ marginTop: 0 }}><h2>Contacts ({c.contacts.length})</h2>
-            <table className="tbl"><tbody>
+          <div className="section" style={{ marginTop: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <h2 style={{ margin: 0 }}>Contacts ({c.contacts.length})</h2>
+              <button className="btn ghost sm" onClick={() => setContactForm({ first_name: "", last_name: "", email: "", title: "" })}>+ Add contact</button>
+            </div>
+            <table className="tbl" style={{ marginTop: 8 }}><tbody>
               {c.contacts.length === 0 && <tr><td className="empty">No contacts linked</td></tr>}
               {c.contacts.map((p) => (
                 <tr key={p.id}>
@@ -319,9 +345,13 @@ export default function CompanyDetail() {
               ))}
             </tbody></table>
           </div>
-          <div className="section"><h2>Deals ({c.deals.length})</h2>
-            <table className="tbl"><tbody>
-              {c.deals.length === 0 && <tr><td className="empty">No deals yet</td></tr>}
+          <div className="section">
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <h2 style={{ margin: 0 }}>Deals ({c.deals.length})</h2>
+              <button className="btn ghost sm" onClick={() => setDealForm({ name: "", value: "" })}>+ New deal</button>
+            </div>
+            <table className="tbl" style={{ marginTop: 8 }}><tbody>
+              {c.deals.length === 0 && <tr><td className="empty">No deals yet — add one to set a value and put this account on the pipeline.</td></tr>}
               {c.deals.map((d) => (
                 <tr key={d.id} className="click" onClick={() => nav(`/deals/${d.id}`)}>
                   <td><b>{d.name || "Untitled"}</b>
@@ -355,6 +385,50 @@ export default function CompanyDetail() {
           </div>
         </div>
       </div>
+
+      {dealForm && (
+        <Modal title="New deal" onClose={() => setDealForm(null)}>
+          <div className="field"><label>Deal name</label>
+            <input value={dealForm.name} placeholder={`${c.name} — deal`}
+              onChange={(e) => setDealForm({ ...dealForm, name: e.target.value })} autoFocus /></div>
+          <div className="field"><label>Value ($)</label>
+            <input type="number" min="0" value={dealForm.value} placeholder="0"
+              onChange={(e) => setDealForm({ ...dealForm, value: e.target.value })} /></div>
+          <div style={{ fontSize: 12, color: "var(--muted)" }}>Starts in the first pipeline stage. You can move it on the board.</div>
+          <div className="actions">
+            <button className="btn ghost" onClick={() => setDealForm(null)}>Cancel</button>
+            <button className="btn" onClick={createDeal}>Create deal</button>
+          </div>
+        </Modal>
+      )}
+
+      {contactForm && (
+        <Modal title="Add contact" onClose={() => setContactForm(null)}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div className="field"><label>First name</label>
+              <input value={contactForm.first_name} onChange={(e) => setContactForm({ ...contactForm, first_name: e.target.value })} autoFocus /></div>
+            <div className="field"><label>Last name</label>
+              <input value={contactForm.last_name} onChange={(e) => setContactForm({ ...contactForm, last_name: e.target.value })} /></div>
+          </div>
+          <div className="field"><label>Email</label>
+            <input type="email" value={contactForm.email} placeholder="name@company.com"
+              onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })} /></div>
+          <div className="field"><label>Title</label>
+            <input value={contactForm.title} placeholder="Founder, Head of Growth…"
+              onChange={(e) => setContactForm({ ...contactForm, title: e.target.value })} /></div>
+          <div className="actions">
+            <button className="btn ghost" onClick={() => setContactForm(null)}>Cancel</button>
+            <button className="btn" onClick={addContact}>Add contact</button>
+          </div>
+        </Modal>
+      )}
+
+      {confirmDel && (
+        <ConfirmDialog title="Delete company"
+          message={`Delete "${c.name}" and all its contacts, deals, documents and profile? This can't be undone.`}
+          confirmLabel="Delete" danger
+          onConfirm={removeCompany} onClose={() => setConfirmDel(false)} />
+      )}
     </>
   );
 }

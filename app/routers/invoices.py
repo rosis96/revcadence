@@ -146,6 +146,15 @@ def void(invoice_id: int, ctx: AuthContext = Depends(get_ctx)):
     return _out(i, full=True)
 
 
+@router.delete("/invoices/{invoice_id}")
+def delete_invoice(invoice_id: int, ctx: AuthContext = Depends(get_ctx)):
+    """Permanently remove an invoice — for cleaning up test/void invoices."""
+    i = _inv(ctx, invoice_id)
+    ctx.db.delete(i)
+    ctx.db.commit()
+    return {"ok": True}
+
+
 @router.get("/invoices/{invoice_id}/pdf")
 def invoice_pdf(invoice_id: int, ctx: AuthContext = Depends(get_ctx)):
     i = _inv(ctx, invoice_id)
