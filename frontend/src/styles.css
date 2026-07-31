@@ -104,6 +104,13 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); box-sh
 
 .content { padding: 32px; width: 100%; }
 .nav .group { margin: 16px 10px 6px; font-size: 10.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted2); }
+/* collapsible nav section headers (Build / System) */
+.nav .group-btn { display: flex; align-items: center; justify-content: space-between; width: 100%;
+  margin: 14px 0 4px; padding: 4px 10px; background: none; border: none; cursor: pointer;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted2);
+  border-radius: 7px; transition: background .12s, color .12s; }
+.nav .group-btn:hover { background: var(--sidebar-hover); color: var(--sidebar-text-active); }
+.nav .group-btn svg { color: var(--muted2); }
 .grid { display: grid; gap: 14px; }
 .stats { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
 .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-card); }

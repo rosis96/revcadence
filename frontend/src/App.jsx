@@ -61,12 +61,6 @@ const MODES = {
     nav: [
       ["/enrichment", "Lists", ListChecks],
       ["/enrichment/database", "Database", Database],
-      ["/enrichment/profile", "Client Profile", CircleUser],
-      ["/enrichment/brain", "Ask the Brain", Sparkles],
-      ["/enrichment/icp", "ICP / Non-ICP", Target],
-      ["/enrichment/formats", "Formats", AlignLeft],
-      ["/enrichment/rules", "Rules", CheckCheck],
-      ["/enrichment/training", "Workspace Training", ShieldCheck],
     ],
   },
   reply: {
@@ -76,10 +70,6 @@ const MODES = {
       ["/reply/inbox", "Inbox", Inbox],
       ["/reply/processing", "Processing", Radar],
       ["/reply/test", "Test Thread", FlaskConical],
-      ["/settings/email", "Email Accounts", Mail],
-      ["/reply/setup", "Setup", Settings2],
-      ["/reply/settings", "Reply Settings", SlidersHorizontal],
-      ["/reply/workspaces", "Extra Channels", Flag],
     ],
   },
   inbound: {
@@ -103,9 +93,23 @@ const MODES = {
   },
 };
 const COMMON_NAV = [["/", "Master Dashboard", LayoutGrid]];
+// BUILD: every per-workspace configuration screen in one collapsible layer — the
+// "how this workspace works" setup, pulled out of the day-to-day mode nav.
+const BUILD_NAV = [
+  ["/enrichment/profile", "Client Profile", CircleUser],
+  ["/enrichment/brain", "Ask the Brain", Sparkles],
+  ["/enrichment/icp", "ICP / Non-ICP", Target],
+  ["/enrichment/formats", "Formats", AlignLeft],
+  ["/enrichment/rules", "Rules", CheckCheck],
+  ["/enrichment/training", "Workspace Training", ShieldCheck],
+  ["/reply/setup", "Reply Setup", Settings2],
+  ["/reply/settings", "Reply Settings", SlidersHorizontal],
+  ["/settings/email", "Email Accounts", Mail],
+  ["/reply/workspaces", "Extra Channels", Flag],
+];
 const SYSTEM_NAV = [["/jobs", "Jobs", Cog], ["/settings", "Settings", Wrench],
   ["/settings/developers", "Developers", KeyRound], ["/settings/crm", "CRM Integrations", Plug]];
-const NAV = [...COMMON_NAV, ...Object.values(MODES).flatMap((m) => m.nav), ...SYSTEM_NAV];
+const NAV = [...COMMON_NAV, ...Object.values(MODES).flatMap((m) => m.nav), ...BUILD_NAV, ...SYSTEM_NAV];
 const NavIcon = ({ ic: Ic }) => <span className="icon"><Ic size={I} /></span>;
 
 // A handed-over client workspace stays clean: clients only see their results —
@@ -126,11 +130,18 @@ function Sidebar() {
   const [mode, setModeRaw] = useState(localStorage.getItem("rc_mode") || "outbound");
   const activeMode = modeMap[mode] ? mode : (modeEntries[0]?.[0] || "crm");
   const nav = useNavigate();
+  const loc = useLocation();
   const setMode = (m) => {
     localStorage.setItem("rc_mode", m);
     setModeRaw(m);
     nav(modeMap[m].nav[0][0]);   // land on the mode's first screen
   };
+  // Build + System are collapsible: hidden until clicked, but auto-open when the
+  // current page lives inside them so you can see where you are.
+  const inGroup = (items) => items.some(([to]) => loc.pathname === to || loc.pathname.startsWith(to + "/"));
+  const [buildOpen, setBuildOpen] = useState(() => inGroup(BUILD_NAV));
+  const [systemOpen, setSystemOpen] = useState(() =>
+    inGroup(SYSTEM_NAV) || loc.pathname.startsWith("/admin") || loc.pathname.startsWith("/billing"));
   const [menu, setMenu] = useState(false);
   const initials = (me.user.name || me.user.email).slice(0, 2).toUpperCase();
   return (
@@ -153,14 +164,28 @@ function Sidebar() {
         ))}
         {!isClient && (
           <>
-            <div className="group">System</div>
-            {SYSTEM_NAV.map(([to, label, ic]) => (
-              <NavLink key={to} to={to}><NavIcon ic={ic} /><span>{label}</span></NavLink>
+            <button className="group-btn" onClick={() => setBuildOpen((v) => !v)} aria-expanded={buildOpen}>
+              <span>Build</span>
+              <ChevronDown size={14} style={{ transform: buildOpen ? "" : "rotate(-90deg)", transition: "transform .15s" }} />
+            </button>
+            {buildOpen && BUILD_NAV.map(([to, label, ic]) => (
+              <NavLink key={to} to={to} end={to.split("/").length <= 2}><NavIcon ic={ic} /><span>{label}</span></NavLink>
             ))}
+            <button className="group-btn" onClick={() => setSystemOpen((v) => !v)} aria-expanded={systemOpen}>
+              <span>System</span>
+              <ChevronDown size={14} style={{ transform: systemOpen ? "" : "rotate(-90deg)", transition: "transform .15s" }} />
+            </button>
+            {systemOpen && (
+              <>
+                {SYSTEM_NAV.map(([to, label, ic]) => (
+                  <NavLink key={to} to={to}><NavIcon ic={ic} /><span>{label}</span></NavLink>
+                ))}
+                {me.is_master && <NavLink to="/billing"><NavIcon ic={BarChart3} /><span>Billing</span></NavLink>}
+                {me.is_master && <NavLink to="/admin"><NavIcon ic={ShieldCheck} /><span>Admin</span></NavLink>}
+              </>
+            )}
           </>
         )}
-        {me.is_master && <NavLink to="/billing"><NavIcon ic={BarChart3} /><span>Billing</span></NavLink>}
-        {me.is_master && <NavLink to="/admin"><NavIcon ic={ShieldCheck} /><span>Admin</span></NavLink>}
       </nav>
       <div className="foot">
         {menu && (
