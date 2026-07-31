@@ -108,37 +108,57 @@ const SYSTEM_NAV = [["/jobs", "Jobs", Cog], ["/settings", "Settings", Wrench],
 const NAV = [...COMMON_NAV, ...Object.values(MODES).flatMap((m) => m.nav), ...SYSTEM_NAV];
 const NavIcon = ({ ic: Ic }) => <span className="icon"><Ic size={I} /></span>;
 
+// A handed-over client workspace stays clean: clients only see their results —
+// dashboard/reports, the reply inbox, and pipeline/CRM. Everything operational
+// (lists, enrichment config, training, settings, developers, integrations,
+// billing, admin) is owner/admin-only. Owners, admins and members are unaffected.
+const CLIENT_PREFIXES = ["/reports", "/reply/inbox", "/pipeline", "/revenue-inbox", "/companies", "/contacts", "/deals"];
+const clientAllowed = (path) => path === "/" || CLIENT_PREFIXES.some((p) => path === p || path.startsWith(p + "/"));
+
 function Sidebar() {
   const { me, logout } = useAuth();
+  const isClient = me.role === "client";
+  // For clients, drop any nav item and any whole mode they shouldn't see.
+  const modeEntries = Object.entries(MODES)
+    .map(([key, m]) => [key, { ...m, nav: isClient ? m.nav.filter(([to]) => clientAllowed(to)) : m.nav }])
+    .filter(([, m]) => m.nav.length > 0);
+  const modeMap = Object.fromEntries(modeEntries);
   const [mode, setModeRaw] = useState(localStorage.getItem("rc_mode") || "outbound");
+  const activeMode = modeMap[mode] ? mode : (modeEntries[0]?.[0] || "crm");
   const nav = useNavigate();
   const setMode = (m) => {
     localStorage.setItem("rc_mode", m);
     setModeRaw(m);
-    nav(MODES[m].nav[0][0]);   // land on the mode's first screen
+    nav(modeMap[m].nav[0][0]);   // land on the mode's first screen
   };
   const [menu, setMenu] = useState(false);
   const initials = (me.user.name || me.user.email).slice(0, 2).toUpperCase();
   return (
     <aside className="sidebar">
       <div className="logo"><svg className="rc-wave" viewBox="80 20 560 235" aria-hidden="true"><path d="M104 235 L121 235 C134 235 134 204 147 204 C160 204 160 235 173 235 C186 235 186 197 199 197 C212 197 212 235 225 235 C238 235 238 177 251 177 C264 177 264 235 277 235 C290 235 290 154 303 154 C316 154 316 235 329 235 C342 235 342 129 355 129 C368 129 368 235 381 235 C394 235 394 101 407 101 C420 101 420 235 433 235 C446 235 446 72 459 72 C472 72 472 235 485 235 C498 235 498 42 511 42 C524 42 524 235 537 235 L553 235" fill="none" stroke="currentColor" strokeWidth="20" strokeLinecap="round" strokeLinejoin="round" /></svg><span>revcadence</span></div>
-      <div className="ws-switch">
-        <select value={mode} onChange={(e) => setMode(e.target.value)}>
-          {Object.entries(MODES).map(([key, m]) => <option key={key} value={key}>{m.label}</option>)}
-        </select>
-      </div>
+      {modeEntries.length > 1 && (
+        <div className="ws-switch">
+          <select value={activeMode} onChange={(e) => setMode(e.target.value)}>
+            {modeEntries.map(([key, m]) => <option key={key} value={key}>{m.label}</option>)}
+          </select>
+        </div>
+      )}
       <nav className="nav">
         {COMMON_NAV.map(([to, label, ic]) => (
           <NavLink key={to} to={to} end><NavIcon ic={ic} /><span>{label}</span></NavLink>
         ))}
-        <div className="group">{MODES[mode].label}</div>
-        {MODES[mode].nav.map(([to, label, ic]) => (
+        <div className="group">{modeMap[activeMode].label}</div>
+        {modeMap[activeMode].nav.map(([to, label, ic]) => (
           <NavLink key={to} to={to} end={to.split("/").length <= 2}><NavIcon ic={ic} /><span>{label}</span></NavLink>
         ))}
-        <div className="group">System</div>
-        {SYSTEM_NAV.map(([to, label, ic]) => (
-          <NavLink key={to} to={to}><NavIcon ic={ic} /><span>{label}</span></NavLink>
-        ))}
+        {!isClient && (
+          <>
+            <div className="group">System</div>
+            {SYSTEM_NAV.map(([to, label, ic]) => (
+              <NavLink key={to} to={to}><NavIcon ic={ic} /><span>{label}</span></NavLink>
+            ))}
+          </>
+        )}
         {me.is_master && <NavLink to="/billing"><NavIcon ic={BarChart3} /><span>Billing</span></NavLink>}
         {me.is_master && <NavLink to="/admin"><NavIcon ic={ShieldCheck} /><span>Admin</span></NavLink>}
       </nav>
@@ -247,8 +267,11 @@ function Shell({ children }) {
 
 function Protected() {
   const { me, loading } = useAuth();
+  const loc = useLocation();
   if (loading) return <div className="center" style={{ minHeight: "100vh" }}><div className="spinner" /></div>;
   if (!me) return <Login />;
+  // Belt-and-suspenders: a client typing a hidden URL is sent back to their dashboard.
+  if (me.role === "client" && !clientAllowed(loc.pathname)) return <Shell><Navigate to="/" replace /></Shell>;
   return (
     <Shell>
       <Routes>

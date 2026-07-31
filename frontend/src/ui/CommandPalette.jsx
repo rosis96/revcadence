@@ -7,7 +7,12 @@ import {
   Receipt, Rows3, ScrollText, Search,
 } from "lucide-react";
 import { api } from "../api";
+import { useAuth } from "../auth";
 import { useDebounced } from "./index";
+
+// Clients only reach their own results; hidden pages never surface in ⌘K either.
+const CLIENT_PREFIXES = ["/reports", "/reply/inbox", "/pipeline", "/revenue-inbox", "/companies", "/contacts", "/deals"];
+const clientAllowed = (path) => path === "/" || CLIENT_PREFIXES.some((p) => path === p || path.startsWith(p + "/"));
 
 const TYPE_META = {
   action:    { label: "Go to",      icon: ArrowRight },
@@ -30,6 +35,8 @@ const NAV_ACTIONS = [
 ].map(([title, href]) => ({ type: "action", id: href, title, href }));
 
 export function CommandPalette({ open, onClose }) {
+  const { me } = useAuth();
+  const navActions = me?.role === "client" ? NAV_ACTIONS.filter((a) => clientAllowed(a.href)) : NAV_ACTIONS;
   const [q, setQ] = useState("");
   const [remote, setRemote] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -54,10 +61,10 @@ export function CommandPalette({ open, onClose }) {
   const items = useMemo(() => {
     const ql = q.trim().toLowerCase();
     const actions = ql
-      ? NAV_ACTIONS.filter((a) => a.title.toLowerCase().includes(ql)).slice(0, 5)
-      : NAV_ACTIONS.slice(0, 6);
+      ? navActions.filter((a) => a.title.toLowerCase().includes(ql)).slice(0, 5)
+      : navActions.slice(0, 6);
     return [...actions, ...remote];
-  }, [q, remote]);
+  }, [q, remote, navActions]);
 
   const grouped = useMemo(() => {
     const g = [];
