@@ -31,6 +31,13 @@ class _SMTP4(smtplib.SMTP):
         return socket.create_connection(_ipv4_addr(host, port), timeout, self.source_address)
 
 
+class _SMTP_SSL4(smtplib.SMTP_SSL):
+    """smtplib.SMTP_SSL (implicit TLS, port 465) that dials over IPv4 only."""
+    def _get_socket(self, host, port, timeout):
+        sock = socket.create_connection(_ipv4_addr(host, port), timeout, self.source_address)
+        return self.context.wrap_socket(sock, server_hostname=self._host)
+
+
 class _IMAP4_SSL4(imaplib.IMAP4_SSL):
     """imaplib.IMAP4_SSL that dials over IPv4 only (hostname preserved for SNI)."""
     def _create_socket(self, timeout=None):
@@ -38,23 +45,66 @@ class _IMAP4_SSL4(imaplib.IMAP4_SSL):
         return self.ssl_context.wrap_socket(sock, server_hostname=self.host)
 
 
+def _open_smtp(host: str, port: int, username: str, password: str, timeout: int):
+    """Open + authenticate one SMTP session. Port 465 = implicit TLS (SSL);
+    anything else = STARTTLS. Caller closes."""
+    port = int(port)
+    if port == 465:
+        s = _SMTP_SSL4(host, port, timeout=timeout)
+    else:
+        s = _SMTP4(host, port, timeout=timeout)
+        s.starttls()
+    s.login(username, password)
+    return s
+
+
+# Submission ports to try, in order, when the configured one is blocked. Some
+# hosts filter 587 but allow 465 (or vice-versa); we try the other before failing.
+def _smtp_ports(port: int) -> list[int]:
+    port = int(port)
+    order = [port]
+    for alt in (587, 465):
+        if alt not in order:
+            order.append(alt)
+    return order
+
+
 def smtp_test(host: str, port: int, username: str, password: str) -> tuple[bool, str]:
-    """Verify we can authenticate for sending. Returns (ok, error)."""
-    try:
-        with _SMTP4(host, int(port), timeout=20) as s:
-            s.starttls()
-            s.login(username, password)
-        return True, ""
-    except Exception as e:  # noqa: BLE001
-        return False, str(e)[:300]
+    """Verify we can authenticate for sending. Returns (ok, error). Tries the
+    configured port, then falls back to the other submission port."""
+    first_err = ""
+    for p in _smtp_ports(port):
+        try:
+            s = _open_smtp(host, p, username, password, timeout=15)
+            try:
+                s.quit()
+            except Exception:  # noqa: BLE001
+                pass
+            return True, ""
+        except Exception as e:  # noqa: BLE001
+            first_err = first_err or str(e)[:300]
+    return False, first_err
 
 
 def smtp_send(host: str, port: int, username: str, password: str, msg: EmailMessage) -> None:
-    """Send a fully-built MIME message. Raises on failure."""
-    with _SMTP4(host, int(port), timeout=30) as s:
-        s.starttls()
-        s.login(username, password)
-        s.send_message(msg)
+    """Send a fully-built MIME message. Raises on failure. Tries the configured
+    port, then the other submission port before giving up."""
+    last_err = None
+    for p in _smtp_ports(port):
+        try:
+            s = _open_smtp(host, p, username, password, timeout=25)
+            try:
+                s.send_message(msg)
+            finally:
+                try:
+                    s.quit()
+                except Exception:  # noqa: BLE001
+                    pass
+            return
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+    if last_err:
+        raise last_err
 
 
 def imap_fetch_unseen(host: str, port: int, username: str, password: str, limit: int = 25) -> list[dict]:
@@ -63,7 +113,7 @@ def imap_fetch_unseen(host: str, port: int, username: str, password: str, limit:
     conversation happens in the service layer."""
     out = []
     try:
-        m = imaplib.IMAP4_SSL(host, int(port))
+        m = _IMAP4_SSL4(host, int(port), timeout=15)
         m.login(username, password)
         m.select("INBOX")
         typ, data = m.search(None, "UNSEEN")
@@ -91,7 +141,7 @@ def imap_fetch_since(host: str, port: int, username: str, password: str,
     import datetime as _dt
     out = []
     try:
-        m = imaplib.IMAP4_SSL(host, int(port))
+        m = _IMAP4_SSL4(host, int(port), timeout=15)
         m.login(username, password)
         typ, _ = m.select(folder, readonly=True)   # readonly → never sets \Seen
         if typ != "OK":
