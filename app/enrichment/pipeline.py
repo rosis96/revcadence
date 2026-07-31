@@ -1370,6 +1370,13 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
                    "_assignments": written.get("assignments") or {},
                    "_quality_failures": written.get("quality_failures") or {},
                    "_generation": written.get("generation") or {}}
+    # The "Write this" toggle is authoritative: a variable turned OFF must never
+    # appear in the output, even if an earlier run wrote a value for it. Prune any
+    # disabled variable's stale value so the selection actually takes effect.
+    disabled = {f.get("name") for f in (cfg.formats or [])
+                if f.get("name") and f.get("enabled", True) is False}
+    for _k in disabled:
+        lead.result.pop(_k, None)
     if written.get("error"):
         lead.result = {**lead.result, "_generation_error": written["error"]}
         lead.status = "generation_failed"

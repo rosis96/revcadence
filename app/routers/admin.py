@@ -47,6 +47,79 @@ def create_workspace(body: WorkspaceIn, ctx: AuthContext = Depends(require_maste
     return {"id": w.id, "name": w.name, "slug": w.slug}
 
 
+class WorkspacePatch(BaseModel):
+    name: str | None = None
+    active: bool | None = None
+
+
+@router.patch("/workspaces/{workspace_id}")
+def update_workspace(workspace_id: int, body: WorkspacePatch, ctx: AuthContext = Depends(require_master)):
+    """Rename a workspace and/or toggle its active flag. Deactivating is the safe
+    way to 'remove' a workspace that still holds data — nothing is destroyed."""
+    w = _org_workspace(ctx, workspace_id)
+    if body.name is not None:
+        nm = body.name.strip()
+        if not nm:
+            raise HTTPException(422, "Name is required")
+        w.name = nm
+    if body.active is not None:
+        w.active = body.active
+    ctx.db.add(AuditLog(org_id=ctx.org_id, workspace_id=w.id, user_id=ctx.user.id,
+                        action="update_workspace", object_type="workspace", object_id=w.id,
+                        data={"name": w.name, "active": w.active}))
+    ctx.db.commit()
+    return {"id": w.id, "name": w.name, "slug": w.slug, "active": w.active}
+
+
+@router.delete("/workspaces/{workspace_id}")
+def delete_workspace(workspace_id: int, ctx: AuthContext = Depends(require_master)):
+    """Hard-delete a workspace, but ONLY when it holds no business data. If it has
+    contacts, companies, deals, or leads, we refuse and tell the caller to
+    deactivate instead — so a populated client workspace can never be wiped by
+    accident. Empty workspaces are removed with an FK-safe cascade of their
+    provisioned config rows."""
+    from ..db import Base
+    from ..models.crm import Company, Contact, Deal
+    from ..models.enrich import EnrichLead
+    from ..models.reply import ReplyLead
+
+    w = _org_workspace(ctx, workspace_id)
+
+    counts = {}
+    for label, Model in [("companies", Company), ("contacts", Contact), ("deals", Deal),
+                         ("reply leads", ReplyLead), ("enrich leads", EnrichLead)]:
+        n = ctx.db.query(Model).filter(Model.workspace_id == workspace_id).count()
+        if n:
+            counts[label] = n
+    if counts:
+        detail = ", ".join(f"{n} {label}" for label, n in counts.items())
+        raise HTTPException(409, f"This workspace still holds data ({detail}). "
+                                 f"Deactivate it instead of deleting.")
+
+    # A client locked to this workspace would be orphaned — block and explain.
+    for m in ctx.db.query(Membership).filter(Membership.org_id == ctx.org_id).all():
+        if m.role == "client" and (m.workspace_ids or []) == [workspace_id]:
+            raise HTTPException(409, "A client user is locked to this workspace. "
+                                     "Reassign or deactivate that user first.")
+
+    # Drop this workspace id from any member's workspace list.
+    for m in ctx.db.query(Membership).filter(Membership.org_id == ctx.org_id).all():
+        if m.workspace_ids and workspace_id in m.workspace_ids:
+            m.workspace_ids = [x for x in m.workspace_ids if x != workspace_id]
+    ctx.db.flush()
+
+    # Delete every child row that points at this workspace, children before
+    # parents (reversed FK order), then the workspace row itself.
+    for tbl in reversed(Base.metadata.sorted_tables):
+        if tbl.name == "workspaces":
+            continue
+        if "workspace_id" in tbl.c:
+            ctx.db.execute(tbl.delete().where(tbl.c.workspace_id == workspace_id))
+    ctx.db.execute(Workspace.__table__.delete().where(Workspace.__table__.c.id == workspace_id))
+    ctx.db.commit()
+    return {"ok": True}
+
+
 # ---------------------------------------------------------------- workspace aliases
 class AliasIn(BaseModel):
     workspace_id: int

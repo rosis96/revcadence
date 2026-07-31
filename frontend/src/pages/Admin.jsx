@@ -1,26 +1,27 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { Badge, ErrorBox, Modal, Spinner, useApi } from "../components";
-
-const SOURCES = ["reply_manager", "enrichment", "client_portals"];
+import { Badge, Button, ConfirmDialog, ErrorBox, Modal, Spinner, useApi, useToast } from "../components";
 
 function Field({ label, children }) { return <div className="field"><label>{label}</label>{children}</div>; }
 
-function WorkspaceModal({ onClose, onDone }) {
-  const [name, setName] = useState("");
+function WorkspaceModal({ existing, onClose, onDone }) {
+  const [name, setName] = useState(existing?.name || "");
   const [err, setErr] = useState("");
   const submit = async (e) => {
     e.preventDefault();
-    try { await api("/api/admin/workspaces", { method: "POST", body: { name } }); onDone(); }
-    catch (x) { setErr(x.message); }
+    try {
+      if (existing) await api(`/api/admin/workspaces/${existing.id}`, { method: "PATCH", body: { name } });
+      else await api("/api/admin/workspaces", { method: "POST", body: { name } });
+      onDone();
+    } catch (x) { setErr(x.message); }
   };
   return (
-    <Modal title="New workspace" onClose={onClose}>
+    <Modal title={existing ? "Rename workspace" : "New workspace"} onClose={onClose}>
       <form onSubmit={submit}>
         {err && <div className="error-box" style={{ marginBottom: 10 }}>{err}</div>}
         <Field label="Client / workspace name"><input value={name} onChange={(e) => setName(e.target.value)} required autoFocus /></Field>
-        <div className="actions"><button type="button" className="btn ghost" onClick={onClose}>Cancel</button><button className="btn">Create</button></div>
+        <div className="actions"><button type="button" className="btn ghost" onClick={onClose}>Cancel</button><button className="btn">{existing ? "Save" : "Create"}</button></div>
       </form>
     </Modal>
   );
@@ -70,70 +71,85 @@ function UserModal({ workspaces, onClose, onDone }) {
   );
 }
 
-function AliasModal({ workspaces, existing, onClose, onDone }) {
-  const [f, setF] = useState(existing || { workspace_id: workspaces[0]?.id, source_system: "reply_manager", external_name: "" });
-  const [err, setErr] = useState("");
-  const submit = async (e) => {
-    e.preventDefault();
+// In-page reset link: shown on screen in a selectable field with one-click copy.
+// (Replaces the old blocking alert() that froze the page.)
+function ResetLinkModal({ email, link, onClose }) {
+  const toast = useToast();
+  const inputRef = useRef(null);
+  const copy = async () => {
     try {
-      if (existing) await api(`/api/admin/aliases/${existing.id}`, { method: "PATCH",
-        body: { workspace_id: Number(f.workspace_id), external_name: f.external_name } });
-      else await api("/api/admin/aliases", { method: "POST",
-        body: { ...f, workspace_id: Number(f.workspace_id) } });
-      onDone();
-    } catch (x) { setErr(x.message); }
+      await navigator.clipboard.writeText(link);
+      toast("Reset link copied");
+    } catch {
+      // Fallback for browsers that block the clipboard API.
+      inputRef.current?.select();
+      document.execCommand?.("copy");
+      toast("Reset link selected — press ⌘/Ctrl+C");
+    }
   };
   return (
-    <Modal title={existing ? "Edit alias" : "New alias"} onClose={onClose}>
-      <form onSubmit={submit}>
-        {err && <div className="error-box" style={{ marginBottom: 10 }}>{err}</div>}
-        <Field label="Canonical workspace">
-          <select value={f.workspace_id} onChange={(e) => setF({ ...f, workspace_id: e.target.value })}>
-            {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-          </select>
-        </Field>
-        <Field label="Source system">
-          <select value={f.source_system} disabled={!!existing} onChange={(e) => setF({ ...f, source_system: e.target.value })}>
-            {SOURCES.map((s) => <option key={s}>{s}</option>)}
-          </select>
-        </Field>
-        <Field label="Exact legacy name"><input value={f.external_name} onChange={(e) => setF({ ...f, external_name: e.target.value })} required /></Field>
-        <div className="actions"><button type="button" className="btn ghost" onClick={onClose}>Cancel</button><button className="btn">{existing ? "Save" : "Create"}</button></div>
-      </form>
+    <Modal title="Password reset link" onClose={onClose}>
+      <p style={{ fontSize: 13, color: "var(--muted)", margin: "0 0 12px" }}>
+        One-time link for <b>{email}</b>, valid for 1 hour. Copy it and send it to them.
+      </p>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input ref={inputRef} readOnly value={link} onFocus={(e) => e.target.select()}
+          onClick={(e) => e.target.select()} style={{ flex: 1, fontFamily: "monospace", fontSize: 12.5 }} />
+        <Button onClick={copy}>Copy</Button>
+      </div>
+      <div className="actions" style={{ marginTop: 16 }}>
+        <button type="button" className="btn ghost" onClick={onClose}>Done</button>
+      </div>
     </Modal>
   );
 }
 
 export default function Admin() {
   const { me } = useAuth();
-  const [modal, setModal] = useState(null); // {type, data?}
+  const toast = useToast();
+  const [modal, setModal] = useState(null);     // {type, data?}
+  const [confirm, setConfirm] = useState(null);  // {title, message, danger, onConfirm}
+  const [resetLink, setResetLink] = useState(null); // {email, link}
   const ws = useApi("/api/admin/workspaces");
   const users = useApi("/api/admin/users");
-  const aliases = useApi("/api/admin/aliases");
   if (!me.is_master) return <ErrorBox msg="Master access required." />;
-  if (ws.loading || users.loading || aliases.loading) return <Spinner />;
-  const err = ws.error || users.error || aliases.error;
-  if (err) return <ErrorBox msg={err} retry={() => { ws.reload(); users.reload(); aliases.reload(); }} />;
+  if (ws.loading || users.loading) return <Spinner />;
+  const err = ws.error || users.error;
+  if (err) return <ErrorBox msg={err} retry={() => { ws.reload(); users.reload(); }} />;
   const wsName = (id) => ws.data.find((w) => w.id === id)?.name || `#${id}`;
 
-  const deactivate = async (id) => {
-    if (!confirm("Deactivate this user? They will no longer be able to sign in.")) return;
-    try { await api(`/api/admin/users/${id}/deactivate`, { method: "POST" }); users.reload(); }
-    catch (e) { alert(e.message); }
-  };
-  const resetLink = async (u) => {
+  const doDeactivateUser = (u) => setConfirm({
+    title: "Deactivate user",
+    message: `${u.email} will no longer be able to sign in. You can re-issue access later with a reset link.`,
+    confirmLabel: "Deactivate", danger: true,
+    onConfirm: async () => {
+      try { await api(`/api/admin/users/${u.id}/deactivate`, { method: "POST" }); toast("User deactivated"); users.reload(); }
+      catch (e) { toast(e.message, "bad"); }
+    },
+  });
+
+  const showResetLink = async (u) => {
     try {
       const r = await api(`/api/admin/users/${u.id}/reset-link`, { method: "POST" });
-      const link = `${window.location.origin}/${r.reset_path}`;
-      navigator.clipboard?.writeText(link);
-      alert(`Reset link for ${u.email} copied to clipboard (valid 1 hour). Send it to them:\n\n${link}`);
-    } catch (e) { alert(e.message); }
+      setResetLink({ email: u.email, link: `${window.location.origin}/${r.reset_path}` });
+    } catch (e) { toast(e.message, "bad"); }
   };
-  const deleteAlias = async (id) => {
-    if (!confirm("Delete this alias?")) return;
-    try { await api(`/api/admin/aliases/${id}`, { method: "DELETE" }); aliases.reload(); }
-    catch (e) { alert(e.message); }
+
+  const toggleActive = async (w) => {
+    try { await api(`/api/admin/workspaces/${w.id}`, { method: "PATCH", body: { active: !w.active } });
+      toast(w.active ? "Workspace deactivated" : "Workspace reactivated"); ws.reload(); }
+    catch (e) { toast(e.message, "bad"); }
   };
+
+  const doDeleteWorkspace = (w) => setConfirm({
+    title: "Delete workspace",
+    message: `Permanently delete “${w.name}”? This only works if the workspace has no contacts, deals, or leads. Populated workspaces should be deactivated instead.`,
+    confirmLabel: "Delete", danger: true,
+    onConfirm: async () => {
+      try { await api(`/api/admin/workspaces/${w.id}`, { method: "DELETE" }); toast("Workspace deleted"); ws.reload(); users.reload(); }
+      catch (e) { toast(e.message, "bad"); }
+    },
+  });
 
   return (
     <>
@@ -141,10 +157,18 @@ export default function Admin() {
         <div className="toolbar"><h2 style={{ margin: 0 }}>Workspaces ({ws.data.length})</h2><div className="spacer" />
           <button className="btn sm" onClick={() => setModal({ type: "ws" })}>+ Workspace</button></div>
         <table className="tbl">
-          <thead><tr><th>Name</th><th>Slug</th><th>Active</th></tr></thead>
+          <thead><tr><th>Name</th><th>Slug</th><th>Active</th><th></th></tr></thead>
           <tbody>{ws.data.map((w) => (
-            <tr key={w.id}><td><b>{w.name}</b></td><td style={{ color: "var(--muted)" }}>{w.slug}</td>
-              <td>{w.active ? <Badge tone="green">active</Badge> : <Badge>inactive</Badge>}</td></tr>))}
+            <tr key={w.id}>
+              <td><b>{w.name}</b></td>
+              <td style={{ color: "var(--muted)" }}>{w.slug}</td>
+              <td>{w.active ? <Badge tone="green">active</Badge> : <Badge>inactive</Badge>}</td>
+              <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                <button className="btn ghost sm" onClick={() => setModal({ type: "ws", data: w })} style={{ marginRight: 6 }}>Rename</button>
+                <button className="btn ghost sm" onClick={() => toggleActive(w)} style={{ marginRight: 6 }}>{w.active ? "Deactivate" : "Reactivate"}</button>
+                <button className="btn danger sm" onClick={() => doDeleteWorkspace(w)}>Delete</button>
+              </td>
+            </tr>))}
           </tbody>
         </table>
       </div>
@@ -160,38 +184,19 @@ export default function Admin() {
               <td><Badge tone={["owner", "admin"].includes(u.role) ? "indigo" : u.role === "client" ? "amber" : ""}>{u.role}</Badge></td>
               <td style={{ fontSize: 12.5 }}>{["owner", "admin"].includes(u.role) ? "all" : (u.workspace_ids || []).map(wsName).join(", ") || "—"}</td>
               <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                {u.active && <button className="btn ghost sm" onClick={() => resetLink(u)} style={{ marginRight: 6 }}>Reset link</button>}
-                {u.active ? <button className="btn danger sm" onClick={() => deactivate(u.id)}>Deactivate</button> : <Badge>deactivated</Badge>}
+                {u.active && <button className="btn ghost sm" onClick={() => showResetLink(u)} style={{ marginRight: 6 }}>Reset link</button>}
+                {u.active ? <button className="btn danger sm" onClick={() => doDeactivateUser(u)}>Deactivate</button> : <Badge>deactivated</Badge>}
               </td>
             </tr>))}
           </tbody>
         </table>
       </div>
 
-      <div className="section">
-        <div className="toolbar"><h2 style={{ margin: 0 }}>Workspace aliases ({aliases.data.length})</h2><div className="spacer" />
-          <button className="btn sm" onClick={() => setModal({ type: "alias" })}>+ Alias</button></div>
-        <table className="tbl">
-          <thead><tr><th>Legacy name</th><th>Source</th><th>→ Workspace</th><th></th></tr></thead>
-          <tbody>
-            {aliases.data.length === 0 && <tr><td colSpan={4} className="empty">No aliases — used to map legacy system names during imports.</td></tr>}
-            {aliases.data.map((a) => (
-              <tr key={a.id}>
-                <td style={{ fontFamily: "monospace", fontSize: 12.5 }}>{a.external_name}</td>
-                <td><Badge>{a.source_system}</Badge></td>
-                <td>{wsName(a.workspace_id)}</td>
-                <td style={{ textAlign: "right" }}>
-                  <button className="btn ghost sm" onClick={() => setModal({ type: "alias", data: a })}>Edit</button>{" "}
-                  <button className="btn danger sm" onClick={() => deleteAlias(a.id)}>Delete</button>
-                </td>
-              </tr>))}
-          </tbody>
-        </table>
-      </div>
-
-      {modal?.type === "ws" && <WorkspaceModal onClose={() => setModal(null)} onDone={() => { setModal(null); ws.reload(); }} />}
+      {modal?.type === "ws" && <WorkspaceModal existing={modal.data} onClose={() => setModal(null)} onDone={() => { setModal(null); ws.reload(); }} />}
       {modal?.type === "user" && <UserModal workspaces={ws.data} onClose={() => setModal(null)} onDone={() => { setModal(null); users.reload(); }} />}
-      {modal?.type === "alias" && <AliasModal workspaces={ws.data} existing={modal.data} onClose={() => setModal(null)} onDone={() => { setModal(null); aliases.reload(); }} />}
+      {resetLink && <ResetLinkModal email={resetLink.email} link={resetLink.link} onClose={() => setResetLink(null)} />}
+      {confirm && <ConfirmDialog title={confirm.title} message={confirm.message} confirmLabel={confirm.confirmLabel}
+        danger={confirm.danger} onConfirm={confirm.onConfirm} onClose={() => setConfirm(null)} />}
     </>
   );
 }
