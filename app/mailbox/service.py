@@ -483,12 +483,24 @@ def sync_conversation_thread(db, conv: DealConversation) -> dict:
     have yet (deduped by Message-ID). Keeps the deal conversation in lock-step with
     Gmail/Outlook without waiting for the background poll. A new inbound reply stops
     that deal's autopilot. Best-effort."""
-    if not conv.provider_thread_id:
-        return {"new": 0, "reason": "no thread id"}
     mailbox = db.get(MailboxConnection, conv.mailbox_id) if conv.mailbox_id else workspace_mailbox(db, conv.workspace_id)
     if not mailbox or mailbox.status != "connected":
         return {"new": 0, "reason": "no mailbox"}
-    msgs = fetch_thread(mailbox, conv.provider_thread_id)
+    tid = conv.provider_thread_id or ""
+    if not tid and mailbox.provider == "google_workspace":
+        # self-heal: resolve the threadId from any message we already have on file
+        m = (db.query(ConversationMessage)
+             .filter(ConversationMessage.conversation_id == conv.id, ConversationMessage.rfc_message_id != "")
+             .order_by(ConversationMessage.id.desc()).first())
+        if m and m.rfc_message_id:
+            from . import gmail_api
+            tid = gmail_api.gmail_thread_id_for_message(mailbox.email, m.rfc_message_id)
+            if tid:
+                conv.provider_thread_id = tid
+                db.commit()
+    if not tid:
+        return {"new": 0, "reason": "no thread id"}
+    msgs = fetch_thread(mailbox, tid)
     if not msgs:
         return {"new": 0}
     me = (mailbox.email or "").lower()

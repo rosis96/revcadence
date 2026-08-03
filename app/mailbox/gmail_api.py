@@ -100,6 +100,24 @@ def gmail_send(email: str, msg, thread_id: str = "") -> str:
     return (r.json() or {}).get("threadId", "")
 
 
+def gmail_thread_id_for_message(email: str, rfc_message_id: str) -> str:
+    """Resolve a Gmail threadId from an RFC Message-ID (so conversations imported
+    before we captured threadIds can still self-heal and sync)."""
+    mid = (rfc_message_id or "").strip().strip("<>")
+    if not mid:
+        return ""
+    try:
+        token = _token(email)
+        r = requests.get(f"{_BASE}/{email}/messages", headers={"Authorization": f"Bearer {token}"},
+                         params={"q": f"rfc822msgid:{mid}", "maxResults": 1}, timeout=15)
+        if r.status_code != 200:
+            return ""
+        msgs = r.json().get("messages") or []
+        return msgs[0].get("threadId", "") if msgs else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def gmail_thread(email: str, thread_id: str) -> list[dict]:
     """Every message in a Gmail thread, oldest first — for full-context import."""
     from . import transport
