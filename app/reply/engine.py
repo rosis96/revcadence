@@ -281,8 +281,12 @@ def build_ai_cfg(rws) -> dict:
         "fallback": bool(rws.ai_fallback),
         "openai_key": decrypt(rws.openai_key_enc) or os.getenv("OPENAI_API_KEY", ""),
         "gemini_key": decrypt(rws.gemini_key_enc) or os.getenv("GEMINI_API_KEY", ""),
-        "openai_model": os.getenv("REPLY_OPENAI_MODEL", "gpt-4.1"),   # known-good default (gpt-5-mini needs verified account access)
-        "gemini_model": os.getenv("REPLY_GEMINI_MODEL", "gemini-2.5-pro"),
+        # Model for BOTH reading (intent) and writing (reply). Honor a reply-specific
+        # override first, then the shared OPENAI_MODEL set in Railway (this is the one
+        # the deploy actually has), then a strong default. gpt-5-mini was silently the
+        # default and isn't available on this account, which stalled every draft.
+        "openai_model": os.getenv("REPLY_OPENAI_MODEL") or os.getenv("OPENAI_MODEL") or "gpt-4o",
+        "gemini_model": os.getenv("REPLY_GEMINI_MODEL") or os.getenv("GEMINI_MODEL") or "gemini-2.5-pro",
     }
 
 
