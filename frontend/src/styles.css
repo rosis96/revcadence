@@ -1,10 +1,10 @@
 /* RevCadence design system — premium B2B revenue-ops workspace
    (Linear clarity · Attio density · Clay operational feel) */
 :root {
-  /* brand accent (indigo): logo, small highlights */
-  --accent: #635BFF;
-  --accent-hover: #5249E8;
-  --accent-soft: #EEEDFF;
+  /* brand accent — premium blue (logo, highlights, tints) */
+  --accent: #2563EB;
+  --accent-hover: #1D4ED8;
+  --accent-soft: #EFF6FF;
   /* primary actions — premium blue */
   --primary: #2563EB;
   --primary-hover: #1D4ED8;
@@ -48,7 +48,7 @@ a { color: var(--accent); text-decoration: none; }
 button { font: inherit; cursor: pointer; }
 input, select, textarea { font: inherit; padding: 9px 11px; border: 1px solid var(--border); border-radius: 9px; background: #fff; outline: none; color: var(--text); transition: border-color .15s, box-shadow .15s; }
 input::placeholder, textarea::placeholder { color: var(--muted2); }
-input:focus, select:focus, textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(46,144,250,.16); }
+input:focus, select:focus, textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,.14); }
 
 .app { display: flex; min-height: 100vh; }
 .sidebar { width: var(--sidebar-w); background: var(--sidebar-bg); color: var(--sidebar-text); display: flex; flex-direction: column; position: fixed; inset: 0 auto 0 0; z-index: 20; border-right: 1px solid var(--sidebar-border); }
@@ -126,10 +126,10 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); box-sh
 .section h2 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; }
 
 table.tbl { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.tbl th { text-align: left; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: #fafbfc; }
-.tbl td { padding: 10px 14px; border-bottom: 1px solid #f1f2f4; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.tbl th { text-align: left; font-size: 11.5px; color: var(--muted2); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; padding: 11px 16px; border-bottom: 1px solid var(--border); background: var(--bg); }
+.tbl td { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 13.5px; font-variant-numeric: tabular-nums; }
 .tbl tr:last-child td { border-bottom: none; }
-.tbl tr.click:hover { background: #f8f9ff; cursor: pointer; }
+.tbl tr.click:hover { background: var(--primary-soft); cursor: pointer; }
 
 /* deal-value framing (MoneyEst) */
 .val-exact { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
@@ -149,7 +149,7 @@ table.tbl { width: 100%; border-collapse: collapse; background: var(--card); bor
 .btn:hover { filter: brightness(1.08); }
 .btn:disabled { opacity: .5; cursor: default; }
 .btn.ghost { background: #fff; color: var(--text); border: 1px solid var(--border); }
-.btn.ghost:hover { border-color: #c9cdd4; filter: none; }
+.btn.ghost:hover { border-color: var(--border-strong); background: var(--bg); filter: none; }
 .btn.sm { padding: 5px 10px; font-size: 12.5px; }
 .btn.danger { background: #fff; color: var(--bad); border: 1px solid #fecaca; }
 
@@ -286,7 +286,7 @@ iframe.preview { width: 100%; height: 70vh; border: 1px solid var(--border); bor
 
 /* ============================================================ premium design system (reusable) */
 .btn { transition: filter .15s, background .15s, border-color .15s, box-shadow .15s; }
-.btn:focus-visible, .cmdbtn:focus-visible, .iconbtn:focus-visible, .dt-tab:focus-visible, .ui-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(46,144,250,.28); }
+.btn:focus-visible, .cmdbtn:focus-visible, .iconbtn:focus-visible, .dt-tab:focus-visible, .ui-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(37,99,235,.28); }
 .btn { background: var(--primary); }
 .btn:hover { background: var(--primary-hover); filter: none; }
 
