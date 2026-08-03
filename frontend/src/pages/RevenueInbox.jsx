@@ -42,8 +42,11 @@ export default function RevenueInbox() {
     setSel({}); setFilterLabel(""); setFilterQ("");
     setBrowse({ items: [], mailbox: "" });    // open the modal immediately
     fetchThreads("", "");
-    try { const r = await api("/api/mailbox/labels", { params: { workspace_id: wsParam } }); setLabels(r.labels || []); }
-    catch { /* labels are optional */ }
+    try {
+      const r = await api("/api/mailbox/labels", { params: { workspace_id: wsParam } });
+      setLabels(r.labels || []);
+      if ((!r.labels || !r.labels.length) && r.error) toast(`Labels unavailable: ${r.error}`, "bad");
+    } catch (e) { toast(`Labels: ${e.message}`, "bad"); }
   };
   const doImport = async (items) => {
     if (!items.length) { toast("Nothing to import", "bad"); return; }

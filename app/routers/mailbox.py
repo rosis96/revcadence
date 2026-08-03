@@ -250,8 +250,16 @@ def mailbox_labels(workspace_id: int | None = None, ctx: AuthContext = Depends(g
     import an entire label at once."""
     mailbox = _first_mailbox(ctx, workspace_id)
     if not mailbox or mailbox.status != "connected":
-        return {"labels": []}
-    return {"labels": service.mailbox_labels(mailbox)}
+        return {"labels": [], "error": "No connected mailbox."}
+    labels = service.mailbox_labels(mailbox)
+    resp = {"labels": labels}
+    if not labels and mailbox.provider == "google_workspace":
+        # Empty is suspicious (most mailboxes have labels) — surface the reason.
+        from ..mailbox import gmail_api
+        ok, err = gmail_api.gmail_test(mailbox.email)
+        resp["error"] = err or ("Connected, but Gmail returned no labels. Make sure "
+                                 "gmail.readonly is among the authorized delegation scopes.")
+    return resp
 
 
 @router.get("/mailbox/threads")
@@ -290,7 +298,8 @@ def mailbox_threads(days: int = 90, limit: int = 100, q: str = "", label: str = 
         mid = m.get("rfc_message_id", "")
         already = bool(mid and ctx.db.query(RevenueInboxItem).filter(
             RevenueInboxItem.workspace_id == mailbox.workspace_id,
-            RevenueInboxItem.rfc_message_id == mid).first())
+            RevenueInboxItem.rfc_message_id == mid,
+            RevenueInboxItem.status != "dismissed").first())
         out.append({
             "rfc_message_id": mid, "from_email": frm, "to_email": m.get("to_email", ""),
             "subject": subj, "preview": (m.get("body_text", "") or "")[:180],
@@ -317,7 +326,8 @@ def import_threads(body: ThreadImportIn, ctx: AuthContext = Depends(get_ctx)):
         mid = m.get("rfc_message_id", "")
         if mid and ctx.db.query(RevenueInboxItem).filter(
                 RevenueInboxItem.workspace_id == body.workspace_id,
-                RevenueInboxItem.rfc_message_id == mid).first():
+                RevenueInboxItem.rfc_message_id == mid,
+                RevenueInboxItem.status != "dismissed").first():
             continue
         parts = m.get("participants") or [m.get("from_email", "")]
         contact = service.find_known_contact(ctx.db, body.workspace_id, parts, exclude="")
