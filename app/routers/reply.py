@@ -696,6 +696,52 @@ def reply_lead_action(lead_id: int, body: LeadAction, ctx: AuthContext = Depends
     return {"ok": True}
 
 
+@router.post("/leads/{lead_id}/draft")
+def reply_lead_draft(lead_id: int, ctx: AuthContext = Depends(get_ctx)):
+    """Generate (or regenerate) the AI reply for a lead on demand. This is the
+    recovery path when the live pipeline fell back to human_review with an empty
+    draft (a transient model miss, a non-JSON response, or a temporary AI outage):
+    the reviewer clicks 'Draft with AI' and gets a reply to edit and approve,
+    instead of being stuck with nothing to send."""
+    from ..reply import engine as E
+    l = ctx.db.get(ReplyLead, lead_id)
+    if not l or (l.workspace_id is not None and l.workspace_id not in ctx.allowed_workspace_ids()):
+        raise HTTPException(404, "Not found")
+    rws = ctx.db.query(ReplyWorkspace).filter(ReplyWorkspace.name == l.reply_workspace).first()
+    if not rws:
+        raise HTTPException(422, "This lead isn't routed to a reply workspace, so there's no config to draft from.")
+    thread = list(l.thread or [])
+    if not thread and l.reply_text:
+        thread = [{"direction": "in", "text": l.reply_text}]
+    if not thread:
+        raise HTTPException(422, "No inbound message on this lead to draft a reply from.")
+    # best-effort real scheduling context (open Calendly times); "" if unavailable
+    sched = ""
+    try:
+        from ..reply.calendly import build_scheduling_context
+        loc = str((l.lead_data or {}).get("location") or "")
+        sched = build_scheduling_context(ctx.db, rws, loc, prospect_key=l.email, mode="reply")
+    except Exception:
+        sched = ""
+    gen = E.generate_reply(rws, thread, scheduling_context=sched,
+                           prospect={"first_name": E.first_name_of(l.name), "company": l.company},
+                           client_brain=E.load_client_brain(ctx.db, l.workspace_id))
+    if not (gen.get("main_reply") or "").strip():
+        raise HTTPException(502, "The AI couldn't draft a reply just now. Check this reply-space's AI key and model in Reply Settings, then try again.")
+    l.main_reply = gen["main_reply"]
+    l.intent = gen.get("intent") or l.intent
+    l.confidence = gen.get("confidence") or l.confidence
+    l.followups = gen.get("followups") or l.followups
+    l.reply_added = bool(l.main_reply) and gen.get("model_ran", False)
+    # keep it in review for a human to approve (never auto-sends from here)
+    if l.action in (None, "", "skip_enrich", "error"):
+        l.action = "would_send"
+    l.send_error = ""
+    l.updated_at = datetime.utcnow()
+    ctx.db.commit()
+    return {"ok": True, "main_reply": l.main_reply, "intent": l.intent, "confidence": l.confidence}
+
+
 class LeadEdit(BaseModel):
     """Edit the details the webhook captured (and sync them to the CRM)."""
     name: str | None = None

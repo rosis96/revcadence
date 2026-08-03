@@ -251,6 +251,9 @@ function Thread({ id, pinned, onPin, aiOpen, onToggleAi, onChanged }) {
     setBusy("");
   };
   const save = () => act(() => api(`/api/reply/leads/${id}/action`, { method: "POST", body: { main_reply: body } }), "save", "Draft saved");
+  // Recovery: (re)generate the AI draft on demand when the pipeline left it empty.
+  const draftAI = () => act(async () => { await api(`/api/reply/leads/${id}/draft`, { method: "POST" }); setDraft(null); },
+    "ai", "AI drafted a reply — review and approve");
   const send = () => act(async () => {
     await api(`/api/reply/leads/${id}/action`, { method: "POST", body: { main_reply: body } });
     await api(`/api/reply/leads/${id}/send`, { method: "POST" });
@@ -333,10 +336,19 @@ function Thread({ id, pinned, onPin, aiOpen, onToggleAi, onChanged }) {
                 webhook at the reply-received event so it carries the email id and sending mailbox.
               </div>
             )}
+            {!(body || "").trim() && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", marginBottom: 8,
+                background: "var(--primary-soft)", border: "1px solid #D6E7FD", borderRadius: 8, fontSize: 12.5, color: "var(--muted)" }}>
+                <Sparkles size={16} style={{ color: "var(--primary)", flexShrink: 0 }} />
+                <span style={{ flex: 1 }}>No draft was generated for this reply. Draft one with AI, then review and send.</span>
+                <Button size="sm" icon={Sparkles} loading={busy === "ai"} disabled={!!busy} onClick={draftAI}>Draft with AI</Button>
+              </div>
+            )}
             <textarea value={body} onChange={(e) => setDraft(e.target.value)} placeholder="Review, edit, then approve…" />
             <div className="row">
-              <Button icon={Send} loading={busy === "send"} disabled={!!busy} onClick={send}>Approve &amp; Send</Button>
+              <Button icon={Send} loading={busy === "send"} disabled={!!busy || !(body || "").trim()} onClick={send}>Approve &amp; Send</Button>
               <Button variant="secondary" loading={busy === "save"} disabled={!!busy} onClick={save}>Save draft</Button>
+              <Button variant="ghost" icon={Sparkles} loading={busy === "ai"} disabled={!!busy} onClick={draftAI}>{(body || "").trim() ? "Regenerate" : "Draft with AI"}</Button>
               <span style={{ flex: 1 }} />
               <Button size="sm" variant="ghost" disabled={!!busy}
                 onClick={() => act(() => api(`/api/reply/leads/${id}/action`, { method: "POST", body: { reviewed: true } }), "rev", "Marked reviewed")}>Mark reviewed</Button>
