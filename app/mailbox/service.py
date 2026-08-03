@@ -527,10 +527,12 @@ def draft_followup(db, conv: DealConversation) -> dict:
                 "case_study/proof_point only if it genuinely fits — never fabricate. If they asked for time "
                 "(e.g. 'give me two weeks'), respect it and check in lightly. Never sound automated. Output "
                 "ONLY the email body.")
+            guide = (getattr(conv, "followup_guidance", "") or "").strip()
             user = (f"Prospect first name: {first}\n"
                     f"Context (our offer): {ground}\n"
-                    f"CLIENT PROFILE: {brain_ctx}\n\n"
-                    f"THREAD (oldest→newest):\n{convo}\n\nWrite the next follow-up email body:")
+                    f"CLIENT PROFILE: {brain_ctx}\n"
+                    + (f"WHAT THIS FOLLOW-UP SHOULD DO (operator's instruction): {guide}\n" if guide else "")
+                    + f"\nTHREAD (oldest→newest):\n{convo}\n\nWrite the next follow-up email body:")
             import os
             import requests
             followup_model = ai.writer_model().lower()
@@ -557,6 +559,103 @@ def draft_followup(db, conv: DealConversation) -> dict:
     return {"body": f"{hi}\n\nJust following up on our last conversation — happy to answer any "
             "questions and figure out the best next step whenever the timing works for you.\n\n"
             "Would a quick call this week or next be helpful?", "source": "template"}
+
+
+def generate_followup_sequence(db, conv: DealConversation, guidance: str = "", steps: int = 3) -> list:
+    """Draft the WHOLE planned follow-up sequence up front so the operator can
+    preview and edit each email before enabling autopilot. Returns [{days, body}]."""
+    steps = max(1, min(int(steps or 3), 8))
+    interval = conv.followup_interval_days or 4
+    msgs = (db.query(ConversationMessage)
+            .filter(ConversationMessage.conversation_id == conv.id,
+                    ConversationMessage.status.in_(["sent", "received"]))
+            .order_by(ConversationMessage.id).all())
+    contact = db.get(Contact, conv.contact_id) if conv.contact_id else None
+    first = (contact.first_name if contact else "") or ""
+    convo = "\n\n".join(f"[{m.direction.upper()}] {m.body_text}" for m in msgs)
+
+    def _fallback():
+        hi = f"Hi {first}," if first else "Hi,"
+        g = guidance.strip() or "circling back on our last conversation"
+        out = []
+        for i in range(steps):
+            out.append({"days": interval, "body":
+                        f"{hi}\n\nJust following up — {g}. Happy to answer any questions and find the "
+                        f"best next step whenever the timing works.\n\nWould a quick call this week or next help?"})
+        return out
+
+    try:
+        import json as _json
+        import os
+
+        import requests
+
+        from ..enrichment import ai
+        if not ai.has_ai():
+            return _fallback()
+        brain = {}
+        try:
+            from ..models.enrich import EnrichConfig
+            bc = db.query(EnrichConfig).filter(EnrichConfig.workspace_id == conv.workspace_id).first()
+            brain = (bc.profile or {}) if bc else {}
+        except Exception:  # noqa: BLE001
+            brain = {}
+        brain_ctx = _json.dumps({k: brain.get(k) for k in
+                                 ("main_offer", "target_outcome", "positioning", "problem_library",
+                                  "case_studies", "proof_points") if brain.get(k)})[:2500]
+        system = (
+            f"You are the salesperson planning a sequence of {steps} follow-up emails in ONE ongoing email "
+            "thread with a prospect. Each should be short, human, and NOT salesy, no subject line, no "
+            "signature. They escalate gently over time (light check-in → add value/proof → clear ask). "
+            "Follow the operator's instruction if given. Never fabricate case studies. "
+            f"Return ONLY a JSON array of exactly {steps} strings (email bodies), nothing else.")
+        user = (f"Prospect first name: {first}\n"
+                + (f"Operator instruction for the whole sequence: {guidance.strip()}\n" if guidance.strip() else "")
+                + f"CLIENT PROFILE: {brain_ctx}\n\nTHREAD SO FAR (oldest→newest):\n{convo or '(no prior messages)'}\n\n"
+                f"Write the {steps} follow-up email bodies as a JSON array:")
+        model = ai.writer_model().lower()
+        payload = {"model": model, "messages": [{"role": "system", "content": system},
+                                                 {"role": "user", "content": user}]}
+        if model.startswith("gpt-5"):
+            payload["reasoning_effort"] = "low"
+        else:
+            payload["temperature"] = 0.6
+        r = requests.post(ai.OPENAI_URL, headers={"Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",
+                          "Content-Type": "application/json"}, json=payload, timeout=90)
+        r.raise_for_status()
+        text = r.json()["choices"][0]["message"]["content"].strip()
+        text = text[text.find("["): text.rfind("]") + 1] if "[" in text else text
+        bodies = _json.loads(text)
+        bodies = [str(b).strip() for b in bodies if str(b).strip()][:steps]
+        if not bodies:
+            return _fallback()
+        return [{"days": interval, "body": b} for b in bodies]
+    except Exception:  # noqa: BLE001
+        return _fallback()
+
+
+def save_followup_plan(db, conv: DealConversation, *, guidance="", plan=None, enabled=True):
+    """Store the operator-approved follow-up plan (guidance + per-step body & timing)
+    and schedule the first step. The runner then sends these exact emails on time."""
+    conv.followup_guidance = (guidance or "").strip()
+    clean = []
+    for p in (plan or []):
+        body = (p.get("body") or "").strip()
+        if not body:
+            continue
+        days = max(0, min(int(p.get("days", conv.followup_interval_days or 4) or 4), 60))
+        clean.append({"days": days, "body": body})
+    conv.followup_plan = clean
+    if clean:
+        conv.max_followups = len(clean)
+    conv.autopilot = bool(enabled and clean)
+    if conv.autopilot and clean:
+        base = conv.last_outbound_at or datetime.utcnow()
+        conv.next_followup_at = base + timedelta(days=clean[0]["days"])
+    else:
+        conv.next_followup_at = None
+    db.commit()
+    return conv
 
 
 def set_autopilot(db, conv: DealConversation, *, enabled: bool, interval_days=None, max_followups=None):
@@ -623,14 +722,28 @@ def run_due_followups(db, now=None) -> dict:
                 conv.next_followup_at = None
                 skipped += 1
                 continue
-            draft = draft_followup(db, conv)
-            body = (draft or {}).get("body", "").strip()
+            plan = list(conv.followup_plan or [])
+            idx = conv.followups_sent or 0
+            if plan:
+                # send the exact email the operator approved for this step
+                if idx >= len(plan):
+                    conv.next_followup_at = None
+                    skipped += 1
+                    continue
+                body = (plan[idx].get("body") or "").strip()
+            else:
+                body = (draft_followup(db, conv) or {}).get("body", "").strip()
             if not body:
                 conv.next_followup_at = now + timedelta(days=1)   # retry tomorrow
                 continue
-            send_message(db, conv, body, ai_generated=True)       # threads + logs + re-arms
+            send_message(db, conv, body, ai_generated=not plan)   # threads + logs + re-arms
             conv.followups_sent = (conv.followups_sent or 0) + 1
-            if conv.followups_sent >= (conv.max_followups or 4):
+            # schedule the next step (plan timing takes precedence over the interval re-arm)
+            if plan:
+                nxt = conv.followups_sent
+                conv.next_followup_at = (now + timedelta(days=int(plan[nxt].get("days", conv.followup_interval_days or 4)))
+                                         if nxt < len(plan) else None)
+            elif conv.followups_sent >= (conv.max_followups or 4):
                 conv.next_followup_at = None                      # sequence complete
             db.commit()
             sent += 1

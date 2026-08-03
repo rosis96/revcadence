@@ -208,6 +208,53 @@ def set_autopilot(deal_id: int, body: AutopilotIn, ctx: AuthContext = Depends(ge
             "followup_interval_days": conv.followup_interval_days or 4}
 
 
+class FollowupPreviewIn(BaseModel):
+    guidance: str = ""
+    steps: int = 3
+    interval_days: int | None = None
+
+
+@router.post("/deals/{deal_id}/conversation/followup-plan/preview")
+def preview_followup_plan(deal_id: int, body: FollowupPreviewIn, ctx: AuthContext = Depends(get_ctx)):
+    """Draft the whole follow-up sequence so the operator can review/edit before enabling."""
+    d = _deal(ctx, deal_id)
+    conv = service.ensure_conversation(ctx.db, d)
+    if body.interval_days:
+        conv.followup_interval_days = max(1, min(int(body.interval_days), 60))
+        ctx.db.commit()
+    plan = service.generate_followup_sequence(ctx.db, conv, guidance=body.guidance, steps=body.steps)
+    return {"guidance": body.guidance, "plan": plan,
+            "followups_sent": conv.followups_sent or 0}
+
+
+class FollowupPlanIn(BaseModel):
+    guidance: str = ""
+    enabled: bool = True
+    plan: list[dict] = []          # [{days:int, body:str}]
+
+
+@router.get("/deals/{deal_id}/conversation/followup-plan")
+def get_followup_plan(deal_id: int, ctx: AuthContext = Depends(get_ctx)):
+    d = _deal(ctx, deal_id)
+    conv = service.ensure_conversation(ctx.db, d)
+    return {"guidance": conv.followup_guidance or "", "plan": conv.followup_plan or [],
+            "autopilot": bool(conv.autopilot), "followups_sent": conv.followups_sent or 0,
+            "next_followup_at": conv.next_followup_at.isoformat() if conv.next_followup_at else None}
+
+
+@router.put("/deals/{deal_id}/conversation/followup-plan")
+def save_followup_plan(deal_id: int, body: FollowupPlanIn, ctx: AuthContext = Depends(get_ctx)):
+    """Save the reviewed follow-up plan (guidance + per-step body & timing) and,
+    if enabled, schedule it. These exact emails are what get sent."""
+    d = _deal(ctx, deal_id)
+    conv = service.ensure_conversation(ctx.db, d)
+    if body.enabled and not service.workspace_mailbox(ctx.db, d.workspace_id):
+        raise HTTPException(409, "Connect a mailbox first (Settings → Email) before enabling follow-ups.")
+    conv = service.save_followup_plan(ctx.db, conv, guidance=body.guidance, plan=body.plan, enabled=body.enabled)
+    return {"autopilot": bool(conv.autopilot), "plan": conv.followup_plan or [],
+            "next_followup_at": conv.next_followup_at.isoformat() if conv.next_followup_at else None}
+
+
 class SendIn(BaseModel):
     body: str
     subject: str | None = None

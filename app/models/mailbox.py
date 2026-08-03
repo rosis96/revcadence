@@ -49,6 +49,8 @@ class DealConversation(Base):
     followups_sent = Column(Integer, default=0)                # how many auto follow-ups have gone
     max_followups = Column(Integer, default=4)                 # hard cap — never exceed
     followup_interval_days = Column(Integer, default=4)        # spacing between touches
+    followup_guidance = Column(Text, default="")               # what the follow-ups should say
+    followup_plan = Column(JSON, default=list)                 # approved sequence: [{days:int, body:str}]
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

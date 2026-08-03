@@ -7,7 +7,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { Send, Sparkles, RefreshCw, Mail, Plus, Check, Trash2, Download, FileText, FileSignature, Receipt } from "lucide-react";
 import { api, download, emailText, money, timeAgo } from "../api";
 import {
-  Avatar, Badge, Breadcrumbs, Button, ErrorBox, Spinner, StatusPill, Tabs, Timeline,
+  Avatar, Badge, Breadcrumbs, Button, ErrorBox, Modal, Spinner, StatusPill, Tabs, Timeline,
   useApi, useToast,
 } from "../components";
 
@@ -55,12 +55,12 @@ export default function DealRecord() {
       {tab === "overview" && <OverviewTab dealId={id} deal={d} nav={nav} setTab={setTab} />}
       {tab === "conversation" && <ConversationTab dealId={id} contact={d.contact} />}
       {tab === "timeline" && <div className="card" style={{ padding: 18 }}><Timeline items={d.timeline || []} /></div>}
-      {tab === "blueprint" && <DocTab endpoint="/api/documents" params={{ company_id: d.company?.id }} to="blueprints"
-        empty="No blueprint yet." nav={nav} label={(x) => x.title || x.slug} />}
+      {tab === "blueprint" && <DocTab endpoint={d.company?.id ? "/api/documents" : null} params={{ company_id: d.company?.id }} to="blueprints"
+        empty={d.company?.id ? "No blueprint yet." : "Link this deal to a company to see its blueprints."} nav={nav} label={(x) => x.title || x.slug} />}
       {tab === "agreement" && <DocTab endpoint="/api/agreements" params={{ deal_id: id }} to="agreements"
         empty="No agreement yet." nav={nav} label={(x) => `${x.number} · ${x.status}`} />}
-      {tab === "invoice" && <DocTab endpoint="/api/invoices" params={{ company_id: d.company?.id }} to="invoices"
-        empty="No invoice yet." nav={nav} label={(x) => `${x.number} · ${x.currency} ${(x.total || 0).toLocaleString()}`} />}
+      {tab === "invoice" && <DocTab endpoint={d.company?.id ? "/api/invoices" : null} params={{ company_id: d.company?.id }} to="invoices"
+        empty={d.company?.id ? "No invoice yet." : "Link this deal to a company to see its invoices."} nav={nav} label={(x) => `${x.number} · ${x.currency} ${(x.total || 0).toLocaleString()}`} />}
       {tab === "tasks" && <TasksTab dealId={id} />}
       {tab === "files" && <FilesTab deal={d} />}
       {tab === "notes" && <NotesTab dealId={id} />}
@@ -197,8 +197,8 @@ function TasksTab({ dealId }) {
 // ---------------------------------------------------------------- Files
 function FilesTab({ deal }) {
   const { data: ags } = useApi("/api/agreements", { deal_id: deal.id });
-  const { data: invs } = useApi("/api/invoices", { company_id: deal.company?.id });
-  const { data: bps } = useApi("/api/documents", { company_id: deal.company?.id });
+  const { data: invs } = useApi(deal.company?.id ? "/api/invoices" : null, { company_id: deal.company?.id });
+  const { data: bps } = useApi(deal.company?.id ? "/api/documents" : null, { company_id: deal.company?.id });
   const rows = [
     ...(bps || []).map((x) => ({ id: `b${x.id}`, icon: FileText, label: x.title || x.slug, sub: "Blueprint", href: x.public_path ? `${window.location.origin}${x.public_path}` : null })),
     ...(ags || []).map((x) => ({ id: `a${x.id}`, icon: FileSignature, label: `${x.number} — ${x.title || "Agreement"}`, sub: x.status,
@@ -284,8 +284,32 @@ function ConversationTab({ dealId, contact }) {
     try {
       await api(`/api/deals/${dealId}/conversation/autopilot`, { method: "POST", body: { enabled: !conv.autopilot } });
       reload();
-      toast(conv.autopilot ? "Autopilot off" : "Autopilot on — AI follows up until they reply");
+      toast(conv.autopilot ? "Follow-ups off" : "Follow-ups on");
     } catch (e) { toast(e.message, "bad"); }
+    setBusy("");
+  };
+  const [plan, setPlan] = useState(null);   // {guidance, steps, interval, items:[{days,body}]} when the plan modal is open
+  const openPlan = async () => {
+    try {
+      const r = await api(`/api/deals/${dealId}/conversation/followup-plan`);
+      setPlan({ guidance: r.guidance || "", steps: r.plan?.length || 3,
+        interval: conv.followup_interval_days || 4, items: r.plan || [] });
+    } catch { setPlan({ guidance: "", steps: 3, interval: conv.followup_interval_days || 4, items: [] }); }
+  };
+  const previewPlan = async () => {
+    setBusy("preview");
+    try { const r = await api(`/api/deals/${dealId}/conversation/followup-plan/preview`, { method: "POST",
+        body: { guidance: plan.guidance, steps: Number(plan.steps) || 3, interval_days: Number(plan.interval) || 4 } });
+      setPlan((p) => ({ ...p, items: r.plan || [] })); }
+    catch (e) { toast(e.message, "bad"); }
+    setBusy("");
+  };
+  const savePlan = async (enabled) => {
+    setBusy("saveplan");
+    try { await api(`/api/deals/${dealId}/conversation/followup-plan`, { method: "PUT",
+        body: { guidance: plan.guidance, enabled, plan: plan.items } });
+      setPlan(null); reload(); toast(enabled ? "Follow-up sequence scheduled" : "Plan saved"); }
+    catch (e) { toast(e.message, "bad"); }
     setBusy("");
   };
   return (
@@ -307,14 +331,59 @@ function ConversationTab({ dealId, contact }) {
               <div style={{ fontWeight: 600 }}>Follow-up autopilot {conv.autopilot ? "· ON" : "· off"}</div>
               <div style={{ color: "var(--muted)", fontSize: 12 }}>
                 {conv.autopilot
-                  ? `AI sends the next follow-up ${conv.next_followup_at ? "on " + new Date(conv.next_followup_at).toLocaleDateString() : "when due"} · ${conv.followups_sent}/${conv.max_followups} sent · stops the moment they reply`
-                  : `Send AI follow-ups automatically every ${conv.followup_interval_days} days until they reply (max ${conv.max_followups}). Grounded in this thread + the client brain.`}
+                  ? `Next follow-up ${conv.next_followup_at ? "on " + new Date(conv.next_followup_at).toLocaleDateString() : "when due"} · ${conv.followups_sent}/${conv.max_followups} sent · stops the moment they reply`
+                  : "Write your follow-up sequence, preview and edit each email, set the timing, then turn it on. Stops the moment they reply."}
               </div>
             </div>
           </div>
-          <Button size="sm" variant={conv.autopilot ? "secondary" : undefined} loading={busy === "auto"}
-            disabled={!!busy} onClick={toggleAutopilot}>{conv.autopilot ? "Turn off" : "Turn on"}</Button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Button size="sm" variant="secondary" disabled={!!busy} onClick={openPlan}>{conv.autopilot ? "Edit plan" : "Set up follow-ups"}</Button>
+            {conv.autopilot && <Button size="sm" variant="secondary" loading={busy === "auto"} disabled={!!busy} onClick={toggleAutopilot}>Turn off</Button>}
+          </div>
         </div>
+      )}
+
+      {plan && (
+        <Modal title="Follow-up sequence" onClose={() => setPlan(null)}>
+          <div className="field"><label>What should the follow-ups say?</label>
+            <textarea rows={3} value={plan.guidance}
+              placeholder="e.g. Reference the Revenue Blueprint, keep it warm and brief, and by the last one ask for a quick call."
+              onChange={(e) => setPlan({ ...plan, guidance: e.target.value })} /></div>
+          <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+            <div className="field" style={{ margin: 0 }}><label>How many</label>
+              <input type="number" min="1" max="8" value={plan.steps} style={{ width: 80 }}
+                onChange={(e) => setPlan({ ...plan, steps: e.target.value })} /></div>
+            <div className="field" style={{ margin: 0 }}><label>Days between (default)</label>
+              <input type="number" min="1" max="60" value={plan.interval} style={{ width: 110 }}
+                onChange={(e) => setPlan({ ...plan, interval: e.target.value })} /></div>
+            <Button variant="secondary" loading={busy === "preview"} onClick={previewPlan}>
+              {plan.items.length ? "Regenerate" : "Preview emails"}</Button>
+          </div>
+
+          {plan.items.length > 0 && (
+            <div style={{ display: "grid", gap: 10, marginTop: 12, maxHeight: "44vh", overflow: "auto" }}>
+              {plan.items.map((it, i) => (
+                <div key={i} className="card" style={{ padding: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                    <b style={{ fontSize: 12.5 }}>Follow-up {i + 1}</b>
+                    <span style={{ fontSize: 12, color: "var(--muted)" }}>sends</span>
+                    <input type="number" min="0" max="60" value={it.days} style={{ width: 62, padding: "4px 6px" }}
+                      onChange={(e) => { const items = [...plan.items]; items[i] = { ...it, days: Number(e.target.value) || 0 }; setPlan({ ...plan, items }); }} />
+                    <span style={{ fontSize: 12, color: "var(--muted)" }}>days after the previous email</span>
+                  </div>
+                  <textarea rows={5} value={it.body} style={{ width: "100%" }}
+                    onChange={(e) => { const items = [...plan.items]; items[i] = { ...it, body: e.target.value }; setPlan({ ...plan, items }); }} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="actions" style={{ marginTop: 14 }}>
+            <button className="btn ghost" onClick={() => setPlan(null)}>Cancel</button>
+            {plan.items.length > 0 && <button className="btn ghost" disabled={busy === "saveplan"} onClick={() => savePlan(false)}>Save (don't send yet)</button>}
+            <Button loading={busy === "saveplan"} disabled={!plan.items.length} onClick={() => savePlan(true)}>Save &amp; turn on</Button>
+          </div>
+        </Modal>
       )}
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         <div className="ib-msgs" style={{ maxHeight: "48vh" }}>
