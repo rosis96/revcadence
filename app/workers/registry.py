@@ -409,6 +409,7 @@ def process_reply_job(db, job):
     brain = E.load_client_brain(db, rws.workspace_id if rws else None)
     prospect = {"first_name": first, "company": lead.company}
     is_followup = (flow == "followup") or (getattr(rws, "mode", "reply") == "followup")
+    fup_gen_error = ""
 
     if is_followup:
         # FOLLOW-UP-ONLY mode: leads that missed their follow-ups. No reply to
@@ -419,6 +420,7 @@ def process_reply_job(db, job):
         lead.main_reply = ""
         lead.followups = fg["followups"]
         lead.reply_added = False
+        fup_gen_error = fg.get("error", "")
         action = "followups_only"
         lead.action = action
     else:
@@ -486,7 +488,8 @@ def process_reply_job(db, job):
     fup_status = ""
     should_push = bool(lead.followups) and (is_followup or action in ("send", "would_send", "skip_enrich"))
     if is_followup and not lead.followups:
-        fup_status = "no follow-ups were generated (check the follow-up templates / AI model)"
+        fup_status = "no follow-ups generated" + (f": {fup_gen_error}" if fup_gen_error
+                                                  else " (check the follow-up templates / AI model)")
     elif should_push:
         if platform == "bison":
             try:
