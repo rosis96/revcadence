@@ -157,7 +157,9 @@ def send_message(db, conv: DealConversation, body_text: str, *, subject=None,
 
     if mailbox.provider == "google_workspace":
         from . import gmail_api
-        gmail_api.gmail_send(mailbox.email, msg)
+        new_tid = gmail_api.gmail_send(mailbox.email, msg, thread_id=conv.provider_thread_id or "")
+        if new_tid and not conv.provider_thread_id:
+            conv.provider_thread_id = new_tid   # remember the thread for future replies
     elif mailbox.provider == "microsoft_graph":
         from . import graph_api
         graph_api.graph_send(mailbox.email, msg)
@@ -403,8 +405,17 @@ def attach_item_to_deal(db, item, deal, user_id=None):
         conv.prospect_email = (item.from_email or "").lower()
     if item.rfc_message_id:
         conv.thread_refs = (f"{conv.thread_refs} {item.rfc_message_id}").strip()[:4000]
-    if item.subject and not conv.subject:
-        conv.subject = item.subject
+    # carry the provider thread id so replies land in the SAME Gmail/Outlook thread
+    if getattr(item, "thread_id", "") and not conv.provider_thread_id:
+        conv.provider_thread_id = item.thread_id
+    # keep the original conversation subject (drop any Re:/Fwd: so we add one cleanly)
+    if item.subject:
+        subj = item.subject.strip()
+        low = subj.lower()
+        while low.startswith("re:") or low.startswith("fwd:"):
+            subj = subj[3:].strip(": ").strip() if low.startswith("re:") else subj[4:].strip(": ").strip()
+            low = subj.lower()
+        conv.subject = subj or conv.subject
     cm = ConversationMessage(
         conversation_id=conv.id, workspace_id=conv.workspace_id, deal_id=conv.deal_id,
         direction="in", from_email=item.from_email, to_email=conv.prospect_email or "",
