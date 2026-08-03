@@ -243,10 +243,13 @@ table.tbl { width: 100%; border-collapse: collapse; background: var(--card); bor
 .kv { display: grid; grid-template-columns: 130px 1fr; gap: 6px 12px; font-size: 13px; margin: 14px 0; }
 .kv .k { color: var(--muted); }
 
+.tl-groups { display: flex; flex-direction: column; gap: 4px; }
+.tl-daylabel { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted2); margin: 12px 0 2px; }
+.tl-group:first-child .tl-daylabel { margin-top: 0; }
 .timeline { list-style: none; }
 .timeline li { padding: 9px 0 9px 18px; border-left: 2px solid var(--border); position: relative; font-size: 13px; }
-.timeline li::before { content: ""; position: absolute; left: -5px; top: 14px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
-.timeline .when { color: var(--muted); font-size: 11.5px; }
+.timeline li::before { content: ""; position: absolute; left: -5px; top: 14px; width: 8px; height: 8px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+.timeline .when { color: var(--muted); font-size: 11.5px; margin-top: 1px; }
 
 .center { display: flex; align-items: center; justify-content: center; min-height: 200px; flex-direction: column; gap: 10px; color: var(--muted); }
 .spinner { width: 22px; height: 22px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }

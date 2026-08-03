@@ -118,16 +118,42 @@ export function Modal({ title, onClose, children }) {
   );
 }
 
+function dayLabel(at) {
+  if (!at) return "Earlier";
+  const d = new Date(at + (at.endsWith("Z") ? "" : "Z"));
+  const now = new Date();
+  const startOf = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((startOf(now) - startOf(d)) / 86400000);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return d.toLocaleDateString(undefined, { weekday: "long" });
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: now.getFullYear() === d.getFullYear() ? undefined : "numeric" });
+}
+
 export function Timeline({ items }) {
   if (!items?.length) return <div className="empty" style={{ padding: 14 }}>No activity yet</div>;
+  const groups = [];
+  for (const a of items) {
+    const label = dayLabel(a.at);
+    let g = groups[groups.length - 1];
+    if (!g || g.label !== label) { g = { label, rows: [] }; groups.push(g); }
+    g.rows.push(a);
+  }
   return (
-    <ul className="timeline">
-      {items.map((a) => (
-        <li key={a.id}>
-          <div>{a.title || a.kind}</div>
-          <div className="when">{a.kind} · {a.at ? new Date(a.at + "Z").toLocaleString() : ""}</div>
-        </li>
+    <div className="tl-groups">
+      {groups.map((g, gi) => (
+        <div key={gi} className="tl-group">
+          <div className="tl-daylabel">{g.label}</div>
+          <ul className="timeline">
+            {g.rows.map((a, i) => (
+              <li key={a.id ?? i}>
+                <div>{a.title || a.kind}</div>
+                <div className="when">{a.kind}{a.at ? " · " + new Date(a.at + (a.at.endsWith("Z") ? "" : "Z")).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}</div>
+              </li>
+            ))}
+          </ul>
+        </div>
       ))}
-    </ul>
+    </div>
   );
 }
