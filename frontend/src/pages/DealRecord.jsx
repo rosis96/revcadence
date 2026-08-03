@@ -4,24 +4,31 @@
 // with this deal right now?" without opening another tab.
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Send, Sparkles, RefreshCw, Mail, Plus, Check, Trash2, Download, FileText, FileSignature, Receipt } from "lucide-react";
+import { Send, Sparkles, RefreshCw, Mail, Plus, Check, Trash2, Download, FileText, FileSignature, Receipt, PanelRightClose } from "lucide-react";
 import { api, download, emailText, money, splitQuoted, timeAgo } from "../api";
 import {
-  Avatar, Badge, Breadcrumbs, Button, ErrorBox, Modal, Spinner, StatusPill, Tabs, Timeline,
+  Avatar, Badge, Breadcrumbs, Button, ErrorBox, Modal, Spinner, StatusPill, Timeline,
   useApi, useToast,
 } from "../components";
 
-const TABS = [
-  { key: "overview", label: "Overview" },
-  { key: "conversation", label: "Conversation" },
-  { key: "timeline", label: "Timeline" },
-  { key: "blueprint", label: "Blueprint" },
-  { key: "agreement", label: "Agreement" },
-  { key: "invoice", label: "Invoice" },
-  { key: "tasks", label: "Tasks" },
-  { key: "files", label: "Files" },
-  { key: "notes", label: "Notes" },
+// Grouped record navigation: 5 primary destinations map onto the 9 existing leaf
+// tabs. Nothing is removed — Activity/Documents just expose their leaves through a
+// secondary segmented control. Leaf keys are unchanged so setTab() and every tab
+// body keep working exactly as before.
+const PRIMARY = [
+  { key: "overview", label: "Overview", leaves: ["overview"] },
+  { key: "conversation", label: "Conversation", leaves: ["conversation"] },
+  { key: "activity", label: "Activity", leaves: ["timeline", "tasks", "notes"] },
+  { key: "documents", label: "Documents", leaves: ["blueprint", "agreement", "invoice", "files"] },
 ];
+const LEAF_LABEL = {
+  overview: "Overview", conversation: "Conversation", timeline: "Timeline",
+  tasks: "Tasks", notes: "Notes", blueprint: "Blueprint", agreement: "Agreement",
+  invoice: "Invoice", files: "Files",
+};
+const WORKSPACE_TABS = new Set(["conversation"]);   // full-bleed, viewport-height tabs
+const primaryFor = (leaf) => (PRIMARY.find((p) => p.leaves.includes(leaf)) || PRIMARY[0]).key;
+
 const HEALTH_TONE = { healthy: "green", cooling: "amber", ghosted: "red", unknown: "gray" };
 const RISK_TONE = { low: "green", medium: "amber", high: "red", unknown: "gray" };
 const INTENT_TONE = { high: "green", medium: "amber", low: "gray" };
@@ -48,6 +55,36 @@ function MessageBubble({ m, contact }) {
   );
 }
 
+// Grouped record navigation: primary row + a secondary segmented control when the
+// active primary owns several leaves. Sticky under the global header while scrolling.
+function RecordNav({ leaf, setTab }) {
+  const activePrimary = primaryFor(leaf);
+  const group = PRIMARY.find((p) => p.key === activePrimary);
+  const openPrimary = (p) => { if (!p.leaves.includes(leaf)) setTab(p.leaves[0]); };
+  return (
+    <div className="record-nav">
+      <div className="ui-tabs" role="tablist">
+        {PRIMARY.map((p) => (
+          <button key={p.key} role="tab" aria-selected={activePrimary === p.key}
+            className={`ui-tab ${activePrimary === p.key ? "on" : ""}`} onClick={() => openPrimary(p)}>
+            {p.label}
+          </button>
+        ))}
+      </div>
+      {group && group.leaves.length > 1 && (
+        <div className="record-subnav" role="tablist" aria-label={`${group.label} sections`}>
+          {group.leaves.map((lf) => (
+            <button key={lf} role="tab" aria-selected={leaf === lf}
+              className={`seg-btn ${leaf === lf ? "on" : ""}`} onClick={() => setTab(lf)}>
+              {LEAF_LABEL[lf]}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DealRecord() {
   const { id } = useParams();
   const nav = useNavigate();
@@ -58,34 +95,39 @@ export default function DealRecord() {
   if (error) return <ErrorBox msg={error} />;
   if (!d) return <Spinner />;
 
+  const isWorkspace = WORKSPACE_TABS.has(tab);
+
   return (
-    <div style={{ maxWidth: 1100 }}>
-      <Breadcrumbs items={[{ label: "Pipeline", href: "/pipeline" }, { label: d.name || "Deal" }]} />
-      <div className="page-head">
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 650 }}>{d.name || "Untitled deal"}</h1>
-          <p style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            {d.stage && <StatusPill tone="blue">{d.stage.name}</StatusPill>}
-            <span style={{ fontWeight: 700 }}>{money(d.value)}</span>
-            {d.company && <Link to={`/companies/${d.company.id}`} style={{ fontSize: 12.5 }}>{d.company.name} →</Link>}
-          </p>
+    <div className={`deal-record ${isWorkspace ? "is-workspace" : ""}`}>
+      <div className="deal-record-head">
+        <Breadcrumbs items={[{ label: "Pipeline", href: "/pipeline" }, { label: d.name || "Deal" }]} />
+        <div className="page-head" style={{ marginBottom: 10 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h1 style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-.01em" }}>{d.name || "Untitled deal"}</h1>
+            <p style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              {d.stage && <StatusPill tone="blue">{d.stage.name}</StatusPill>}
+              <span style={{ fontWeight: 700 }}>{money(d.value)}</span>
+              {d.company && <Link to={`/companies/${d.company.id}`} style={{ fontSize: 12.5 }}>{d.company.name} →</Link>}
+            </p>
+          </div>
         </div>
+        <RecordNav leaf={tab} setTab={setTab} />
       </div>
 
-      <div style={{ marginBottom: 14 }}><Tabs value={tab} onChange={setTab} tabs={TABS} /></div>
-
-      {tab === "overview" && <OverviewTab dealId={id} deal={d} nav={nav} setTab={setTab} />}
-      {tab === "conversation" && <ConversationTab dealId={id} contact={d.contact} />}
-      {tab === "timeline" && <div className="card" style={{ padding: 18 }}><Timeline items={d.timeline || []} /></div>}
-      {tab === "blueprint" && <DocTab endpoint={d.company?.id ? "/api/documents" : null} params={{ company_id: d.company?.id }} to="blueprints"
-        empty={d.company?.id ? "No blueprint yet." : "Link this deal to a company to see its blueprints."} nav={nav} label={(x) => x.title || x.slug} />}
-      {tab === "agreement" && <DocTab endpoint="/api/agreements" params={{ deal_id: id }} to="agreements"
-        empty="No agreement yet." nav={nav} label={(x) => `${x.number} · ${x.status}`} />}
-      {tab === "invoice" && <DocTab endpoint={d.company?.id ? "/api/invoices" : null} params={{ company_id: d.company?.id }} to="invoices"
-        empty={d.company?.id ? "No invoice yet." : "Link this deal to a company to see its invoices."} nav={nav} label={(x) => `${x.number} · ${x.currency} ${(x.total || 0).toLocaleString()}`} />}
-      {tab === "tasks" && <TasksTab dealId={id} />}
-      {tab === "files" && <FilesTab deal={d} />}
-      {tab === "notes" && <NotesTab dealId={id} />}
+      <div className="deal-record-body">
+        {tab === "overview" && <OverviewTab dealId={id} deal={d} nav={nav} setTab={setTab} />}
+        {tab === "conversation" && <ConversationTab dealId={id} deal={d} contact={d.contact} setTab={setTab} />}
+        {tab === "timeline" && <div className="card" style={{ padding: 18 }}><Timeline items={d.timeline || []} /></div>}
+        {tab === "blueprint" && <DocTab endpoint={d.company?.id ? "/api/documents" : null} params={{ company_id: d.company?.id }} to="blueprints"
+          empty={d.company?.id ? "No blueprint yet." : "Link this deal to a company to see its blueprints."} nav={nav} label={(x) => x.title || x.slug} />}
+        {tab === "agreement" && <DocTab endpoint="/api/agreements" params={{ deal_id: id }} to="agreements"
+          empty="No agreement yet." nav={nav} label={(x) => `${x.number} · ${x.status}`} />}
+        {tab === "invoice" && <DocTab endpoint={d.company?.id ? "/api/invoices" : null} params={{ company_id: d.company?.id }} to="invoices"
+          empty={d.company?.id ? "No invoice yet." : "Link this deal to a company to see its invoices."} nav={nav} label={(x) => `${x.number} · ${x.currency} ${(x.total || 0).toLocaleString()}`} />}
+        {tab === "tasks" && <TasksTab dealId={id} />}
+        {tab === "files" && <FilesTab deal={d} />}
+        {tab === "notes" && <NotesTab dealId={id} />}
+      </div>
     </div>
   );
 }
@@ -278,12 +320,13 @@ function NotesTab({ dealId }) {
 }
 
 // ---------------------------------------------------------------- Conversation
-function ConversationTab({ dealId, contact }) {
+function ConversationTab({ dealId, deal, contact, setTab }) {
   const toast = useToast();
   const { data, loading, error, reload } = useApi(`/api/deals/${dealId}/conversation`);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState("");
   const [plan, setPlan] = useState(null);   // follow-up plan modal state (hook must be before any early return)
+  const [focus, setFocus] = useState(false); // full-width focus mode (context panel collapsed)
   // Live-ish: quietly re-sync the thread every 15s while the conversation is open,
   // so new replies show up on their own (the GET auto-syncs the mailbox thread).
   useEffect(() => {
@@ -307,7 +350,9 @@ function ConversationTab({ dealId, contact }) {
     catch (e) { toast(e.message, "bad"); }
     setBusy("");
   };
+  const syncNow = async () => { setBusy("sync"); await reload(); setBusy(""); toast("Synced with the mailbox"); };
   const conv = data?.conversation || {};
+  const lastInbound = [...msgs].reverse().find((m) => m.direction === "in");
   const toggleAutopilot = async () => {
     setBusy("auto");
     try {
@@ -341,35 +386,67 @@ function ConversationTab({ dealId, contact }) {
     setBusy("");
   };
   return (
-    <div style={{ display: "grid", gap: 14 }}>
-      {!connected && (
-        <div className="card" style={{ padding: 16, display: "flex", alignItems: "center", gap: 12, background: "#FFFAEB", borderColor: "#FEDF89" }}>
-          <Mail size={18} style={{ color: "#B54708" }} />
-          <div style={{ flex: 1, fontSize: 13, color: "#B54708" }}>Connect a mailbox to send from your own address, in the same thread.</div>
-          <Link className="btn" to="/settings/email">Connect email</Link>
-        </div>
-      )}
-      {connected && (
-        <div className="card" style={{ padding: 14, display: "flex", alignItems: "center", gap: 12,
-          justifyContent: "space-between", background: conv.autopilot ? "#f0f7ff" : "transparent",
-          borderColor: conv.autopilot ? "#bfdcf6" : undefined }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Sparkles size={18} style={{ color: conv.autopilot ? "var(--primary)" : "var(--muted)" }} />
-            <div style={{ fontSize: 13 }}>
-              <div style={{ fontWeight: 600 }}>Follow-up autopilot {conv.autopilot ? "· ON" : "· off"}</div>
-              <div style={{ color: "var(--muted)", fontSize: 12 }}>
-                {conv.autopilot
-                  ? `Next follow-up ${conv.next_followup_at ? "on " + new Date(conv.next_followup_at).toLocaleDateString() : "when due"} · ${conv.followups_sent}/${conv.max_followups} sent · stops the moment they reply`
-                  : "Write your follow-up sequence, preview and edit each email, set the timing, then turn it on. Stops the moment they reply."}
+    <div className={`conv-workspace ${focus ? "focus" : ""}`}>
+      <main className="conv-main">
+        <div className="conv-toolbar">
+          <div className="ct-who">
+            <Avatar name={contact?.name || contact?.email || "?"} size={32} />
+            <div style={{ minWidth: 0 }}>
+              <div className="ct-name">{contact?.name || contact?.email || "Prospect"}</div>
+              <div className="ct-sub">
+                {contact?.email || "no email on file"}
+                {lastInbound && <> · last reply {timeAgo(lastInbound.sent_at || lastInbound.created_at)}</>}
               </div>
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <Button size="sm" variant="secondary" disabled={!!busy} onClick={openPlan}>{conv.autopilot ? "Edit plan" : "Set up follow-ups"}</Button>
-            {conv.autopilot && <Button size="sm" variant="secondary" loading={busy === "auto"} disabled={!!busy} onClick={toggleAutopilot}>Turn off</Button>}
+          <div className="ct-actions">
+            <span className={`ct-status ${connected ? "ok" : "off"}`}><span className="dot" />{connected ? "Live thread" : "Not connected"}</span>
+            <Button size="sm" variant="ghost" icon={RefreshCw} loading={busy === "sync"} disabled={!!busy} onClick={syncNow}>Sync</Button>
+            {focus && <Button size="sm" variant="secondary" onClick={() => setFocus(false)}>Show details</Button>}
           </div>
         </div>
-      )}
+
+        {!connected && (
+          <div className="conv-banner warn">
+            <Mail size={16} />
+            <span style={{ flex: 1 }}>Connect a mailbox to send from your own address, in the same thread.</span>
+            <Link className="btn sm" to="/settings/email">Connect email</Link>
+          </div>
+        )}
+        {connected && (
+          <div className={`conv-banner followup ${conv.autopilot ? "on" : ""}`}>
+            <Sparkles size={16} style={{ color: conv.autopilot ? "var(--primary)" : "var(--muted)", flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <b style={{ fontSize: 12.5 }}>Follow-up autopilot {conv.autopilot ? "· Active" : "· Off"}</b>
+              <span className="fu-sub">
+                {conv.autopilot
+                  ? ` Next ${conv.next_followup_at ? new Date(conv.next_followup_at).toLocaleDateString() : "when due"} · ${conv.followups_sent}/${conv.max_followups} sent · stops when they reply`
+                  : " Preview and edit each email, set timing, then turn it on. Stops when they reply."}
+              </span>
+            </div>
+            <Button size="sm" variant="secondary" disabled={!!busy} onClick={openPlan}>{conv.autopilot ? "Edit plan" : "Set up follow-ups"}</Button>
+            {conv.autopilot && <Button size="sm" variant="ghost" loading={busy === "auto"} disabled={!!busy} onClick={toggleAutopilot}>Turn off</Button>}
+          </div>
+        )}
+
+        <div className="ib-msgs conv-stream" role="log" aria-label="Conversation messages" aria-live="polite">
+          {msgs.length === 0 && <div className="rc-empty" style={{ padding: 24 }}>No messages yet. Start the conversation below — it stays in one email thread until the deal is won or lost.</div>}
+          {msgs.map((m) => <MessageBubble key={m.id} m={m} contact={contact} />)}
+        </div>
+
+        <div className="ib-compose conv-composer">
+          <textarea value={draft} onChange={(e) => setDraft(e.target.value)} aria-label="Reply message"
+            placeholder={connected ? "Reply in the same thread…" : "Connect a mailbox to send…"} />
+          <div className="row">
+            <Button icon={Send} loading={busy === "send"} disabled={!connected || !!busy} onClick={send}>Send in thread</Button>
+            <Button variant="secondary" icon={Sparkles} loading={busy === "draft"} disabled={!!busy} onClick={aiDraft}>AI draft</Button>
+            <span style={{ flex: 1 }} />
+            <Button variant="ghost" icon={RefreshCw} loading={busy === "sync"} disabled={!!busy} onClick={syncNow}>Sync replies</Button>
+          </div>
+        </div>
+      </main>
+
+      {!focus && <LeadContextPanel deal={deal} conv={conv} contact={contact} setTab={setTab} onCollapse={() => setFocus(true)} />}
 
       {plan && (
         <Modal title="Follow-up sequence" onClose={() => setPlan(null)}>
@@ -413,22 +490,59 @@ function ConversationTab({ dealId, contact }) {
           </div>
         </Modal>
       )}
-      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-        <div className="ib-msgs" style={{ maxHeight: "48vh" }}>
-          {msgs.length === 0 && <div className="rc-empty" style={{ padding: 24 }}>No messages yet. Start the conversation below — it stays in one email thread until the deal is won or lost.</div>}
-          {msgs.map((m) => <MessageBubble key={m.id} m={m} contact={contact} />)}
-        </div>
-        <div className="ib-compose">
-          <textarea value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={connected ? "Reply in the same thread…" : "Connect a mailbox to send…"} />
-          <div className="row">
-            <Button icon={Send} loading={busy === "send"} disabled={!connected || !!busy} onClick={send}>Send in thread</Button>
-            <Button variant="secondary" icon={Sparkles} loading={busy === "draft"} disabled={!!busy} onClick={aiDraft}>AI draft</Button>
-            <span style={{ flex: 1 }} />
-            <Button variant="ghost" icon={RefreshCw} loading={busy === "sync"} disabled={!!busy}
-              onClick={async () => { setBusy("sync"); await reload(); setBusy(""); toast("Synced with the mailbox"); }}>Sync replies</Button>
-          </div>
+    </div>
+  );
+}
+
+// Persistent right-side lead context. Collapses to full-width focus mode.
+function LeadContextPanel({ deal, conv, contact, setTab, onCollapse }) {
+  const co = deal?.company;
+  const Row = ({ k, v }) => (v ? (
+    <div className="lcp-row"><span className="lcp-k">{k}</span><span className="lcp-v">{v}</span></div>
+  ) : null);
+  const related = [
+    ["tasks", "Tasks"], ["files", "Files"], ["blueprint", "Blueprint"],
+    ["agreement", "Agreement"], ["invoice", "Invoice"],
+  ];
+  return (
+    <aside className="conv-context" aria-label="Lead context">
+      <div className="lcp-head">
+        <b>Lead context</b>
+        <button className="iconbtn" aria-label="Collapse panel (focus mode)" title="Focus mode" onClick={onCollapse}><PanelRightClose size={16} /></button>
+      </div>
+      <div className="lcp-sec">
+        <div className="lcp-title">Contact</div>
+        <Row k="Name" v={contact?.name} />
+        <Row k="Email" v={contact?.email} />
+        <Row k="Role" v={contact?.title} />
+        <Row k="Phone" v={contact?.phone} />
+      </div>
+      <div className="lcp-sec">
+        <div className="lcp-title">Company</div>
+        {co ? <Row k="Name" v={<Link to={`/companies/${co.id}`}>{co.name}</Link>} /> : <div className="lcp-empty">Not linked</div>}
+        <Row k="Website" v={co?.website} />
+        <Row k="Industry" v={co?.industry} />
+      </div>
+      <div className="lcp-sec">
+        <div className="lcp-title">Deal</div>
+        <Row k="Stage" v={deal?.stage?.name} />
+        <Row k="Value" v={money(deal?.value)} />
+        <Row k="Intent" v={deal?.lead_intent} />
+        <Row k="Close date" v={deal?.close_date} />
+      </div>
+      <div className="lcp-sec">
+        <div className="lcp-title">Activity</div>
+        <Row k="Next follow-up" v={conv?.next_followup_at ? new Date(conv.next_followup_at).toLocaleDateString() : "None"} />
+        <Row k="Autopilot" v={conv?.autopilot ? "Active" : "Off"} />
+      </div>
+      <div className="lcp-sec">
+        <div className="lcp-title">Related items</div>
+        <div className="lcp-related">
+          {related.map(([key, label]) => (
+            <button key={key} className="lcp-link" onClick={() => setTab(key)}>{label} →</button>
+          ))}
         </div>
       </div>
-    </div>
+    </aside>
   );
 }
