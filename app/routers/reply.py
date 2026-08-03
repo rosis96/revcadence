@@ -868,16 +868,24 @@ def test_thread(body: TestThreadIn, ctx: AuthContext = Depends(require_master)):
     # Same engine path production uses (generate_reply), so the drafted reply,
     # follow-ups, intent and decision here match what the live pipeline produces.
     # Scheduling context is omitted (no real slot reservation in a dry run).
-    gen = E.generate_reply(w, thread, prospect={"first_name": ""},
-                           client_brain=E.load_client_brain(ctx.db, w.workspace_id))
+    brain = E.load_client_brain(ctx.db, w.workspace_id)
+    gen = E.generate_reply(w, thread, prospect={"first_name": ""}, client_brain=brain)
     reply = E.add_signature(gen["main_reply"], w.sender_name, w.website) if gen["main_reply"] else ""
+    # Match production: if the combined call skipped the follow-ups, generate them
+    # explicitly so Test Thread shows exactly what the pipeline would push.
+    followups = gen["followups"]
+    fup_err = ""
+    if not followups and (w.reply_format or {}).get("followups") and gen["action"] != "stop":
+        fg = E.generate_followups(w, thread, prospect={"first_name": ""}, client_brain=brain)
+        followups = fg["followups"]
+        fup_err = fg.get("error", "")
     return {
         "intent": gen["intent"], "confidence": gen["confidence"],
         "decision": gen["action"], "would_auto_send": gen["action"] == "send" and E.auto_send_enabled(),
         "model_ran": gen["model_ran"],
-        "error": gen.get("error", ""),   # surface the real reason when the model didn't run
+        "error": gen.get("error", "") or fup_err,   # surface the real reason when nothing ran
         "reply": reply,
-        "followups": gen["followups"],
+        "followups": followups,
     }
 
 

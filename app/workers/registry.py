@@ -405,31 +405,38 @@ def process_reply_job(db, job):
     except Exception:
         sched = ""
 
-    # generate + decide — via the ONE shared path the Test Thread screen also uses,
-    # so a paste-in test always matches what production produces here.
     first = E.first_name_of(lead.name)
-    gen = E.generate_reply(rws, thread, scheduling_context=sched,
-                           prospect={"first_name": first, "company": lead.company},
-                           client_brain=E.load_client_brain(db, rws.workspace_id if rws else None))
-    lead.intent = gen["intent"]
-    lead.confidence = gen["confidence"]
-    lead.main_reply = gen["main_reply"]
-    lead.followups = gen["followups"]
-    lead.reply_added = bool(lead.main_reply) and gen["model_ran"]
-    action = gen["action"]
-
-    # FOLLOW-UP-ONLY mode: for leads that missed their follow-ups. We never send a
-    # reply here — we only write the follow-up emails onto the lead's variables so
-    # the platform's follow-up steps ({{followup_1}}…) send them. Triggered by the
-    # webhook flow OR the reply-space mode being "followup".
+    brain = E.load_client_brain(db, rws.workspace_id if rws else None)
+    prospect = {"first_name": first, "company": lead.company}
     is_followup = (flow == "followup") or (getattr(rws, "mode", "reply") == "followup")
+
     if is_followup:
+        # FOLLOW-UP-ONLY mode: leads that missed their follow-ups. No reply to
+        # classify — generate the follow-up SEQUENCE straight from the templates,
+        # write it onto the lead's variables ({{followup_1}}…), never send a reply.
+        fg = E.generate_followups(rws, thread, prospect=prospect, client_brain=brain)
+        lead.intent = "followup"
+        lead.main_reply = ""
+        lead.followups = fg["followups"]
+        lead.reply_added = False
         action = "followups_only"
         lead.action = action
-    elif action == "send" and not E.auto_send_enabled():
-        action = "would_send"   # kill-switch: review instead of sending
-        lead.action = action
     else:
+        # generate + decide — via the ONE shared path the Test Thread screen also uses.
+        gen = E.generate_reply(rws, thread, scheduling_context=sched, prospect=prospect, client_brain=brain)
+        lead.intent = gen["intent"]
+        lead.confidence = gen["confidence"]
+        lead.main_reply = gen["main_reply"]
+        lead.followups = gen["followups"]
+        lead.reply_added = bool(lead.main_reply) and gen["model_ran"]
+        action = gen["action"]
+        # If the combined call produced a reply but skipped the follow-ups, generate
+        # them explicitly so the sequence is always written onto the lead.
+        if not lead.followups and (rws.reply_format or {}).get("followups") and action != "stop":
+            fg = E.generate_followups(rws, thread, prospect=prospect, client_brain=brain)
+            lead.followups = fg["followups"]
+        if action == "send" and not E.auto_send_enabled():
+            action = "would_send"   # kill-switch: review instead of sending
         lead.action = action
 
     sent = False

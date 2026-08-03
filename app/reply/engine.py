@@ -502,6 +502,51 @@ def generate_reply(rws, thread: list, scheduling_context: str = "", prospect: di
     }
 
 
+def generate_followups(rws, thread: list, prospect: dict = None, client_brain: dict = None) -> dict:
+    """Generate ONLY the follow-up sequence, straight from the FOLLOW-UP SPECS —
+    independent of any inbound reply. Used by follow-up-only mode (leads that
+    missed their FUPs, where there is no reply to classify) and as a fallback in
+    reply mode when the combined call skipped the follow-ups. Guarantees one
+    follow-up per spec whenever templates exist. Returns {followups[], model_ran, error}."""
+    fmt = rws.reply_format or {}
+    fups = fmt.get("followups", []) or []
+    prospect = prospect or {}
+    first = (prospect.get("first_name") or "").strip()
+    if not fups:
+        return {"followups": [], "model_ran": True, "error": "no follow-up templates configured on this reply space"}
+    n = len(fups)
+    booking = (getattr(rws, "calendly_scheduling_url", "") or "").strip()
+    greet = f"'{first}'" if first else "the prospect's first name"
+    system = "\n".join(filter(None, [
+        f"You write a sequence of {n} follow-up emails to a cold-outreach prospect who has gone quiet "
+        f"(they have not replied yet). Write EXACTLY {n}: one for EACH item in FOLLOW-UP SPECS, in order.",
+        "Each follow-up uses that spec's template + intent and stays within its max_words. Each must add "
+        "NEW value and, when proposing times, VARY them (never the same time every email). Never repeat "
+        "another follow-up. This is not a reply — do not answer a question; you are nudging.",
+        f"FORMATTING: open with a greeting addressed to {greet}, then a blank line, then short paragraphs "
+        "with blank lines between them. Use real line breaks (\\n). Do NOT output '{{firstName}}' literally. "
+        "NEVER add a sign-off or signature — the system appends one.",
+        (f"BOOKING LINK: {booking}" if booking else ""),
+        f"Return STRICT JSON with EXACTLY these keys (all non-empty): followup_1 … followup_{n}.",
+        "CLIENT PROFILE:\n" + json.dumps({**(client_brain or {}), **(rws.client_profile or {})}),
+        "FOLLOW-UP SPECS (write one per item, in order):\n" + json.dumps(fups),
+        (f"PROSPECT: first name = {first}" + (f", company = {prospect.get('company')}" if prospect.get("company") else "")) if first else "",
+        ("MANDATORY OPERATOR RULES (obey every line):\n" + rws.ai_rules) if (rws.ai_rules or "").strip() else "",
+    ]))
+    convo = "\n\n".join(f"[{m.get('direction', '?').upper()}] {m.get('text', '')}"
+                        for m in (thread or []) if (m.get("text") or "").strip())
+    prompt = ("CONVERSATION SO FAR (may be outbound-only — that is expected for a quiet lead):\n"
+              + (convo or "(no messages captured yet)")
+              + f"\n\nWrite all {n} follow-ups now, one per FOLLOW-UP SPEC, in order.")
+    ai = call_llm(prompt, system, build_ai_cfg(rws))
+
+    def _clean(t):
+        return normalize_reply(enforce_style_rules(fill_name(str(t or ""), first), rws.ai_rules))
+
+    outs = [_clean(ai.get(f"followup_{i}")) for i in range(1, n + 1) if ai.get(f"followup_{i}")]
+    return {"followups": outs, "model_ran": not ai.get("_fallback"), "error": str(ai.get("_error", ""))}
+
+
 # ---------------------------------------------------------------- platform sends (legacy fixes)
 def lookup_instantly_reply_target(api_key: str, lead_email: str, campaign_id: str = "", diag: dict = None) -> dict:
     """Recover {reply_to_uuid, eaccount} from Instantly when the webhook didn't
