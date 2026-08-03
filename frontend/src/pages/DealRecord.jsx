@@ -96,7 +96,7 @@ function OverviewTab({ dealId, deal, nav, setTab }) {
   if (loading || !b) return <Spinner />;
   const recent = (deal.timeline || []).slice(0, 6);
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1.4fr .9fr", gap: 14, alignItems: "start" }}>
+    <div className="deal-grid">
       <div style={{ display: "grid", gap: 14 }}>
         {/* AI briefing */}
         <div className="card" style={{ padding: 18, background: "var(--primary-soft)", borderColor: "#D6E7FD" }}>
@@ -115,7 +115,7 @@ function OverviewTab({ dealId, deal, nav, setTab }) {
 
         {/* the facts grid */}
         <div className="card" style={{ padding: 18 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+          <div className="fact-grid">
             <Fact k="Stage" v={b.stage} />
             <Fact k="Deal value" v={money(deal.value)} />
             <Fact k="Expected close" v={deal.close_date || "—"} />
@@ -130,7 +130,7 @@ function OverviewTab({ dealId, deal, nav, setTab }) {
 
         {/* revenue documents status */}
         <div className="card" style={{ padding: 18 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+          <div className="fact-grid">
             <Fact k="Proposal / Blueprint" v={b.blueprint ? (b.blueprint_viewed ? "Viewed" : "Sent") : "None"} />
             <Fact k="Agreement" v={b.agreement_status || "None"} />
             <Fact k="Invoice" v={b.invoice_status || "None"} />
