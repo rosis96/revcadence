@@ -727,7 +727,11 @@ def reply_lead_draft(lead_id: int, ctx: AuthContext = Depends(get_ctx)):
                            prospect={"first_name": E.first_name_of(l.name), "company": l.company},
                            client_brain=E.load_client_brain(ctx.db, l.workspace_id))
     if not (gen.get("main_reply") or "").strip():
-        raise HTTPException(502, "The AI couldn't draft a reply just now. Check this reply-space's AI key and model in Reply Settings, then try again.")
+        why = (gen.get("error") or "").strip()
+        msg = "The AI couldn't draft a reply. "
+        msg += f"Reason: {why}. " if why else ""
+        msg += "Check this reply-space's AI key and model in Reply Settings, then try again."
+        raise HTTPException(502, msg)
     l.main_reply = gen["main_reply"]
     l.intent = gen.get("intent") or l.intent
     l.confidence = gen.get("confidence") or l.confidence
@@ -866,6 +870,7 @@ def test_thread(body: TestThreadIn, ctx: AuthContext = Depends(require_master)):
         "intent": gen["intent"], "confidence": gen["confidence"],
         "decision": gen["action"], "would_auto_send": gen["action"] == "send" and E.auto_send_enabled(),
         "model_ran": gen["model_ran"],
+        "error": gen.get("error", ""),   # surface the real reason when the model didn't run
         "reply": reply,
         "followups": gen["followups"],
     }

@@ -256,7 +256,8 @@ def _openai(prompt: str, system: str, api_key: str, model: str) -> dict:
                       headers={"Authorization": f"Bearer {api_key}"},
                       json=payload,
                       timeout=90)
-    r.raise_for_status()
+    if r.status_code != 200:   # surface the real reason (bad key, model, quota) instead of a silent fallback
+        raise RuntimeError(f"OpenAI {r.status_code} ({selected}): {r.text[:200]}")
     return _parse_llm_json(r.json()["choices"][0]["message"]["content"])
 
 
@@ -268,7 +269,8 @@ def _gemini(prompt: str, system: str, api_key: str, model: str) -> dict:
               "contents": [{"parts": [{"text": prompt}]}],
               "generationConfig": {"temperature": 0.6, "responseMimeType": "application/json"}},
         timeout=90)
-    r.raise_for_status()
+    if r.status_code != 200:
+        raise RuntimeError(f"Gemini {r.status_code} ({model.lower()}): {r.text[:200]}")
     return _parse_llm_json(r.json()["candidates"][0]["content"]["parts"][0]["text"])
 
 
@@ -279,7 +281,7 @@ def build_ai_cfg(rws) -> dict:
         "fallback": bool(rws.ai_fallback),
         "openai_key": decrypt(rws.openai_key_enc) or os.getenv("OPENAI_API_KEY", ""),
         "gemini_key": decrypt(rws.gemini_key_enc) or os.getenv("GEMINI_API_KEY", ""),
-        "openai_model": os.getenv("REPLY_OPENAI_MODEL", "gpt-5-mini"),
+        "openai_model": os.getenv("REPLY_OPENAI_MODEL", "gpt-4.1"),   # known-good default (gpt-5-mini needs verified account access)
         "gemini_model": os.getenv("REPLY_GEMINI_MODEL", "gemini-2.5-pro"),
     }
 
@@ -288,9 +290,11 @@ def call_llm(prompt: str, system: str, cfg: dict) -> dict:
     order = ["openai", "gemini"] if cfg["provider"] == "openai" else ["gemini", "openai"]
     if not cfg["fallback"]:
         order = order[:1]
+    errors = []
     for provider in order:
         key = cfg[f"{provider}_key"]
         if not key:
+            errors.append(f"{provider}: no API key set")
             continue
         for _ in range(2):  # retry once per provider
             try:
@@ -298,9 +302,13 @@ def call_llm(prompt: str, system: str, cfg: dict) -> dict:
                     prompt, system, key, cfg[f"{provider}_model"])
                 if out and not out.get("_fallback"):
                     return out
-            except Exception:
+                errors.append(f"{provider}: model returned no usable JSON")
+            except Exception as e:  # noqa: BLE001
+                errors.append(str(e)[:180])
                 continue
-    return dict(_FALLBACK)  # detectable sentinel — never silently sent
+    fb = dict(_FALLBACK)  # detectable sentinel — never silently sent
+    fb["_error"] = " | ".join(errors[-3:]) or "no AI provider configured"
+    return fb
 
 
 # ---------------------------------------------------------------- intent classification
@@ -463,6 +471,7 @@ def generate_reply(rws, thread: list, scheduling_context: str = "", prospect: di
         "main_reply": main,
         "followups": followups,
         "model_ran": not ai.get("_fallback"),
+        "error": str(ai.get("_error", "")),   # why the model didn't run (bad key/model/quota), if it fell back
     }
 
 

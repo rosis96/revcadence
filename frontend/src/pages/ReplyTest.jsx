@@ -53,6 +53,11 @@ export default function ReplyTest() {
               {result.would_auto_send ? <Badge tone="green">would auto-send</Badge> : <Badge tone="amber">would go to review</Badge>}
               {!result.model_ran && <Badge tone="red">⚠ model didn't run (fallback)</Badge>}
             </div>
+            {!result.model_ran && result.error && (
+              <div className="error-box" style={{ fontSize: 12.5, marginBottom: 12 }}>
+                <b>Why the model didn't run:</b> {result.error}
+              </div>
+            )}
             <h3 style={{ fontSize: 13, marginBottom: 6 }}>Drafted reply</h3>
             <div className="card" style={{ padding: 12, whiteSpace: "pre-wrap", fontSize: 13, background: "#fafbfc" }}>{result.reply || "—"}</div>
             {result.followups?.length > 0 && (
