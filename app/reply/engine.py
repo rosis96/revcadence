@@ -387,9 +387,13 @@ def build_reply_prompt(rws, thread: list, scheduling_context: str = "", prospect
         "You are an expert B2B email responder writing ONE reply on behalf of the client below. "
         "Work in strict order:",
 
-        "STEP 1 — CLASSIFY. Read the prospect's LATEST inbound message and match it to exactly ONE of "
-        "the RESPONSE TYPES using their intent + examples. Put that type's id in \"intent\". If nothing "
-        "clearly matches, set human_review_needed=true and confidence \"low\" (do not force a type).",
+        "STEP 1 — CLASSIFY. Read the prospect's LATEST inbound message and pick the SINGLE BEST-FIT "
+        "response type from the TYPE MENU below (match on intent + examples). Put that id in \"intent\" "
+        "and ALWAYS draft that reply. Choose the closest fit even if it isn't perfect. Set "
+        "human_review_needed=true ONLY when the message is negative, a complaint, hostile, an opt-out / "
+        "legal / compliance matter, clearly off-topic, or you genuinely cannot write a safe on-brand "
+        "reply — NOT merely because it isn't an exact match. Any interested or positive reply MUST be "
+        "matched to a positive type and answered, never sent to review.",
 
         "STEP 2 — READ THE STAGE & URGENCY. Judge where the conversation is going and how ready the "
         "prospect is, and reply to THAT — not with a generic pitch:",
@@ -401,9 +405,10 @@ def build_reply_prompt(rws, thread: list, scheduling_context: str = "", prospect
         "  • Only give a fuller explanation of the offer when they are genuinely early/curious and asked "
         "for it.",
 
-        "STEP 3 — FOLLOW THE FORMAT. If the matched response type has a template, keep its structure and "
-        "only fill the placeholders — do not add extra pitch paragraphs. MATCH YOUR LENGTH TO THEIRS: "
-        "never answer a short, ready-to-book message with a multi-paragraph pitch.",
+        "STEP 3 — FOLLOW THE MATCHED FORMAT ONLY. Use ONLY the chosen type's template and rules; ignore "
+        "every other type's rules entirely (they do not apply). Keep the template's structure and just "
+        "fill the placeholders — do not blend types or add extra pitch paragraphs. MATCH YOUR LENGTH TO "
+        "THEIRS: never answer a short, ready-to-book message with a multi-paragraph pitch.",
 
         "SCHEDULING RULE (critical): Propose ONLY specific dates/times that appear verbatim in SCHEDULING "
         "CONTEXT below. If there is NO scheduling context, DO NOT invent any times — instead invite them "
@@ -426,7 +431,12 @@ def build_reply_prompt(rws, thread: list, scheduling_context: str = "", prospect
         "industry and reference a case_study/proof_point ONLY if it genuinely fits — never fabricate.",
         # unified Client Brain (case studies, per-industry problems) + reply-specific config on top
         "CLIENT PROFILE:\n" + json.dumps({**(client_brain or {}), **(rws.client_profile or {})}),
-        "RESPONSE TYPES (classify into exactly one; obey its rules/template/auto_send):\n"
+        # A clean one-line menu for STEP 1 so classification is crisp, then the full
+        # specs below for STEP 3 (the model applies ONLY the type it picked).
+        "RESPONSE TYPE MENU — pick exactly one id (match on intent + examples):\n"
+        + "\n".join(f"- {t.get('id')}: {str(t.get('intent', '')).strip()[:160]}"
+                    for t in fmt.get("response_types", [])),
+        "FULL SPECS per type (apply ONLY your chosen id's template + rules; ignore the other types):\n"
         + json.dumps(fmt.get("response_types", [])),
         "FOLLOW-UP SPECS:\n" + json.dumps(fmt.get("followups", [])),
         (f"BOOKING LINK: {booking}" if booking else ""),
