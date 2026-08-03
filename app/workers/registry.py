@@ -259,12 +259,14 @@ def process_reply_job(db, job):
     """The engine run for one inbound webhook. Guards, generation, decision —
     auto-send only when AUTO_SEND_ENABLED=1; otherwise action='would_send'
     lands in Needs Review. Never breaks on unrouted leads."""
+    import hashlib
     import json as _json
     from datetime import datetime
 
     from ..models.reply import ReplyLead, ReplyWorkspace
     from ..reply import engine as E
     from ..crypto import decrypt
+    from ..reply.sync import _deep_get
 
     p = job.payload or {}
     payload, platform, flow = p.get("webhook") or {}, p.get("platform"), p.get("flow", "reply")
@@ -276,11 +278,27 @@ def process_reply_job(db, job):
     email = str(lead_obj.get("email") or lead_obj.get("lead_email") or "").lower().strip()
     external_id = str(E.deep_find_lead_id(payload) or email or "")
     reply_id = str(data.get("reply_id") or (data.get("reply") or {}).get("id") or "")
+    # Fingerprint the actual REPLY EVENT, not just the lead. When the platform gives us
+    # a real reply_id we use it. Otherwise we hash the reply's content + timestamp so a
+    # genuinely new reply from the SAME lead is treated as new — previously the key
+    # collapsed to platform:lead:email, so every reply after the first was silently
+    # dropped as a "duplicate". A byte-identical webhook retry still hashes the same,
+    # so true duplicates are still caught.
+    if not reply_id:
+        subj = str(data.get("subject") or data.get("reply_subject") or "")
+        text = str(data.get("reply_text") or data.get("reply_text_new") or data.get("reply_html")
+                   or data.get("reply_body")
+                   or _deep_get(payload, {"reply_text", "reply_html", "reply_body", "reply_text_new"}) or "")
+        ts = str(data.get("timestamp") or data.get("event_timestamp") or data.get("timestamp_created")
+                 or _deep_get(payload, {"timestamp", "timestamp_email", "timestamp_created", "event_timestamp"}) or "")
+        fp_src = f"{subj}\x1f{text}\x1f{ts}".strip("\x1f")
+        if not fp_src:                       # nothing distinguishing → hash the whole payload
+            fp_src = _json.dumps(payload, sort_keys=True, default=str)
+        reply_id = "h" + hashlib.sha1(fp_src.encode("utf-8", "ignore")).hexdigest()[:16]
     dedupe = f"{platform}:{external_id}:{reply_id or email}"
     if db.query(ReplyLead).filter(ReplyLead.dedupe_key == dedupe).first():
         return {"skipped": "duplicate reply"}
 
-    from ..reply.sync import _deep_get
     # Name can arrive as first_name, firstName (camelCase), name, or nested — dig
     # for it so greetings personalize reliably (the AI shouldn't have to guess).
     lead_name = (str(lead_obj.get("first_name") or lead_obj.get("firstName") or lead_obj.get("name") or "").strip()
