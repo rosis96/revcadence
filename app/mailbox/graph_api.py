@@ -87,6 +87,31 @@ def graph_send(email: str, msg) -> str:
     return ""
 
 
+def graph_thread(email: str, conversation_id: str) -> list[dict]:
+    """Every message in an Outlook conversation, oldest first."""
+    from . import transport
+    out = []
+    if not conversation_id:
+        return out
+    try:
+        token = _token()
+        hdr = {"Authorization": f"Bearer {token}"}
+        cid = conversation_id.replace("'", "''")
+        r = requests.get(f"{_GRAPH}/users/{email}/messages", headers=hdr,
+                         params={"$filter": f"conversationId eq '{cid}'", "$select": "id,receivedDateTime",
+                                 "$orderby": "receivedDateTime asc", "$top": 50}, timeout=20)
+        if r.status_code != 200:
+            return out
+        for m in (r.json().get("value") or []):
+            g = requests.get(f"{_GRAPH}/users/{email}/messages/{m['id']}/$value", headers=hdr, timeout=20)
+            if g.status_code != 200 or not g.content:
+                continue
+            out.append(transport.parse_message(g.content))
+    except Exception:  # noqa: BLE001
+        return out
+    return out
+
+
 def graph_folders(email: str) -> list[dict]:
     """Mail folders for this mailbox (the Microsoft analog of Gmail labels)."""
     try:

@@ -257,6 +257,36 @@ def fetch_recent(mailbox, days: int = 30, limit: int = 100, query: str = "", fol
                                       secret, days=days, limit=limit, folder=folder or "INBOX")
 
 
+def fetch_thread(mailbox, thread_id: str) -> list[dict]:
+    """All messages of one thread (oldest first) for full-context import."""
+    if not thread_id:
+        return []
+    if mailbox.provider == "google_workspace":
+        from . import gmail_api
+        return gmail_api.gmail_thread(mailbox.email, thread_id)
+    if mailbox.provider == "microsoft_graph":
+        from . import graph_api
+        return graph_api.graph_thread(mailbox.email, thread_id)
+    return []
+
+
+def thread_messages(mailbox, parsed_msgs: list) -> list[dict]:
+    """Shape parsed messages into the stored thread format (who/when/direction/text)."""
+    me = (mailbox.email or "").lower()
+    out = []
+    for m in parsed_msgs:
+        frm = (m.get("from_email") or "").lower()
+        out.append({
+            "from_email": frm,
+            "direction": "out" if frm == me else "in",
+            "at": int(m.get("internal_ts") or 0),
+            "text": (m.get("body_text") or "").strip()[:20000],
+            "subject": m.get("subject", ""),
+            "rfc_message_id": m.get("rfc_message_id", ""),
+        })
+    return out
+
+
 def mailbox_labels(mailbox) -> list[dict]:
     """Labels (Gmail) / folders (Graph) to offer 'import a whole label'."""
     if mailbox.provider == "google_workspace":
@@ -416,12 +446,24 @@ def attach_item_to_deal(db, item, deal, user_id=None):
             subj = subj[3:].strip(": ").strip() if low.startswith("re:") else subj[4:].strip(": ").strip()
             low = subj.lower()
         conv.subject = subj or conv.subject
-    cm = ConversationMessage(
-        conversation_id=conv.id, workspace_id=conv.workspace_id, deal_id=conv.deal_id,
-        direction="in", from_email=item.from_email, to_email=conv.prospect_email or "",
-        subject=item.subject or "", body_text=item.body_text or "", rfc_message_id=item.rfc_message_id,
-        in_reply_to=item.in_reply_to, references=item.references, status="received")
-    db.add(cm)
+    # Seed the FULL thread history (every message), so the deal conversation reads
+    # like the Gmail thread — not just the latest reply.
+    thread = list(item.messages or [])
+    if thread:
+        for tm in thread:
+            db.add(ConversationMessage(
+                conversation_id=conv.id, workspace_id=conv.workspace_id, deal_id=conv.deal_id,
+                direction="out" if tm.get("direction") == "out" else "in",
+                from_email=tm.get("from_email", ""), to_email=conv.prospect_email or "",
+                subject=tm.get("subject", "") or item.subject or "", body_text=tm.get("text", ""),
+                rfc_message_id=tm.get("rfc_message_id", ""),
+                status="sent" if tm.get("direction") == "out" else "received"))
+    else:
+        db.add(ConversationMessage(
+            conversation_id=conv.id, workspace_id=conv.workspace_id, deal_id=conv.deal_id,
+            direction="in", from_email=item.from_email, to_email=conv.prospect_email or "",
+            subject=item.subject or "", body_text=item.body_text or "", rfc_message_id=item.rfc_message_id,
+            in_reply_to=item.in_reply_to, references=item.references, status="received"))
     conv.last_inbound_at = datetime.utcnow()
     conv.state = "active"
     item.status = "attached"

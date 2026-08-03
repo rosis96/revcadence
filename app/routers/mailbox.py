@@ -338,6 +338,7 @@ class ThreadImportIn(BaseModel):
 def import_threads(body: ThreadImportIn, ctx: AuthContext = Depends(get_ctx)):
     """Surface the selected threads in the Revenue Inbox to attach to deals."""
     ctx.require_workspace(body.workspace_id)
+    mailbox = service.workspace_mailbox(ctx.db, body.workspace_id)
     n = 0
     for m in body.items:
         mid = m.get("rfc_message_id", "")
@@ -350,9 +351,14 @@ def import_threads(body: ThreadImportIn, ctx: AuthContext = Depends(get_ctx)):
             continue
         parts = m.get("participants") or [m.get("from_email", "")]
         contact = service.find_known_contact(ctx.db, body.workspace_id, parts, exclude="")
+        # Pull the WHOLE thread (all messages) for full context.
+        messages = []
+        if mailbox and tid:
+            messages = service.thread_messages(mailbox, service.fetch_thread(mailbox, tid))
+        body_text = (messages[-1]["text"] if messages else (m.get("preview", "") or m.get("body_text", "") or ""))[:8000]
         ctx.db.add(RevenueInboxItem(
             workspace_id=body.workspace_id, from_email=m.get("from_email", ""),
-            subject=m.get("subject", ""), body_text=(m.get("preview", "") or m.get("body_text", "") or "")[:8000],
+            subject=m.get("subject", ""), body_text=body_text, messages=messages,
             participants=parts, rfc_message_id=mid, thread_id=tid, in_reply_to=m.get("in_reply_to", ""),
             references=m.get("references", ""),
             matched_contact_id=contact.id if contact else None,
@@ -375,14 +381,17 @@ def mailbox_sync(workspace_id: int, ctx: AuthContext = Depends(get_ctx)):
 
 
 @router.get("/revenue-inbox")
-def revenue_inbox(workspace_id: int | None = None, status: str = "pending",
+def revenue_inbox(workspace_id: int | None = None, status: str = "",
                   ctx: AuthContext = Depends(get_ctx)):
-    """Threads where our mailbox was a participant WITH a known Contact, not yet
-    attached to a deal. The user attaches each to a deal with one click."""
+    """Imported/surfaced email threads, Gmail-style: each item carries its full
+    message history. Pending ones can be attached to a deal; attached ones link to
+    their deal. Dismissed ones are hidden."""
     ws_ids = ctx.workspace_ids_for_query(workspace_id)
     q = ctx.db.query(RevenueInboxItem).filter(RevenueInboxItem.workspace_id.in_(ws_ids))
     if status:
         q = q.filter(RevenueInboxItem.status == status)
+    else:
+        q = q.filter(RevenueInboxItem.status != "dismissed")
     rows = q.order_by(RevenueInboxItem.id.desc()).limit(100).all()
     out = []
     for r in rows:
@@ -393,13 +402,19 @@ def revenue_inbox(workspace_id: int | None = None, status: str = "pending",
             deals = [{"id": d.id, "name": d.name} for d in
                      ctx.db.query(Deal).filter(Deal.workspace_id == r.workspace_id,
                                                Deal.contact_id == contact.id).all()]
+        attached_deal = None
+        if r.deal_id:
+            d = ctx.db.get(Deal, r.deal_id)
+            if d:
+                attached_deal = {"id": d.id, "name": d.name}
         out.append({"id": r.id, "from_email": r.from_email, "subject": r.subject,
                     "preview": (r.body_text or "")[:180], "participants": r.participants or [],
-                    "status": r.status, "created_at": r.created_at.isoformat() if r.created_at else None,
+                    "messages": r.messages or [], "status": r.status,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
                     "contact": {"id": contact.id, "name": f"{contact.first_name} {contact.last_name}".strip(),
                                 "email": contact.email} if contact else None,
                     "company": {"id": company.id, "name": company.name} if company else None,
-                    "deals": deals})
+                    "attached_deal": attached_deal, "deals": deals})
     return out
 
 

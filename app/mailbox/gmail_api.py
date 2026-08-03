@@ -100,6 +100,31 @@ def gmail_send(email: str, msg, thread_id: str = "") -> str:
     return (r.json() or {}).get("threadId", "")
 
 
+def gmail_thread(email: str, thread_id: str) -> list[dict]:
+    """Every message in a Gmail thread, oldest first — for full-context import."""
+    from . import transport
+    out = []
+    if not thread_id:
+        return out
+    try:
+        token = _token(email)
+        r = requests.get(f"{_BASE}/{email}/threads/{thread_id}",
+                         headers={"Authorization": f"Bearer {token}"}, params={"format": "raw"}, timeout=25)
+        if r.status_code != 200:
+            return out
+        for m in (r.json().get("messages") or []):
+            raw_b64 = m.get("raw", "")
+            if not raw_b64:
+                continue
+            parsed = transport.parse_message(base64.urlsafe_b64decode(raw_b64.encode()))
+            parsed["internal_ts"] = int(m.get("internalDate") or 0)
+            out.append(parsed)
+        out.sort(key=lambda x: x.get("internal_ts", 0))
+    except Exception:  # noqa: BLE001
+        return out
+    return out
+
+
 def gmail_labels(email: str) -> list[dict]:
     """User-visible labels for this mailbox, so the UI can offer 'import a label'."""
     try:

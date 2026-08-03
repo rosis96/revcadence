@@ -3,7 +3,7 @@
 // the right deal with one click — it becomes that deal's Conversation.
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Mail, X, ArrowRight, RefreshCw, Download, Inbox as InboxIcon } from "lucide-react";
+import { Mail, X, ArrowRight, RefreshCw, Download, Inbox as InboxIcon, ChevronDown } from "lucide-react";
 import { api, emailText, timeAgo } from "../api";
 import { useAuth } from "../auth";
 import { Avatar, Badge, Button, Empty, ErrorBox, Modal, PageHeader, Spinner, useApi, useToast } from "../components";
@@ -15,6 +15,7 @@ export default function RevenueInbox() {
   const { data, loading, error, reload } = useApi("/api/revenue-inbox", { workspace_id: wsParam });
   const [busy, setBusy] = useState(0);
   const [pick, setPick] = useState({});   // itemId -> chosen deal_id
+  const [expanded, setExpanded] = useState({});   // itemId -> thread open
   const [syncing, setSyncing] = useState(false);
   const [browse, setBrowse] = useState(null);   // { items, workspace_id } when the import modal is open
   const [browseLoading, setBrowseLoading] = useState(false);
@@ -101,43 +102,71 @@ export default function RevenueInbox() {
       )}
 
       <div style={{ display: "grid", gap: 10 }}>
-        {(data || []).map((it) => (
-          <div key={it.id} className="card" style={{ padding: 16 }}>
-            <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+        {(data || []).map((it) => {
+          const open = !!expanded[it.id];
+          const msgs = it.messages || [];
+          const count = msgs.length;
+          return (
+          <div key={it.id} className="card" style={{ padding: 0, overflow: "hidden" }}>
+            {/* header — click to expand the thread, Gmail-style */}
+            <div onClick={() => setExpanded((e) => ({ ...e, [it.id]: !e[it.id] }))}
+              style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: 16, cursor: "pointer" }}>
               <Avatar name={it.contact?.name || it.from_email} size={34} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <b style={{ fontSize: 14 }}>{it.subject || "(no subject)"}</b>
-                  {it.contact && <Badge tone="green">known: {it.contact.name || it.contact.email}</Badge>}
-                  {it.company && <Badge>{it.company.name}</Badge>}
-                  <span style={{ color: "var(--muted)", fontSize: 12 }}>{timeAgo(it.created_at)}</span>
+                  {count > 1 && <Badge>{count} messages</Badge>}
+                  {it.contact && <Badge tone="green">{it.contact.name || it.contact.email}</Badge>}
+                  {it.attached_deal && <Badge tone="blue">attached</Badge>}
+                  <span style={{ color: "var(--muted)", fontSize: 12, marginLeft: "auto" }}>{timeAgo(it.created_at)}</span>
                 </div>
                 <div style={{ color: "var(--muted)", fontSize: 12.5, margin: "2px 0 6px" }}>
-                  from {it.from_email} · {(it.participants || []).length} on thread</div>
-                <div style={{ fontSize: 13, whiteSpace: "pre-wrap", color: "var(--ink,#12131a)", maxHeight: 96, overflow: "hidden" }}>{emailText(it.preview)}</div>
-
-                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
-                  {it.deals.length > 0 ? (
-                    <>
-                      <select value={pick[it.id] || it.deals[0].id} onChange={(e) => setPick({ ...pick, [it.id]: e.target.value })}
-                        style={{ padding: "7px 10px", borderRadius: 8, fontSize: 13 }}>
-                        {it.deals.map((dd) => <option key={dd.id} value={dd.id}>{dd.name || `Deal #${dd.id}`}</option>)}
-                      </select>
-                      <Button icon={ArrowRight} loading={busy === it.id} onClick={() => attach(it)}>Attach to deal</Button>
-                    </>
-                  ) : (
-                    <>
-                      <span style={{ fontSize: 12.5, color: "var(--muted)" }}>No deal yet —</span>
-                      <Button icon={ArrowRight} loading={busy === it.id} onClick={() => createDeal(it)}>Create deal &amp; follow up</Button>
-                    </>
-                  )}
-                  <span style={{ flex: 1 }} />
-                  <Button variant="ghost" icon={X} disabled={busy === it.id} onClick={() => dismiss(it)}>Dismiss</Button>
-                </div>
+                  with {it.contact?.email || it.from_email} · {(it.participants || []).length} on thread</div>
+                {!open && <div style={{ fontSize: 13, color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{emailText(it.preview)}</div>}
               </div>
+              <ChevronDown size={16} style={{ color: "var(--muted)", flexShrink: 0, marginTop: 4, transform: open ? "" : "rotate(-90deg)", transition: "transform .15s" }} />
+            </div>
+
+            {/* expanded thread: every message, oldest first */}
+            {open && (
+              <div style={{ borderTop: "1px solid var(--border,#e6e9ef)", background: "#fafbfc", padding: "6px 16px 14px" }}>
+                {(count ? msgs : [{ direction: "in", from_email: it.from_email, text: it.preview }]).map((mm, i) => (
+                  <div key={i} style={{ padding: "10px 0", borderBottom: i < count - 1 ? "1px solid #eef0f3" : "none" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--muted)", marginBottom: 3 }}>
+                      <b style={{ color: mm.direction === "out" ? "var(--primary,#2563eb)" : "var(--ink,#12131a)" }}>
+                        {mm.direction === "out" ? "You" : (it.contact?.name || mm.from_email || "Them")}</b>
+                      <span>{mm.at ? new Date(mm.at).toLocaleString() : ""}</span>
+                    </div>
+                    <div style={{ fontSize: 13, whiteSpace: "pre-wrap", color: "var(--ink,#12131a)" }}>{emailText(mm.text)}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* actions */}
+            <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "10px 16px", borderTop: "1px solid var(--border,#e6e9ef)", flexWrap: "wrap" }}>
+              {it.attached_deal ? (
+                <Button icon={ArrowRight} onClick={() => nav(`/deals/${it.attached_deal.id}`)}>Open deal · {it.attached_deal.name}</Button>
+              ) : it.deals.length > 0 ? (
+                <>
+                  <select value={pick[it.id] || it.deals[0].id} onChange={(e) => setPick({ ...pick, [it.id]: e.target.value })}
+                    style={{ padding: "7px 10px", borderRadius: 8, fontSize: 13 }}>
+                    {it.deals.map((dd) => <option key={dd.id} value={dd.id}>{dd.name || `Deal #${dd.id}`}</option>)}
+                  </select>
+                  <Button icon={ArrowRight} loading={busy === it.id} onClick={() => attach(it)}>Attach to deal</Button>
+                </>
+              ) : (
+                <>
+                  <span style={{ fontSize: 12.5, color: "var(--muted)" }}>No deal yet —</span>
+                  <Button icon={ArrowRight} loading={busy === it.id} onClick={() => createDeal(it)}>Create deal &amp; follow up</Button>
+                </>
+              )}
+              <span style={{ flex: 1 }} />
+              <Button variant="ghost" icon={X} disabled={busy === it.id} onClick={() => dismiss(it)}>Dismiss</Button>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {browse && (
