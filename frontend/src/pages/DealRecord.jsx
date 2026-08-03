@@ -261,6 +261,7 @@ function ConversationTab({ dealId, contact }) {
   const { data, loading, error, reload } = useApi(`/api/deals/${dealId}/conversation`);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState("");
+  const [plan, setPlan] = useState(null);   // follow-up plan modal state (hook must be before any early return)
   if (loading) return <Spinner />;
   if (error) return <ErrorBox msg={error} retry={reload} />;
   const msgs = data?.messages || [];
@@ -288,7 +289,6 @@ function ConversationTab({ dealId, contact }) {
     } catch (e) { toast(e.message, "bad"); }
     setBusy("");
   };
-  const [plan, setPlan] = useState(null);   // {guidance, steps, interval, items:[{days,body}]} when the plan modal is open
   const openPlan = async () => {
     try {
       const r = await api(`/api/deals/${dealId}/conversation/followup-plan`);
