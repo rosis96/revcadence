@@ -237,7 +237,8 @@ def record_inbound(db, conv: DealConversation, *, from_email, subject, body_text
     db.add(cm)
     cancelled = cancel_scheduled(db, conv)
     conv.last_inbound_at = datetime.utcnow()
-    conv.next_followup_at = None    # prospect replied → stop autopilot, hand back to human
+    conv.autopilot = False          # prospect replied → the scenario changed: fully stop autopilot
+    conv.next_followup_at = None    # …and drop the scheduled next send, hand back to a human
     conv.state = "active"
     if references or rfc_message_id:
         conv.thread_refs = (f"{conv.thread_refs} {rfc_message_id}").strip()[:4000]
@@ -535,8 +536,16 @@ def sync_conversation_thread(db, conv: DealConversation) -> dict:
             inbound = True
     if inbound:
         conv.last_inbound_at = datetime.utcnow()
-        conv.next_followup_at = None    # they replied → hand back to a human
+        was_auto = conv.autopilot
+        conv.autopilot = False          # they replied → the scenario changed: fully stop autopilot
+        conv.next_followup_at = None    # …and drop the scheduled next send, hand back to a human
         conv.state = "active"
+        cancel_scheduled(db, conv)
+        if was_auto:
+            db.add(Activity(workspace_id=conv.workspace_id, deal_id=conv.deal_id, contact_id=conv.contact_id,
+                            company_id=conv.company_id, kind="email_in",
+                            title="Prospect replied — follow-up autopilot stopped",
+                            data={"conversation_id": conv.id}))
     if new:
         db.commit()
     return {"new": new}
@@ -769,9 +778,13 @@ def run_due_followups(db, now=None) -> dict:
                     db.commit()
                     skipped += 1
                     continue
-            # replied-since guard: if a reply landed after our last send, hand to human
+            # replied-since guard: if a reply landed after our last send, the scenario
+            # changed — fully stop autopilot and hand back to a human.
             if conv.last_inbound_at and conv.last_outbound_at and conv.last_inbound_at >= conv.last_outbound_at:
+                conv.autopilot = False
                 conv.next_followup_at = None
+                cancel_scheduled(db, conv)
+                db.commit()
                 skipped += 1
                 continue
             if (conv.followups_sent or 0) >= (conv.max_followups or 4):
