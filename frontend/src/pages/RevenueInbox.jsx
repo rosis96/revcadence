@@ -4,9 +4,30 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Mail, X, ArrowRight, RefreshCw, Download, Inbox as InboxIcon, ChevronDown } from "lucide-react";
-import { api, emailText, timeAgo } from "../api";
+import { api, emailText, splitQuoted, timeAgo } from "../api";
 import { useAuth } from "../auth";
 import { Avatar, Badge, Button, Empty, ErrorBox, Modal, PageHeader, Spinner, useApi, useToast } from "../components";
+
+function ThreadMsg({ mm, name, last }) {
+  const [open, setOpen] = useState(false);
+  const { main, quoted } = splitQuoted(emailText(mm.text));
+  return (
+    <div style={{ padding: "10px 0", borderBottom: last ? "none" : "1px solid var(--border)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--muted)", marginBottom: 3 }}>
+        <b style={{ color: mm.direction === "out" ? "var(--primary)" : "var(--text)" }}>
+          {mm.direction === "out" ? "You" : (name || mm.from_email || "Them")}</b>
+        <span>{mm.at ? new Date(mm.at).toLocaleString() : ""}</span>
+      </div>
+      <div style={{ fontSize: 13, whiteSpace: "pre-wrap", color: "var(--text)" }}>{main}</div>
+      {quoted && (
+        <div style={{ marginTop: 5 }}>
+          <button className="quote-toggle" onClick={() => setOpen(!open)}>{open ? "Hide quoted text" : "•••  Show quoted text"}</button>
+          {open && <div className="quoted-block">{quoted}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function RevenueInbox() {
   const { wsParam } = useAuth();
@@ -129,16 +150,9 @@ export default function RevenueInbox() {
 
             {/* expanded thread: every message, oldest first */}
             {open && (
-              <div style={{ borderTop: "1px solid var(--border,#e6e9ef)", background: "#fafbfc", padding: "6px 16px 14px" }}>
+              <div style={{ borderTop: "1px solid var(--border)", background: "var(--bg)", padding: "6px 16px 14px" }}>
                 {(count ? msgs : [{ direction: "in", from_email: it.from_email, text: it.preview }]).map((mm, i) => (
-                  <div key={i} style={{ padding: "10px 0", borderBottom: i < count - 1 ? "1px solid #eef0f3" : "none" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--muted)", marginBottom: 3 }}>
-                      <b style={{ color: mm.direction === "out" ? "var(--primary,#2563eb)" : "var(--ink,#12131a)" }}>
-                        {mm.direction === "out" ? "You" : (it.contact?.name || mm.from_email || "Them")}</b>
-                      <span>{mm.at ? new Date(mm.at).toLocaleString() : ""}</span>
-                    </div>
-                    <div style={{ fontSize: 13, whiteSpace: "pre-wrap", color: "var(--ink,#12131a)" }}>{emailText(mm.text)}</div>
-                  </div>
+                  <ThreadMsg key={i} mm={mm} name={it.contact?.name} last={i >= count - 1} />
                 ))}
               </div>
             )}

@@ -107,8 +107,8 @@ export default function ClientProfile() {
               <div className="field" key={f.key} style={{ marginBottom: 12 }}>
                 <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   {f.label}
-                  <span className="badge" style={{ background: f.visibility === "client" ? "#e8f7ee" : "#eef0ff",
-                        color: f.visibility === "client" ? "#1a7f45" : "#635BFF", fontSize: 10.5 }}>
+                  <span className="badge" style={{ background: f.visibility === "client" ? "#e8f7ee" : "var(--primary-soft)",
+                        color: f.visibility === "client" ? "#1a7f45" : "var(--primary)", fontSize: 10.5 }}>
                     {f.visibility === "client" ? "client-visible" : "internal"}</span>
                   {cell.source && <span style={{ fontSize: 11, color: "var(--muted)" }}>· from {cell.source}{cell.at ? ` · ${new Date(cell.at + "Z").toLocaleDateString()}` : ""}</span>}
                 </label>

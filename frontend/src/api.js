@@ -69,6 +69,20 @@ export const emailText = (s) => {
   }
   return t.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 };
+// Split a message body into the fresh reply and the quoted trailer, so threads
+// read clean like Gmail (quoted history hidden behind a toggle).
+export const splitQuoted = (text) => {
+  const lines = (text || "").split("\n");
+  let cut = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i].trim();
+    if (/^On .+wrote:$/.test(l) || /^-{2,}\s*Original Message\s*-{2,}$/i.test(l) ||
+        /^_{5,}$/.test(l) || /^From:\s.+/.test(l)) { cut = i; break; }
+    if (l.startsWith(">") && i > 0) { cut = i; break; }
+  }
+  if (cut < 0) return { main: (text || "").trimEnd(), quoted: "" };
+  return { main: lines.slice(0, cut).join("\n").trimEnd(), quoted: lines.slice(cut).join("\n").trim() };
+};
 export const timeAgo = (iso) => {
   if (!iso) return "";
   const s = (Date.now() - new Date(iso + (iso.endsWith("Z") ? "" : "Z")).getTime()) / 1000;

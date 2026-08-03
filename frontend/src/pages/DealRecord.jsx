@@ -5,7 +5,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Send, Sparkles, RefreshCw, Mail, Plus, Check, Trash2, Download, FileText, FileSignature, Receipt } from "lucide-react";
-import { api, download, emailText, money, timeAgo } from "../api";
+import { api, download, emailText, money, splitQuoted, timeAgo } from "../api";
 import {
   Avatar, Badge, Breadcrumbs, Button, ErrorBox, Modal, Spinner, StatusPill, Tabs, Timeline,
   useApi, useToast,
@@ -25,6 +25,28 @@ const TABS = [
 const HEALTH_TONE = { healthy: "green", cooling: "amber", ghosted: "red", unknown: "gray" };
 const RISK_TONE = { low: "green", medium: "amber", high: "red", unknown: "gray" };
 const INTENT_TONE = { high: "green", medium: "amber", low: "gray" };
+
+function MessageBubble({ m, contact }) {
+  const [open, setOpen] = useState(false);
+  const who = m.direction === "in" ? (contact?.name || "Prospect") : "You";
+  const { main, quoted } = splitQuoted(emailText(m.body_text));
+  return (
+    <div className={`msg-row ${m.direction === "in" ? "in" : "out"}`}>
+      <Avatar name={who} size={28} />
+      <div className={`msg ${m.direction === "in" ? "in" : "out"}`}>
+        <div className="who">{who}{m.ai_generated ? " · AI" : ""}{m.status === "cancelled" ? " · cancelled" : ""}</div>
+        <div style={{ whiteSpace: "pre-wrap" }}>{main || <span style={{ color: "var(--muted2)" }}>(no text)</span>}</div>
+        {quoted && (
+          <div style={{ marginTop: 6 }}>
+            <button className="quote-toggle" onClick={() => setOpen(!open)}>{open ? "Hide quoted text" : "•••  Show quoted text"}</button>
+            {open && <div className="quoted-block">{quoted}</div>}
+          </div>
+        )}
+        <div style={{ fontSize: 10.5, color: "var(--muted2)", marginTop: 5 }}>{timeAgo(m.sent_at || m.created_at)}</div>
+      </div>
+    </div>
+  );
+}
 
 export default function DealRecord() {
   const { id } = useParams();
@@ -77,9 +99,9 @@ function OverviewTab({ dealId, deal, nav, setTab }) {
     <div style={{ display: "grid", gridTemplateColumns: "1.4fr .9fr", gap: 14, alignItems: "start" }}>
       <div style={{ display: "grid", gap: 14 }}>
         {/* AI briefing */}
-        <div className="card" style={{ padding: 18, background: "linear-gradient(180deg,#f6f5ff,#fff)", borderColor: "#e3e1ff" }}>
+        <div className="card" style={{ padding: 18, background: "var(--primary-soft)", borderColor: "#D6E7FD" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-            <Sparkles size={16} style={{ color: "var(--accent,#635BFF)" }} />
+            <Sparkles size={16} style={{ color: "var(--primary)" }} />
             <b style={{ fontSize: 14 }}>What's happening with this deal</b>
             <span style={{ flex: 1 }} />
             <Badge tone={HEALTH_TONE[b.health] || "gray"}>{(b.health || "unknown")[0].toUpperCase() + (b.health || "unknown").slice(1)}</Badge>
@@ -394,13 +416,7 @@ function ConversationTab({ dealId, contact }) {
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         <div className="ib-msgs" style={{ maxHeight: "48vh" }}>
           {msgs.length === 0 && <div className="rc-empty" style={{ padding: 24 }}>No messages yet. Start the conversation below — it stays in one email thread until the deal is won or lost.</div>}
-          {msgs.map((m) => (
-            <div key={m.id} className={`msg ${m.direction === "in" ? "in" : "out"}`}>
-              <div className="who">{m.direction === "in" ? (contact?.name || "Prospect") : "You"}{m.ai_generated ? " · AI" : ""}{m.status === "cancelled" ? " · cancelled" : ""}</div>
-              <div style={{ whiteSpace: "pre-wrap" }}>{emailText(m.body_text)}</div>
-              <div style={{ fontSize: 10.5, color: "var(--muted2)", marginTop: 4 }}>{timeAgo(m.sent_at || m.created_at)}</div>
-            </div>
-          ))}
+          {msgs.map((m) => <MessageBubble key={m.id} m={m} contact={contact} />)}
         </div>
         <div className="ib-compose">
           <textarea value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={connected ? "Reply in the same thread…" : "Connect a mailbox to send…"} />
