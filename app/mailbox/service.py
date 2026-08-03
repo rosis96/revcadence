@@ -135,7 +135,17 @@ def build_mime(conn: MailboxConnection, conv: DealConversation, to_email: str, s
         references = (f"{conv.thread_refs} {last.rfc_message_id}").strip()
         msg["In-Reply-To"] = in_reply_to
         msg["References"] = references
-    msg.set_content(body_text)
+    # Quote the previous message like a normal Gmail reply, so the sent email
+    # carries the prior context inline (our own view keeps just the new text).
+    full = body_text or ""
+    if last and (getattr(last, "body_text", "") or "").strip():
+        when = getattr(last, "sent_at", None) or getattr(last, "created_at", None)
+        date_str = when.strftime("%a, %b %d, %Y at %I:%M %p") if when else ""
+        who = last.from_email or ""
+        attribution = f"On {date_str} {who} wrote:" if date_str else (f"{who} wrote:" if who else "Previously:")
+        quoted = "\n".join("> " + ln for ln in (last.body_text or "").splitlines())
+        full = f"{full}\n\n{attribution}\n{quoted}"
+    msg.set_content(full)
     return msg, message_id, in_reply_to, references
 
 
