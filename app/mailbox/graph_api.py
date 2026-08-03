@@ -113,7 +113,7 @@ def graph_fetch_since(email: str, days: int = 60, limit: int = 200, folder: str 
         r = requests.get(
             f"{_GRAPH}/users/{email}/mailFolders/{folder}/messages",
             headers=hdr,
-            params={"$top": min(limit, 200), "$select": "id",
+            params={"$top": min(limit, 200), "$select": "id,conversationId",
                     "$filter": f"receivedDateTime ge {since}",
                     "$orderby": "receivedDateTime desc"},
             timeout=20)
@@ -124,7 +124,9 @@ def graph_fetch_since(email: str, days: int = 60, limit: int = 200, folder: str 
                              headers=hdr, timeout=20)
             if g.status_code != 200 or not g.content:
                 continue
-            out.append(transport.parse_message(g.content))
+            parsed = transport.parse_message(g.content)
+            parsed["thread_id"] = m.get("conversationId") or ""
+            out.append(parsed)
     except Exception:  # noqa: BLE001
         return out
     return out

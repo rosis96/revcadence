@@ -164,6 +164,17 @@ def imap_fetch_since(host: str, port: int, username: str, password: str,
     return out
 
 
+def _dec_header(val: str) -> str:
+    """Decode a possibly MIME-encoded header (=?UTF-8?B?...?=) to plain text."""
+    if not val:
+        return ""
+    try:
+        from email.header import decode_header, make_header
+        return str(make_header(decode_header(val)))
+    except Exception:  # noqa: BLE001
+        return val
+
+
 def parse_message(raw: bytes) -> dict:
     """Parse a raw RFC822 message into the fields we care about (pure — unit tested).
     `participants` = every address on From/To/Cc (lowercased), for known-lead matching."""
@@ -180,7 +191,7 @@ def parse_message(raw: bytes) -> dict:
         "to_email": email.utils.parseaddr(msg.get("To", ""))[1].lower(),
         "cc": [a for _, a in email.utils.getaddresses(msg.get_all("Cc", []))],
         "participants": participants,
-        "subject": msg.get("Subject", ""),
+        "subject": _dec_header(msg.get("Subject", "")),
         "rfc_message_id": (msg.get("Message-ID", "") or "").strip(),
         "in_reply_to": (msg.get("In-Reply-To", "") or "").strip(),
         "references": (msg.get("References", "") or "").strip(),

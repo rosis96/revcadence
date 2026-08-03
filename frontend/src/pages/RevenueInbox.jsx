@@ -163,15 +163,16 @@ export default function RevenueInbox() {
           )}
           <div style={{ display: "grid", gap: 6, maxHeight: "52vh", overflow: "auto" }}>
             {(browse.items || []).map((t) => {
-              const on = !!sel[t.rfc_message_id];
+              const k = t.thread_id || t.rfc_message_id || t.subject + t.counterpart;
+              const on = !!sel[k];
               return (
-                <label key={t.rfc_message_id || t.subject + t.counterpart}
+                <label key={k}
                   style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 12px", borderRadius: 10,
                     border: `1px solid ${on ? "var(--primary,#2563eb)" : "var(--border,#e2e4e9)"}`,
                     background: on ? "var(--primary-soft,#eff6ff)" : "#fff", cursor: t.already ? "default" : "pointer",
                     opacity: t.already ? 0.6 : 1 }}>
                   <input type="checkbox" checked={on} disabled={t.already}
-                    onChange={(e) => setSel((s) => { const n = { ...s }; if (e.target.checked) n[t.rfc_message_id] = t; else delete n[t.rfc_message_id]; return n; })}
+                    onChange={(e) => setSel((s) => { const n = { ...s }; if (e.target.checked) n[k] = t; else delete n[k]; return n; })}
                     style={{ marginTop: 3 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>

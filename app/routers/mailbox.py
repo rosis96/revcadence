@@ -281,31 +281,48 @@ def mailbox_threads(days: int = 90, limit: int = 100, q: str = "", label: str = 
     query = " ".join(parts)
     msgs = service.fetch_recent(mailbox, days=days, limit=limit, query=query, folder=label or "INBOX")
     me = (mailbox.email or "").lower()
-    seen, out = set(), []
+
+    # Collapse a Gmail thread (many messages) into ONE row, keeping the newest
+    # message and the union of participants across the whole thread.
+    def _norm_subj(s):
+        n = (s or "").strip().lower()
+        while n.startswith("re:") or n.startswith("fwd:"):
+            n = n[3:].strip(": ").strip() if n.startswith("re:") else n[4:].strip(": ").strip()
+        return n
+
+    threads = {}
     for m in msgs:
         frm = (m.get("from_email") or "").lower()
         counterpart = (m.get("to_email") or "").lower() if frm == me else frm
-        subj = (m.get("subject") or "").strip()
-        norm = subj.lower()
-        while norm.startswith("re:") or norm.startswith("fwd:"):
-            norm = norm[3:].lstrip(": ").strip() if norm.startswith("re:") else norm[4:].lstrip(": ").strip()
-        key = (counterpart, norm)
-        if not counterpart or key in seen:
+        if not counterpart:
             continue
-        seen.add(key)
-        parts = m.get("participants") or [counterpart]
+        tkey = m.get("thread_id") or f"{counterpart}|{_norm_subj(m.get('subject'))}"
+        ts = int(m.get("internal_ts") or 0)
+        cur = threads.get(tkey)
+        parts = set((cur or {}).get("participants", [])) | set(m.get("participants") or [counterpart])
+        if not cur or ts >= cur.get("_ts", 0):
+            threads[tkey] = {**m, "counterpart": counterpart, "_ts": ts, "_key": tkey,
+                             "participants": list(parts)}
+        else:
+            cur["participants"] = list(parts)
+
+    out = []
+    for t in sorted(threads.values(), key=lambda x: x.get("_ts", 0), reverse=True):
+        counterpart = t["counterpart"]
+        parts = t.get("participants") or [counterpart]
         contact = service.find_known_contact(ctx.db, mailbox.workspace_id, parts, exclude=me)
-        mid = m.get("rfc_message_id", "")
-        already = bool(mid and ctx.db.query(RevenueInboxItem).filter(
+        tid = t.get("thread_id", "")
+        mid = t.get("rfc_message_id", "")
+        dup = ctx.db.query(RevenueInboxItem).filter(
             RevenueInboxItem.workspace_id == mailbox.workspace_id,
-            RevenueInboxItem.rfc_message_id == mid,
-            RevenueInboxItem.status != "dismissed").first())
+            RevenueInboxItem.status != "dismissed",
+            (RevenueInboxItem.thread_id == tid) if tid else (RevenueInboxItem.rfc_message_id == mid)).first()
         out.append({
-            "rfc_message_id": mid, "from_email": frm, "to_email": m.get("to_email", ""),
-            "subject": subj, "preview": (m.get("body_text", "") or "")[:180],
-            "participants": parts, "counterpart": counterpart,
-            "in_reply_to": m.get("in_reply_to", ""), "references": m.get("references", ""),
-            "known": contact is not None, "already": already,
+            "rfc_message_id": mid, "thread_id": tid, "from_email": (t.get("from_email") or "").lower(),
+            "to_email": t.get("to_email", ""), "subject": (t.get("subject") or "").strip(),
+            "preview": (t.get("body_text", "") or "")[:180], "participants": parts, "counterpart": counterpart,
+            "in_reply_to": t.get("in_reply_to", ""), "references": t.get("references", ""),
+            "known": contact is not None, "already": bool(dup),
             "contact": {"id": contact.id, "name": f"{contact.first_name} {contact.last_name}".strip(),
                         "email": contact.email} if contact else None,
         })
@@ -324,17 +341,19 @@ def import_threads(body: ThreadImportIn, ctx: AuthContext = Depends(get_ctx)):
     n = 0
     for m in body.items:
         mid = m.get("rfc_message_id", "")
-        if mid and ctx.db.query(RevenueInboxItem).filter(
-                RevenueInboxItem.workspace_id == body.workspace_id,
-                RevenueInboxItem.rfc_message_id == mid,
-                RevenueInboxItem.status != "dismissed").first():
+        tid = m.get("thread_id", "")
+        exists = ctx.db.query(RevenueInboxItem).filter(
+            RevenueInboxItem.workspace_id == body.workspace_id,
+            RevenueInboxItem.status != "dismissed",
+            (RevenueInboxItem.thread_id == tid) if tid else (RevenueInboxItem.rfc_message_id == mid)).first()
+        if exists:
             continue
         parts = m.get("participants") or [m.get("from_email", "")]
         contact = service.find_known_contact(ctx.db, body.workspace_id, parts, exclude="")
         ctx.db.add(RevenueInboxItem(
             workspace_id=body.workspace_id, from_email=m.get("from_email", ""),
             subject=m.get("subject", ""), body_text=(m.get("preview", "") or m.get("body_text", "") or "")[:8000],
-            participants=parts, rfc_message_id=mid, in_reply_to=m.get("in_reply_to", ""),
+            participants=parts, rfc_message_id=mid, thread_id=tid, in_reply_to=m.get("in_reply_to", ""),
             references=m.get("references", ""),
             matched_contact_id=contact.id if contact else None,
             matched_company_id=contact.company_id if contact else None, status="pending"))

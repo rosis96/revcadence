@@ -145,10 +145,14 @@ def gmail_fetch_since(email: str, days: int = 60, limit: int = 200, folder: str 
                              params={"format": "raw"}, timeout=20)
             if g.status_code != 200:
                 continue
-            raw_b64 = (g.json() or {}).get("raw", "")
+            gj = g.json() or {}
+            raw_b64 = gj.get("raw", "")
             if not raw_b64:
                 continue
-            out.append(transport.parse_message(base64.urlsafe_b64decode(raw_b64.encode())))
+            parsed = transport.parse_message(base64.urlsafe_b64decode(raw_b64.encode()))
+            parsed["thread_id"] = gj.get("threadId") or m.get("threadId") or ""
+            parsed["internal_ts"] = int(gj.get("internalDate") or 0)   # for newest-per-thread
+            out.append(parsed)
     except Exception:  # noqa: BLE001
         return out
     return out

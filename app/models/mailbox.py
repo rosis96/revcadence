@@ -68,6 +68,7 @@ class RevenueInboxItem(Base):
     body_text = Column(Text, default="")
     participants = Column(JSON, default=list)        # all emails on the thread
     rfc_message_id = Column(String(512), default="", index=True)
+    thread_id = Column(String(255), default="", index=True)   # Gmail threadId / Graph conversationId
     in_reply_to = Column(String(512), default="")
     references = Column(Text, default="")
 
