@@ -236,21 +236,42 @@ def draft(deal_id: int, ctx: AuthContext = Depends(get_ctx)):
 
 
 # ============================================================ revenue inbox (candidates)
+def _first_mailbox(ctx, workspace_id):
+    for wid in ctx.workspace_ids_for_query(workspace_id):
+        m = service.workspace_mailbox(ctx.db, wid)
+        if m:
+            return m
+    return None
+
+
+@router.get("/mailbox/labels")
+def mailbox_labels(workspace_id: int | None = None, ctx: AuthContext = Depends(get_ctx)):
+    """Gmail labels / Outlook folders for the connected mailbox, so the user can
+    import an entire label at once."""
+    mailbox = _first_mailbox(ctx, workspace_id)
+    if not mailbox or mailbox.status != "connected":
+        return {"labels": []}
+    return {"labels": service.mailbox_labels(mailbox)}
+
+
 @router.get("/mailbox/threads")
-def mailbox_threads(days: int = 30, limit: int = 80, workspace_id: int | None = None,
-                    ctx: AuthContext = Depends(get_ctx)):
+def mailbox_threads(days: int = 90, limit: int = 100, q: str = "", label: str = "",
+                    workspace_id: int | None = None, ctx: AuthContext = Depends(get_ctx)):
     """Browse recent conversations in the connected mailbox so the user can pick
-    which ones to import. Flags each thread as a known lead (a CRM contact — which
-    includes pipeline leads) and whether it's already been imported."""
-    wsids = ctx.workspace_ids_for_query(workspace_id)
-    mailbox = None
-    for wid in wsids:
-        mailbox = service.workspace_mailbox(ctx.db, wid)
-        if mailbox:
-            break
+    which ones to import — optionally filtered by a Gmail label and/or a search
+    string. Flags each thread as a known lead (a CRM contact = pipeline lead) and
+    whether it's already been imported."""
+    mailbox = _first_mailbox(ctx, workspace_id)
     if not mailbox or mailbox.status != "connected":
         return {"items": [], "mailbox": None, "note": "no connected mailbox"}
-    msgs = service.fetch_recent(mailbox, days=days, limit=limit)
+    # Build a Gmail search query from the chosen label + free-text search.
+    parts = []
+    if label.strip():
+        parts.append(f'label:"{label.strip()}"')
+    if q.strip():
+        parts.append(q.strip())
+    query = " ".join(parts)
+    msgs = service.fetch_recent(mailbox, days=days, limit=limit, query=query, folder=label or "INBOX")
     me = (mailbox.email or "").lower()
     seen, out = set(), []
     for m in msgs:
@@ -365,6 +386,39 @@ def attach(item_id: int, body: AttachIn, ctx: AuthContext = Depends(get_ctx)):
     d = _deal(ctx, body.deal_id)
     conv = service.attach_item_to_deal(ctx.db, item, d, user_id=ctx.user.id)
     return {"ok": True, "deal_id": d.id, "conversation_id": conv.id}
+
+
+@router.post("/revenue-inbox/{item_id}/create-deal")
+def create_deal_from_item(item_id: int, ctx: AuthContext = Depends(get_ctx)):
+    """Turn an imported thread into a followable deal: ensure a contact exists,
+    create a deal on the pipeline, and attach the conversation. From the deal
+    record you can then send follow-ups in the same thread."""
+    from ..models.crm import Activity
+    item = ctx.db.get(RevenueInboxItem, item_id)
+    if not item or item.workspace_id not in ctx.allowed_workspace_ids():
+        raise HTTPException(404, "Not found")
+    wsid = item.workspace_id
+    contact = ctx.db.get(Contact, item.matched_contact_id) if item.matched_contact_id else None
+    email = (item.from_email or "").lower().strip()
+    if not contact and email:
+        contact = ctx.db.query(Contact).filter(Contact.workspace_id == wsid, Contact.email == email).first()
+    if not contact:
+        base = email.split("@")[0].replace(".", " ").replace("_", " ").title() if email else "New contact"
+        fn, _, ln = base.partition(" ")
+        contact = Contact(workspace_id=wsid, email=email, first_name=fn, last_name=ln)
+        ctx.db.add(contact)
+        ctx.db.flush()
+    stage = (ctx.db.query(Stage).filter(Stage.workspace_id == wsid).order_by(Stage.sort_order).first())
+    name = item.subject or f"{contact.first_name} {contact.last_name}".strip() or "New deal"
+    deal = Deal(workspace_id=wsid, name=name, contact_id=contact.id, company_id=contact.company_id,
+                stage_id=stage.id if stage else None, value=0)
+    ctx.db.add(deal)
+    ctx.db.flush()
+    ctx.db.add(Activity(workspace_id=wsid, deal_id=deal.id, contact_id=contact.id, kind="deal_created",
+                        title=f"Deal created from email: {name}", actor_user_id=ctx.user.id))
+    conv = service.attach_item_to_deal(ctx.db, item, deal, user_id=ctx.user.id)
+    ctx.db.commit()
+    return {"ok": True, "deal_id": deal.id, "conversation_id": conv.id}
 
 
 @router.post("/revenue-inbox/{item_id}/dismiss")

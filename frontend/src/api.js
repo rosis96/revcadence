@@ -50,6 +50,25 @@ export async function download(path, fallbackName = "download.pdf") {
 
 export const money = (v) =>
   (v || 0).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+// Turn an email body (often raw HTML) into clean, readable text — strips tags,
+// keeps paragraph/line breaks, decodes entities. Safe: no HTML is rendered.
+export const emailText = (s) => {
+  if (!s) return "";
+  if (!/[<&]/.test(s)) return s;                       // already plain
+  let t = String(s)
+    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|li|tr|h[1-6])>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "• ")
+    .replace(/<[^>]+>/g, "");
+  if (typeof document !== "undefined") {                // decode entities safely
+    const ta = document.createElement("textarea");
+    ta.innerHTML = t;
+    t = ta.value;
+  }
+  return t.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+};
 export const timeAgo = (iso) => {
   if (!iso) return "";
   const s = (Date.now() - new Date(iso + (iso.endsWith("Z") ? "" : "Z")).getTime()) / 1000;

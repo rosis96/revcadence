@@ -238,21 +238,32 @@ def record_inbound(db, conv: DealConversation, *, from_email, subject, body_text
     return cm, cancelled
 
 
-def fetch_recent(mailbox, days: int = 30, limit: int = 100) -> list[dict]:
-    """Provider-agnostic pull of recent messages (parsed dicts). Used by the
-    'browse & import' mailbox view. Best-effort; returns [] on failure."""
+def fetch_recent(mailbox, days: int = 30, limit: int = 100, query: str = "", folder: str = "INBOX") -> list[dict]:
+    """Provider-agnostic pull of recent messages (parsed dicts). `query` is a Gmail
+    search string (label:/from:/text); `folder` is used for Graph/IMAP. Best-effort."""
     if mailbox.provider == "google_workspace":
         from . import gmail_api
-        return gmail_api.gmail_fetch_since(mailbox.email, days=days, limit=limit)
+        return gmail_api.gmail_fetch_since(mailbox.email, days=days, limit=limit, query=query)
     if mailbox.provider == "microsoft_graph":
         from . import graph_api
-        return graph_api.graph_fetch_since(mailbox.email, days=days, limit=limit)
+        return graph_api.graph_fetch_since(mailbox.email, days=days, limit=limit, folder=folder or "inbox")
     try:
         secret = decrypt(mailbox.app_password_enc)
     except Exception:  # noqa: BLE001
         return []
     return transport.imap_fetch_since(mailbox.imap_host, mailbox.imap_port, mailbox.username,
-                                      secret, days=days, limit=limit, folder="INBOX")
+                                      secret, days=days, limit=limit, folder=folder or "INBOX")
+
+
+def mailbox_labels(mailbox) -> list[dict]:
+    """Labels (Gmail) / folders (Graph) to offer 'import a whole label'."""
+    if mailbox.provider == "google_workspace":
+        from . import gmail_api
+        return gmail_api.gmail_labels(mailbox.email)
+    if mailbox.provider == "microsoft_graph":
+        from . import graph_api
+        return graph_api.graph_folders(mailbox.email)
+    return []
 
 
 def find_known_contact(db, workspace_id, emails: list, exclude: str = ""):

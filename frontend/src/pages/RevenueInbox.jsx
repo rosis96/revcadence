@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Mail, X, ArrowRight, RefreshCw, Download, Inbox as InboxIcon } from "lucide-react";
-import { api, timeAgo } from "../api";
+import { api, emailText, timeAgo } from "../api";
 import { useAuth } from "../auth";
 import { Avatar, Badge, Button, Empty, ErrorBox, Modal, PageHeader, Spinner, useApi, useToast } from "../components";
 
@@ -19,6 +19,9 @@ export default function RevenueInbox() {
   const [browse, setBrowse] = useState(null);   // { items, workspace_id } when the import modal is open
   const [browseLoading, setBrowseLoading] = useState(false);
   const [sel, setSel] = useState({});           // rfc_message_id -> thread object
+  const [labels, setLabels] = useState([]);
+  const [filterLabel, setFilterLabel] = useState("");
+  const [filterQ, setFilterQ] = useState("");
 
   const syncNow = async () => {
     if (!wsParam) { toast("Pick a specific workspace first (top bar)", "bad"); return; }
@@ -28,22 +31,30 @@ export default function RevenueInbox() {
     catch (e) { toast(e.message, "bad"); }
     setSyncing(false);
   };
-  const openBrowse = async () => {
-    setBrowseLoading(true); setSel({});
-    try { const r = await api("/api/mailbox/threads", { params: { workspace_id: wsParam, days: 30, limit: 80 } });
+  const fetchThreads = async (label = filterLabel, q = filterQ) => {
+    setBrowseLoading(true);
+    try { const r = await api("/api/mailbox/threads", { params: { workspace_id: wsParam, days: 90, limit: 100, label, q } });
       setBrowse(r); }
     catch (e) { toast(e.message, "bad"); }
     setBrowseLoading(false);
   };
-  const importSelected = async () => {
-    const items = Object.values(sel);
-    if (!items.length) { toast("Select at least one conversation", "bad"); return; }
+  const openBrowse = async () => {
+    setSel({}); setFilterLabel(""); setFilterQ("");
+    setBrowse({ items: [], mailbox: "" });    // open the modal immediately
+    fetchThreads("", "");
+    try { const r = await api("/api/mailbox/labels", { params: { workspace_id: wsParam } }); setLabels(r.labels || []); }
+    catch { /* labels are optional */ }
+  };
+  const doImport = async (items) => {
+    if (!items.length) { toast("Nothing to import", "bad"); return; }
     const wid = browse?.workspace_id || wsParam;
     if (!wid) { toast("No workspace/mailbox found", "bad"); return; }
     try { const r = await api("/api/mailbox/threads/import", { method: "POST", body: { workspace_id: Number(wid), items } });
       toast(`Imported ${r.imported} conversation(s)`); setBrowse(null); reload(); }
     catch (e) { toast(e.message, "bad"); }
   };
+  const importSelected = () => doImport(Object.values(sel));
+  const importAll = () => doImport((browse?.items || []).filter((t) => !t.already));
 
   const attach = async (item) => {
     const dealId = pick[item.id] || item.deals[0]?.id;
@@ -53,6 +64,13 @@ export default function RevenueInbox() {
       toast("Attached to the deal conversation"); reload();
       nav(`/deals/${r.deal_id}`);
     } catch (e) { toast(e.message, "bad"); }
+    setBusy(0);
+  };
+  const createDeal = async (item) => {
+    setBusy(item.id);
+    try { const r = await api(`/api/revenue-inbox/${item.id}/create-deal`, { method: "POST" });
+      toast("Deal created — follow up in the thread"); nav(`/deals/${r.deal_id}`); }
+    catch (e) { toast(e.message, "bad"); }
     setBusy(0);
   };
   const dismiss = async (item) => {
@@ -93,7 +111,7 @@ export default function RevenueInbox() {
                 </div>
                 <div style={{ color: "var(--muted)", fontSize: 12.5, margin: "2px 0 6px" }}>
                   from {it.from_email} · {(it.participants || []).length} on thread</div>
-                <div style={{ fontSize: 13, whiteSpace: "pre-wrap", color: "var(--ink,#12131a)" }}>{it.preview}</div>
+                <div style={{ fontSize: 13, whiteSpace: "pre-wrap", color: "var(--ink,#12131a)", maxHeight: 96, overflow: "hidden" }}>{emailText(it.preview)}</div>
 
                 <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
                   {it.deals.length > 0 ? (
@@ -106,8 +124,8 @@ export default function RevenueInbox() {
                     </>
                   ) : (
                     <>
-                      <span style={{ fontSize: 12.5, color: "var(--muted)" }}>No deal for this contact yet —</span>
-                      {it.contact && <Button variant="secondary" onClick={() => nav(`/companies/${it.company?.id || ""}`)}>Open contact/company</Button>}
+                      <span style={{ fontSize: 12.5, color: "var(--muted)" }}>No deal yet —</span>
+                      <Button icon={ArrowRight} loading={busy === it.id} onClick={() => createDeal(it)}>Create deal &amp; follow up</Button>
                     </>
                   )}
                   <span style={{ flex: 1 }} />
@@ -122,10 +140,23 @@ export default function RevenueInbox() {
       {browse && (
         <Modal title="Import from mailbox" onClose={() => setBrowse(null)}>
           <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 0 }}>
-            Recent conversations in <b>{browse.mailbox || "your mailbox"}</b>. Pick the ones to bring into the Revenue Inbox.
+            Conversations in <b>{browse.mailbox || "your mailbox"}</b>. Filter by a Gmail label or search, then import.
             Threads with a known lead are tagged — those are your pipeline contacts.</p>
-          {(!browse.items || browse.items.length === 0) && (
-            <div className="empty" style={{ padding: 20 }}>No recent conversations found.</div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+            <select value={filterLabel} onChange={(e) => { setFilterLabel(e.target.value); fetchThreads(e.target.value, filterQ); }}
+              style={{ padding: "8px 10px", borderRadius: 8, fontSize: 13, minWidth: 150 }}>
+              <option value="">All mail (last 90 days)</option>
+              {labels.map((l) => <option key={l.id} value={l.name}>{l.name}</option>)}
+            </select>
+            <input value={filterQ} onChange={(e) => setFilterQ(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && fetchThreads(filterLabel, filterQ)}
+              placeholder="Search sender, subject, text… (Enter)"
+              style={{ flex: 1, minWidth: 180, padding: "8px 10px", borderRadius: 8, fontSize: 13 }} />
+            <Button variant="secondary" loading={browseLoading} onClick={() => fetchThreads(filterLabel, filterQ)}>Search</Button>
+          </div>
+          {browseLoading && <div className="center" style={{ minHeight: 80 }}><div className="spinner" /></div>}
+          {!browseLoading && (!browse.items || browse.items.length === 0) && (
+            <div className="empty" style={{ padding: 20 }}>No conversations found for this filter.</div>
           )}
           <div style={{ display: "grid", gap: 6, maxHeight: "52vh", overflow: "auto" }}>
             {(browse.items || []).map((t) => {
@@ -146,7 +177,7 @@ export default function RevenueInbox() {
                       {t.already && <Badge>already imported</Badge>}
                     </div>
                     <div style={{ fontSize: 12, color: "var(--muted)", margin: "1px 0 3px" }}>with {t.counterpart}</div>
-                    <div style={{ fontSize: 12.5, color: "var(--ink-2,#3b4557)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.preview}</div>
+                    <div style={{ fontSize: 12.5, color: "var(--ink-2,#3b4557)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{emailText(t.preview)}</div>
                   </div>
                 </label>
               );
@@ -154,6 +185,9 @@ export default function RevenueInbox() {
           </div>
           <div className="actions" style={{ marginTop: 14 }}>
             <button className="btn ghost" onClick={() => setBrowse(null)}>Cancel</button>
+            {(browse.items || []).some((t) => !t.already) && (
+              <Button variant="secondary" onClick={importAll}>Import all shown</Button>
+            )}
             <Button icon={InboxIcon} onClick={importSelected}>Import selected ({Object.keys(sel).length})</Button>
           </div>
         </Modal>

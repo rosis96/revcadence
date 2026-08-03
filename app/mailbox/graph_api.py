@@ -87,6 +87,19 @@ def graph_send(email: str, msg) -> str:
     return ""
 
 
+def graph_folders(email: str) -> list[dict]:
+    """Mail folders for this mailbox (the Microsoft analog of Gmail labels)."""
+    try:
+        token = _token()
+        r = requests.get(f"{_GRAPH}/users/{email}/mailFolders",
+                         headers={"Authorization": f"Bearer {token}"}, params={"$top": 100}, timeout=15)
+        if r.status_code != 200:
+            return []
+        return [{"id": f.get("id"), "name": f.get("displayName")} for f in (r.json().get("value") or [])]
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def graph_fetch_since(email: str, days: int = 60, limit: int = 200, folder: str = "inbox") -> list[dict]:
     """Best-effort: pull recent messages as raw MIME and parse them like the IMAP
     path. Returns [] on any failure."""

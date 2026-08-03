@@ -188,16 +188,47 @@ def parse_message(raw: bytes) -> dict:
     }
 
 
-def _plain_body(msg) -> str:
-    if msg.is_multipart():
-        for part in msg.walk():
-            if part.get_content_type() == "text/plain" and "attachment" not in str(part.get("Content-Disposition", "")):
-                try:
-                    return part.get_payload(decode=True).decode(part.get_content_charset() or "utf-8", "replace")
-                except Exception:  # noqa: BLE001
-                    continue
+def _html_to_text(s: str) -> str:
+    """Strip HTML to readable text: keep line/paragraph breaks, drop tags, decode
+    entities. Keeps the stored body clean instead of a wall of <div> markup."""
+    import html as _html
+    import re
+    if not s:
         return ""
+    s = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", "", s)
+    s = re.sub(r"(?i)<br\s*/?>", "\n", s)
+    s = re.sub(r"(?i)</(p|div|li|tr|h[1-6])>", "\n", s)
+    s = re.sub(r"(?i)<li[^>]*>", "• ", s)
+    s = re.sub(r"(?s)<[^>]+>", "", s)
+    s = _html.unescape(s)
+    s = re.sub(r"[ \t]+\n", "\n", s)
+    s = re.sub(r"\n{3,}", "\n\n", s)
+    return s.strip()
+
+
+def _decode(part) -> str:
     try:
-        return msg.get_payload(decode=True).decode(msg.get_content_charset() or "utf-8", "replace")
+        return part.get_payload(decode=True).decode(part.get_content_charset() or "utf-8", "replace")
     except Exception:  # noqa: BLE001
-        return msg.get_payload() or ""
+        return part.get_payload() if isinstance(part.get_payload(), str) else ""
+
+
+def _plain_body(msg) -> str:
+    """Prefer text/plain; fall back to HTML converted to clean text."""
+    if msg.is_multipart():
+        plain, html_part = "", ""
+        for part in msg.walk():
+            if "attachment" in str(part.get("Content-Disposition", "")):
+                continue
+            ct = part.get_content_type()
+            if ct == "text/plain" and not plain:
+                plain = _decode(part)
+            elif ct == "text/html" and not html_part:
+                html_part = _decode(part)
+        if plain.strip():
+            return plain
+        return _html_to_text(html_part)
+    body = _decode(msg)
+    if msg.get_content_type() == "text/html" or ("<" in body and "</" in body):
+        return _html_to_text(body)
+    return body

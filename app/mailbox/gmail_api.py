@@ -100,16 +100,39 @@ def gmail_send(email: str, msg, thread_id: str = "") -> str:
     return (r.json() or {}).get("threadId", "")
 
 
-def gmail_fetch_since(email: str, days: int = 60, limit: int = 200, folder: str = "INBOX") -> list[dict]:
-    """Best-effort: pull recent messages and parse them like the IMAP path. Returns []
-    on any failure so callers degrade gracefully."""
+def gmail_labels(email: str) -> list[dict]:
+    """User-visible labels for this mailbox, so the UI can offer 'import a label'."""
+    try:
+        token = _token(email)
+        r = requests.get(f"{_BASE}/{email}/labels",
+                         headers={"Authorization": f"Bearer {token}"}, timeout=15)
+        if r.status_code != 200:
+            return []
+        keep_system = {"INBOX", "SENT", "IMPORTANT", "STARRED"}
+        out = []
+        for lb in (r.json().get("labels") or []):
+            if lb.get("type") == "system" and lb.get("id") not in keep_system:
+                continue
+            out.append({"id": lb.get("id"), "name": lb.get("name")})
+        return sorted(out, key=lambda x: (x["name"] or "").lower())
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def gmail_fetch_since(email: str, days: int = 60, limit: int = 200, folder: str = "INBOX",
+                      query: str = "") -> list[dict]:
+    """Best-effort: pull recent messages and parse them like the IMAP path. `query`
+    is a Gmail search string (e.g. 'label:\"Clients\" acme') that overrides folder.
+    Returns [] on any failure so callers degrade gracefully."""
     from . import transport
     out = []
     try:
         token = _token(email)
         hdr = {"Authorization": f"Bearer {token}"}
         q = f"newer_than:{max(1, days)}d"
-        if folder and folder.upper() != "INBOX":
+        if query.strip():
+            q += " " + query.strip()
+        elif folder and folder.upper() != "INBOX":
             q += f" label:{folder.lower()}"
         else:
             q += " in:inbox"

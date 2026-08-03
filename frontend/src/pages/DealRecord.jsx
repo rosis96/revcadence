@@ -5,7 +5,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Send, Sparkles, RefreshCw, Mail, Plus, Check, Trash2, Download, FileText, FileSignature, Receipt } from "lucide-react";
-import { api, download, money, timeAgo } from "../api";
+import { api, download, emailText, money, timeAgo } from "../api";
 import {
   Avatar, Badge, Breadcrumbs, Button, ErrorBox, Spinner, StatusPill, Tabs, Timeline,
   useApi, useToast,
@@ -322,7 +322,7 @@ function ConversationTab({ dealId, contact }) {
           {msgs.map((m) => (
             <div key={m.id} className={`msg ${m.direction === "in" ? "in" : "out"}`}>
               <div className="who">{m.direction === "in" ? (contact?.name || "Prospect") : "You"}{m.ai_generated ? " · AI" : ""}{m.status === "cancelled" ? " · cancelled" : ""}</div>
-              <div style={{ whiteSpace: "pre-wrap" }}>{m.body_text}</div>
+              <div style={{ whiteSpace: "pre-wrap" }}>{emailText(m.body_text)}</div>
               <div style={{ fontSize: 10.5, color: "var(--muted2)", marginTop: 4 }}>{timeAgo(m.sent_at || m.created_at)}</div>
             </div>
           ))}
