@@ -63,6 +63,17 @@ def _token(subject: str) -> str:
     return creds.token
 
 
+def _friendly(text: str) -> str:
+    """Turn Google's cryptic auth errors into a clear next step."""
+    low = (text or "").lower()
+    if ("unauthorized_client" in low or "access_denied" in low or "not authorized" in low
+            or "forbidden" in low or "\"code\": 403" in low or "status\": 403" in low):
+        return (f"This Google Workspace hasn't authorized RevCadence yet. In that domain's "
+                f"Google Admin → Security → API controls → Domain-wide delegation, add Client ID "
+                f"{client_id()} with scopes: {', '.join(SCOPES)}. Then Test again.")
+    return text[:300]
+
+
 def gmail_test(email: str) -> tuple[bool, str]:
     """Verify delegation works for this mailbox (reads its profile). (ok, error)."""
     try:
@@ -71,9 +82,9 @@ def gmail_test(email: str) -> tuple[bool, str]:
                          headers={"Authorization": f"Bearer {token}"}, timeout=15)
         if r.status_code == 200:
             return True, ""
-        return False, f"Gmail API {r.status_code}: {r.text[:200]}"
+        return False, _friendly(f"Gmail API {r.status_code}: {r.text[:200]}")
     except Exception as e:  # noqa: BLE001
-        return False, str(e)[:300]
+        return False, _friendly(str(e))
 
 
 def gmail_send(email: str, msg, thread_id: str = "") -> str:
