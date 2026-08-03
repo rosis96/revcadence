@@ -166,9 +166,15 @@ def _msg_out(m: ConversationMessage) -> dict:
 
 
 @router.get("/deals/{deal_id}/conversation")
-def get_conversation(deal_id: int, ctx: AuthContext = Depends(get_ctx)):
+def get_conversation(deal_id: int, sync: bool = True, ctx: AuthContext = Depends(get_ctx)):
     d = _deal(ctx, deal_id)
     conv = service.ensure_conversation(ctx.db, d)
+    if sync:
+        # pull any new replies from the live thread so the view is always current
+        try:
+            service.sync_conversation_thread(ctx.db, conv)
+        except Exception:  # noqa: BLE001
+            pass
     msgs = (ctx.db.query(ConversationMessage)
             .filter(ConversationMessage.conversation_id == conv.id)
             .order_by(ConversationMessage.id).all())

@@ -478,6 +478,48 @@ def attach_item_to_deal(db, item, deal, user_id=None):
     return conv
 
 
+def sync_conversation_thread(db, conv: DealConversation) -> dict:
+    """Pull the live provider thread for THIS deal and append any messages we don't
+    have yet (deduped by Message-ID). Keeps the deal conversation in lock-step with
+    Gmail/Outlook without waiting for the background poll. A new inbound reply stops
+    that deal's autopilot. Best-effort."""
+    if not conv.provider_thread_id:
+        return {"new": 0, "reason": "no thread id"}
+    mailbox = db.get(MailboxConnection, conv.mailbox_id) if conv.mailbox_id else workspace_mailbox(db, conv.workspace_id)
+    if not mailbox or mailbox.status != "connected":
+        return {"new": 0, "reason": "no mailbox"}
+    msgs = fetch_thread(mailbox, conv.provider_thread_id)
+    if not msgs:
+        return {"new": 0}
+    me = (mailbox.email or "").lower()
+    existing = {m.rfc_message_id for m in db.query(ConversationMessage)
+                .filter(ConversationMessage.conversation_id == conv.id).all() if m.rfc_message_id}
+    new, inbound = 0, False
+    for m in sorted(msgs, key=lambda x: x.get("internal_ts", 0)):
+        mid = m.get("rfc_message_id", "")
+        if mid and mid in existing:
+            continue
+        frm = (m.get("from_email") or "").lower()
+        direction = "out" if frm == me else "in"
+        db.add(ConversationMessage(
+            conversation_id=conv.id, workspace_id=conv.workspace_id, deal_id=conv.deal_id,
+            direction=direction, from_email=frm, to_email=conv.prospect_email or "",
+            subject=m.get("subject", "") or conv.subject or "", body_text=m.get("body_text", ""),
+            rfc_message_id=mid, status="sent" if direction == "out" else "received"))
+        if mid:
+            existing.add(mid)
+        new += 1
+        if direction == "in":
+            inbound = True
+    if inbound:
+        conv.last_inbound_at = datetime.utcnow()
+        conv.next_followup_at = None    # they replied → hand back to a human
+        conv.state = "active"
+    if new:
+        db.commit()
+    return {"new": new}
+
+
 def draft_followup(db, conv: DealConversation) -> dict:
     """Prepare the NEXT email in THIS thread — grounded in the full conversation +
     the deal's blueprint/agreement — reading like the salesperson wrote it. Never

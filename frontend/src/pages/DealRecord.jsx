@@ -401,6 +401,9 @@ function ConversationTab({ dealId, contact }) {
           <div className="row">
             <Button icon={Send} loading={busy === "send"} disabled={!connected || !!busy} onClick={send}>Send in thread</Button>
             <Button variant="secondary" icon={Sparkles} loading={busy === "draft"} disabled={!!busy} onClick={aiDraft}>AI draft</Button>
+            <span style={{ flex: 1 }} />
+            <Button variant="ghost" icon={RefreshCw} loading={busy === "sync"} disabled={!!busy}
+              onClick={async () => { setBusy("sync"); await reload(); setBusy(""); toast("Synced with the mailbox"); }}>Sync replies</Button>
           </div>
         </div>
       </div>
