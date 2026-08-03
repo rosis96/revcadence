@@ -236,6 +236,94 @@ def draft(deal_id: int, ctx: AuthContext = Depends(get_ctx)):
 
 
 # ============================================================ revenue inbox (candidates)
+@router.get("/mailbox/threads")
+def mailbox_threads(days: int = 30, limit: int = 80, workspace_id: int | None = None,
+                    ctx: AuthContext = Depends(get_ctx)):
+    """Browse recent conversations in the connected mailbox so the user can pick
+    which ones to import. Flags each thread as a known lead (a CRM contact — which
+    includes pipeline leads) and whether it's already been imported."""
+    wsids = ctx.workspace_ids_for_query(workspace_id)
+    mailbox = None
+    for wid in wsids:
+        mailbox = service.workspace_mailbox(ctx.db, wid)
+        if mailbox:
+            break
+    if not mailbox or mailbox.status != "connected":
+        return {"items": [], "mailbox": None, "note": "no connected mailbox"}
+    msgs = service.fetch_recent(mailbox, days=days, limit=limit)
+    me = (mailbox.email or "").lower()
+    seen, out = set(), []
+    for m in msgs:
+        frm = (m.get("from_email") or "").lower()
+        counterpart = (m.get("to_email") or "").lower() if frm == me else frm
+        subj = (m.get("subject") or "").strip()
+        norm = subj.lower()
+        while norm.startswith("re:") or norm.startswith("fwd:"):
+            norm = norm[3:].lstrip(": ").strip() if norm.startswith("re:") else norm[4:].lstrip(": ").strip()
+        key = (counterpart, norm)
+        if not counterpart or key in seen:
+            continue
+        seen.add(key)
+        parts = m.get("participants") or [counterpart]
+        contact = service.find_known_contact(ctx.db, mailbox.workspace_id, parts, exclude=me)
+        mid = m.get("rfc_message_id", "")
+        already = bool(mid and ctx.db.query(RevenueInboxItem).filter(
+            RevenueInboxItem.workspace_id == mailbox.workspace_id,
+            RevenueInboxItem.rfc_message_id == mid).first())
+        out.append({
+            "rfc_message_id": mid, "from_email": frm, "to_email": m.get("to_email", ""),
+            "subject": subj, "preview": (m.get("body_text", "") or "")[:180],
+            "participants": parts, "counterpart": counterpart,
+            "in_reply_to": m.get("in_reply_to", ""), "references": m.get("references", ""),
+            "known": contact is not None, "already": already,
+            "contact": {"id": contact.id, "name": f"{contact.first_name} {contact.last_name}".strip(),
+                        "email": contact.email} if contact else None,
+        })
+    return {"items": out, "mailbox": mailbox.email, "workspace_id": mailbox.workspace_id}
+
+
+class ThreadImportIn(BaseModel):
+    workspace_id: int
+    items: list[dict]
+
+
+@router.post("/mailbox/threads/import")
+def import_threads(body: ThreadImportIn, ctx: AuthContext = Depends(get_ctx)):
+    """Surface the selected threads in the Revenue Inbox to attach to deals."""
+    ctx.require_workspace(body.workspace_id)
+    n = 0
+    for m in body.items:
+        mid = m.get("rfc_message_id", "")
+        if mid and ctx.db.query(RevenueInboxItem).filter(
+                RevenueInboxItem.workspace_id == body.workspace_id,
+                RevenueInboxItem.rfc_message_id == mid).first():
+            continue
+        parts = m.get("participants") or [m.get("from_email", "")]
+        contact = service.find_known_contact(ctx.db, body.workspace_id, parts, exclude="")
+        ctx.db.add(RevenueInboxItem(
+            workspace_id=body.workspace_id, from_email=m.get("from_email", ""),
+            subject=m.get("subject", ""), body_text=(m.get("preview", "") or m.get("body_text", "") or "")[:8000],
+            participants=parts, rfc_message_id=mid, in_reply_to=m.get("in_reply_to", ""),
+            references=m.get("references", ""),
+            matched_contact_id=contact.id if contact else None,
+            matched_company_id=contact.company_id if contact else None, status="pending"))
+        n += 1
+    ctx.db.commit()
+    return {"imported": n}
+
+
+@router.post("/mailbox/sync")
+def mailbox_sync(workspace_id: int, ctx: AuthContext = Depends(get_ctx)):
+    """Manual 'Sync now': re-scan the mailbox and auto-surface any thread with a
+    known lead (pipeline contacts included). Runs the same backfill as on connect."""
+    ctx.require_workspace(workspace_id)
+    try:
+        res = service.backfill(ctx.db, workspace_id, days=60, limit=200)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, f"Sync failed: {e}")
+    return res
+
+
 @router.get("/revenue-inbox")
 def revenue_inbox(workspace_id: int | None = None, status: str = "pending",
                   ctx: AuthContext = Depends(get_ctx)):

@@ -3,10 +3,10 @@
 // the right deal with one click — it becomes that deal's Conversation.
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Mail, Check, X, ArrowRight, RefreshCw } from "lucide-react";
+import { Mail, X, ArrowRight, RefreshCw, Download, Inbox as InboxIcon } from "lucide-react";
 import { api, timeAgo } from "../api";
 import { useAuth } from "../auth";
-import { Avatar, Badge, Button, Empty, ErrorBox, PageHeader, Spinner, useApi, useToast } from "../components";
+import { Avatar, Badge, Button, Empty, ErrorBox, Modal, PageHeader, Spinner, useApi, useToast } from "../components";
 
 export default function RevenueInbox() {
   const { wsParam } = useAuth();
@@ -15,6 +15,35 @@ export default function RevenueInbox() {
   const { data, loading, error, reload } = useApi("/api/revenue-inbox", { workspace_id: wsParam });
   const [busy, setBusy] = useState(0);
   const [pick, setPick] = useState({});   // itemId -> chosen deal_id
+  const [syncing, setSyncing] = useState(false);
+  const [browse, setBrowse] = useState(null);   // { items, workspace_id } when the import modal is open
+  const [browseLoading, setBrowseLoading] = useState(false);
+  const [sel, setSel] = useState({});           // rfc_message_id -> thread object
+
+  const syncNow = async () => {
+    if (!wsParam) { toast("Pick a specific workspace first (top bar)", "bad"); return; }
+    setSyncing(true);
+    try { const r = await api("/api/mailbox/sync", { method: "POST", params: { workspace_id: wsParam } });
+      toast(`Synced — ${r.matched || 0} matched, ${r.candidates || 0} surfaced`); reload(); }
+    catch (e) { toast(e.message, "bad"); }
+    setSyncing(false);
+  };
+  const openBrowse = async () => {
+    setBrowseLoading(true); setSel({});
+    try { const r = await api("/api/mailbox/threads", { params: { workspace_id: wsParam, days: 30, limit: 80 } });
+      setBrowse(r); }
+    catch (e) { toast(e.message, "bad"); }
+    setBrowseLoading(false);
+  };
+  const importSelected = async () => {
+    const items = Object.values(sel);
+    if (!items.length) { toast("Select at least one conversation", "bad"); return; }
+    const wid = browse?.workspace_id || wsParam;
+    if (!wid) { toast("No workspace/mailbox found", "bad"); return; }
+    try { const r = await api("/api/mailbox/threads/import", { method: "POST", body: { workspace_id: Number(wid), items } });
+      toast(`Imported ${r.imported} conversation(s)`); setBrowse(null); reload(); }
+    catch (e) { toast(e.message, "bad"); }
+  };
 
   const attach = async (item) => {
     const dealId = pick[item.id] || item.deals[0]?.id;
@@ -37,7 +66,11 @@ export default function RevenueInbox() {
     <>
       <PageHeader title="Revenue Inbox"
         desc="Threads where your mailbox was CC'd (or on the thread) with a lead we already know. Attach each to its deal — the conversation continues in the same thread."
-        actions={<Button variant="secondary" icon={RefreshCw} onClick={reload}>Refresh</Button>} />
+        actions={<>
+          <Button variant="secondary" icon={Download} loading={browseLoading} onClick={openBrowse}>Import from mailbox</Button>
+          <Button variant="secondary" icon={RefreshCw} loading={syncing} onClick={syncNow}>Sync now</Button>
+          <Button variant="ghost" onClick={reload}>Refresh</Button>
+        </>} />
 
       {loading && <Spinner />}
       {error && <ErrorBox msg={error} retry={reload} />}
@@ -85,6 +118,46 @@ export default function RevenueInbox() {
           </div>
         ))}
       </div>
+
+      {browse && (
+        <Modal title="Import from mailbox" onClose={() => setBrowse(null)}>
+          <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 0 }}>
+            Recent conversations in <b>{browse.mailbox || "your mailbox"}</b>. Pick the ones to bring into the Revenue Inbox.
+            Threads with a known lead are tagged — those are your pipeline contacts.</p>
+          {(!browse.items || browse.items.length === 0) && (
+            <div className="empty" style={{ padding: 20 }}>No recent conversations found.</div>
+          )}
+          <div style={{ display: "grid", gap: 6, maxHeight: "52vh", overflow: "auto" }}>
+            {(browse.items || []).map((t) => {
+              const on = !!sel[t.rfc_message_id];
+              return (
+                <label key={t.rfc_message_id || t.subject + t.counterpart}
+                  style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 12px", borderRadius: 10,
+                    border: `1px solid ${on ? "var(--primary,#2563eb)" : "var(--border,#e2e4e9)"}`,
+                    background: on ? "var(--primary-soft,#eff6ff)" : "#fff", cursor: t.already ? "default" : "pointer",
+                    opacity: t.already ? 0.6 : 1 }}>
+                  <input type="checkbox" checked={on} disabled={t.already}
+                    onChange={(e) => setSel((s) => { const n = { ...s }; if (e.target.checked) n[t.rfc_message_id] = t; else delete n[t.rfc_message_id]; return n; })}
+                    style={{ marginTop: 3 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <b style={{ fontSize: 13 }}>{t.subject || "(no subject)"}</b>
+                      {t.known && <Badge tone="green">known lead: {t.contact?.name || t.contact?.email}</Badge>}
+                      {t.already && <Badge>already imported</Badge>}
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--muted)", margin: "1px 0 3px" }}>with {t.counterpart}</div>
+                    <div style={{ fontSize: 12.5, color: "var(--ink-2,#3b4557)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.preview}</div>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+          <div className="actions" style={{ marginTop: 14 }}>
+            <button className="btn ghost" onClick={() => setBrowse(null)}>Cancel</button>
+            <Button icon={InboxIcon} onClick={importSelected}>Import selected ({Object.keys(sel).length})</Button>
+          </div>
+        </Modal>
+      )}
     </>
   );
 }

@@ -238,6 +238,23 @@ def record_inbound(db, conv: DealConversation, *, from_email, subject, body_text
     return cm, cancelled
 
 
+def fetch_recent(mailbox, days: int = 30, limit: int = 100) -> list[dict]:
+    """Provider-agnostic pull of recent messages (parsed dicts). Used by the
+    'browse & import' mailbox view. Best-effort; returns [] on failure."""
+    if mailbox.provider == "google_workspace":
+        from . import gmail_api
+        return gmail_api.gmail_fetch_since(mailbox.email, days=days, limit=limit)
+    if mailbox.provider == "microsoft_graph":
+        from . import graph_api
+        return graph_api.graph_fetch_since(mailbox.email, days=days, limit=limit)
+    try:
+        secret = decrypt(mailbox.app_password_enc)
+    except Exception:  # noqa: BLE001
+        return []
+    return transport.imap_fetch_since(mailbox.imap_host, mailbox.imap_port, mailbox.username,
+                                      secret, days=days, limit=limit, folder="INBOX")
+
+
 def find_known_contact(db, workspace_id, emails: list, exclude: str = ""):
     """Return the first workspace Contact whose email is among `emails` (any known
     lead on the thread). Excludes our own mailbox address."""
