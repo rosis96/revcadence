@@ -92,23 +92,32 @@ const MODES = {
   },
 };
 const COMMON_NAV = [["/", "Master Dashboard", LayoutGrid]];
-// BUILD: every per-workspace configuration screen in one collapsible layer — the
-// "how this workspace works" setup, pulled out of the day-to-day mode nav.
-const BUILD_NAV = [
-  ["/enrichment/profile", "Client Profile", CircleUser],
-  ["/enrichment/brain", "Ask the Brain", Sparkles],
-  ["/enrichment/icp", "ICP / Non-ICP", Target],
-  ["/enrichment/formats", "Formats", AlignLeft],
-  ["/enrichment/rules", "Rules", CheckCheck],
-  ["/enrichment/training", "Workspace Training", ShieldCheck],
-  ["/reply/setup", "Reply Setup", Settings2],
-  ["/reply/settings", "Reply Settings", SlidersHorizontal],
-  ["/settings/email", "Email Accounts", Mail],
-  ["/reply/workspaces", "Extra Channels", Flag],
-];
+// BUILD is the per-workspace "how this section works" config — but scoped to the
+// current mode, so CRM doesn't show Outbound/Reply setup and vice-versa.
+const BUILD_BY_MODE = {
+  outbound: [
+    ["/enrichment/profile", "Client Profile", CircleUser],
+    ["/enrichment/brain", "Ask the Brain", Sparkles],
+    ["/enrichment/icp", "ICP / Non-ICP", Target],
+    ["/enrichment/formats", "Formats", AlignLeft],
+    ["/enrichment/rules", "Rules", CheckCheck],
+    ["/enrichment/training", "Workspace Training", ShieldCheck],
+  ],
+  reply: [
+    ["/reply/setup", "Reply Setup", Settings2],
+    ["/reply/settings", "Reply Settings", SlidersHorizontal],
+    ["/reply/workspaces", "Extra Channels", Flag],
+  ],
+  crm: [
+    ["/settings/email", "Email Accounts", Mail],
+    ["/enrichment/profile", "Client Profile", CircleUser],
+  ],
+  inbound: [],
+};
+const BUILD_ALL = Object.values(BUILD_BY_MODE).flat();
 const SYSTEM_NAV = [["/activity", "Activity", ActivityIcon], ["/jobs", "Jobs", Cog], ["/settings", "Settings", Wrench],
   ["/settings/developers", "Developers", KeyRound], ["/settings/crm", "CRM Integrations", Plug]];
-const NAV = [...COMMON_NAV, ...Object.values(MODES).flatMap((m) => m.nav), ...BUILD_NAV, ...SYSTEM_NAV];
+const NAV = [...COMMON_NAV, ...Object.values(MODES).flatMap((m) => m.nav), ...BUILD_ALL, ...SYSTEM_NAV];
 const NavIcon = ({ ic: Ic }) => <span className="icon"><Ic size={I} /></span>;
 
 // A handed-over client workspace stays clean: clients only see their results —
@@ -128,6 +137,7 @@ function Sidebar() {
   const modeMap = Object.fromEntries(modeEntries);
   const [mode, setModeRaw] = useState(localStorage.getItem("rc_mode") || "outbound");
   const activeMode = modeMap[mode] ? mode : (modeEntries[0]?.[0] || "crm");
+  const buildItems = BUILD_BY_MODE[activeMode] || [];   // config scoped to the current mode
   const nav = useNavigate();
   const loc = useLocation();
   const setMode = (m) => {
@@ -138,7 +148,7 @@ function Sidebar() {
   // Build + System are collapsible: hidden until clicked, but auto-open when the
   // current page lives inside them so you can see where you are.
   const inGroup = (items) => items.some(([to]) => loc.pathname === to || loc.pathname.startsWith(to + "/"));
-  const [buildOpen, setBuildOpen] = useState(() => inGroup(BUILD_NAV));
+  const [buildOpen, setBuildOpen] = useState(() => inGroup(BUILD_ALL));
   const [systemOpen, setSystemOpen] = useState(() =>
     inGroup(SYSTEM_NAV) || loc.pathname.startsWith("/admin") || loc.pathname.startsWith("/billing"));
   const [menu, setMenu] = useState(false);
@@ -163,13 +173,17 @@ function Sidebar() {
         ))}
         {!isClient && (
           <>
-            <button className="group-btn" onClick={() => setBuildOpen((v) => !v)} aria-expanded={buildOpen}>
-              <span>Build</span>
-              <ChevronDown size={14} style={{ transform: buildOpen ? "" : "rotate(-90deg)", transition: "transform .15s" }} />
-            </button>
-            {buildOpen && BUILD_NAV.map(([to, label, ic]) => (
-              <NavLink key={to} to={to} end={to.split("/").length <= 2}><NavIcon ic={ic} /><span>{label}</span></NavLink>
-            ))}
+            {buildItems.length > 0 && (
+              <>
+                <button className="group-btn" onClick={() => setBuildOpen((v) => !v)} aria-expanded={buildOpen}>
+                  <span>Build · {modeMap[activeMode].label}</span>
+                  <ChevronDown size={14} style={{ transform: buildOpen ? "" : "rotate(-90deg)", transition: "transform .15s" }} />
+                </button>
+                {buildOpen && buildItems.map(([to, label, ic]) => (
+                  <NavLink key={to} to={to} end={to.split("/").length <= 2}><NavIcon ic={ic} /><span>{label}</span></NavLink>
+                ))}
+              </>
+            )}
             <button className="group-btn" onClick={() => setSystemOpen((v) => !v)} aria-expanded={systemOpen}>
               <span>System</span>
               <ChevronDown size={14} style={{ transform: systemOpen ? "" : "rotate(-90deg)", transition: "transform .15s" }} />
