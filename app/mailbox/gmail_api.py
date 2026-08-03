@@ -119,23 +119,31 @@ def gmail_thread_id_for_message(email: str, rfc_message_id: str) -> str:
 
 
 def gmail_thread(email: str, thread_id: str) -> list[dict]:
-    """Every message in a Gmail thread, oldest first — for full-context import."""
+    """Every message in a Gmail thread, oldest first — for full-context import.
+    Note: threads.get does NOT support format=raw, so we list the thread's message
+    ids, then fetch each message individually as raw (messages.get supports raw)."""
     from . import transport
     out = []
     if not thread_id:
         return out
     try:
         token = _token(email)
-        r = requests.get(f"{_BASE}/{email}/threads/{thread_id}",
-                         headers={"Authorization": f"Bearer {token}"}, params={"format": "raw"}, timeout=25)
+        hdr = {"Authorization": f"Bearer {token}"}
+        r = requests.get(f"{_BASE}/{email}/threads/{thread_id}", headers=hdr,
+                         params={"format": "minimal"}, timeout=20)
         if r.status_code != 200:
             return out
         for m in (r.json().get("messages") or []):
-            raw_b64 = m.get("raw", "")
+            g = requests.get(f"{_BASE}/{email}/messages/{m['id']}", headers=hdr,
+                             params={"format": "raw"}, timeout=20)
+            if g.status_code != 200:
+                continue
+            gj = g.json() or {}
+            raw_b64 = gj.get("raw", "")
             if not raw_b64:
                 continue
             parsed = transport.parse_message(base64.urlsafe_b64decode(raw_b64.encode()))
-            parsed["internal_ts"] = int(m.get("internalDate") or 0)
+            parsed["internal_ts"] = int(gj.get("internalDate") or 0)
             out.append(parsed)
         out.sort(key=lambda x: x.get("internal_ts", 0))
     except Exception:  # noqa: BLE001

@@ -2,7 +2,7 @@
 // Tabs: Overview (dashboard) · Conversation (same-thread) · Timeline · Blueprint ·
 // Agreement · Invoice · Tasks · Files · Notes. Overview answers "what's happening
 // with this deal right now?" without opening another tab.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Send, Sparkles, RefreshCw, Mail, Plus, Check, Trash2, Download, FileText, FileSignature, Receipt } from "lucide-react";
 import { api, download, emailText, money, timeAgo } from "../api";
@@ -262,6 +262,12 @@ function ConversationTab({ dealId, contact }) {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState("");
   const [plan, setPlan] = useState(null);   // follow-up plan modal state (hook must be before any early return)
+  // Live-ish: quietly re-sync the thread every 15s while the conversation is open,
+  // so new replies show up on their own (the GET auto-syncs the mailbox thread).
+  useEffect(() => {
+    const t = setInterval(() => reload(), 15000);
+    return () => clearInterval(t);
+  }, [reload]);
   if (loading) return <Spinner />;
   if (error) return <ErrorBox msg={error} retry={reload} />;
   const msgs = data?.messages || [];
