@@ -2,7 +2,7 @@
 // Tabs: Overview (dashboard) · Conversation (same-thread) · Timeline · Blueprint ·
 // Agreement · Invoice · Tasks · Files · Notes. Overview answers "what's happening
 // with this deal right now?" without opening another tab.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Send, Sparkles, RefreshCw, Mail, Plus, Check, Trash2, Download, FileText, FileSignature, Receipt, PanelRightClose } from "lucide-react";
 import { api, download, emailText, money, splitQuoted, timeAgo } from "../api";
@@ -327,12 +327,18 @@ function ConversationTab({ dealId, deal, contact, setTab }) {
   const [busy, setBusy] = useState("");
   const [plan, setPlan] = useState(null);   // follow-up plan modal state (hook must be before any early return)
   const [focus, setFocus] = useState(false); // full-width focus mode (context panel collapsed)
+  const streamRef = useRef(null);
   // Live-ish: quietly re-sync the thread every 15s while the conversation is open.
   // refresh() updates in place (no spinner) so the view never blanks while you read.
   useEffect(() => {
     const t = setInterval(() => refresh(), 15000);
     return () => clearInterval(t);
   }, [refresh]);
+  // Keep the newest message in view (chat behaviour) as messages arrive.
+  useEffect(() => {
+    const el = streamRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [data?.messages?.length]);
   if (loading) return <Spinner />;
   if (error) return <ErrorBox msg={error} retry={reload} />;
   const msgs = data?.messages || [];
@@ -429,7 +435,7 @@ function ConversationTab({ dealId, deal, contact, setTab }) {
           </div>
         )}
 
-        <div className="ib-msgs conv-stream" role="log" aria-label="Conversation messages" aria-live="polite">
+        <div className="ib-msgs conv-stream" ref={streamRef} role="log" aria-label="Conversation messages" aria-live="polite">
           {msgs.length === 0 && <div className="rc-empty" style={{ padding: 24 }}>No messages yet. Start the conversation below — it stays in one email thread until the deal is won or lost.</div>}
           {msgs.map((m) => <MessageBubble key={m.id} m={m} contact={contact} />)}
         </div>

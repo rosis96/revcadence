@@ -653,17 +653,22 @@ iframe.preview { width: 100%; height: 70vh; border: 1px solid var(--border); bor
 /* ============================================================ Deal record: grouped nav + layout modes */
 .deal-record { max-width: 1280px; }
 .deal-record.is-workspace { max-width: none; }
-.record-nav { position: sticky; top: var(--header-h); z-index: 5; background: var(--bg); padding-top: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+.record-nav { position: sticky; top: var(--header-h); z-index: 5; background: var(--bg); padding-top: 2px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+/* tighter top chrome so the conversation gets more vertical room */
+.deal-record.is-workspace .bcrumb { margin-bottom: 6px; }
+.deal-record.is-workspace .page-head { margin-bottom: 6px !important; }
+.deal-record.is-workspace .page-head h1 { font-size: 21px; }
+.deal-record.is-workspace .record-nav { margin-bottom: 10px; }
 .record-subnav { display: flex; gap: 4px; padding: 8px 0 10px; }
 .seg-btn { background: none; border: 1px solid transparent; border-radius: 8px; padding: 5px 12px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; transition: background .12s, color .12s; }
 .seg-btn:hover { background: var(--card); color: var(--text); }
 .seg-btn.on { background: var(--primary-soft); color: var(--primary); border-color: #D6E7FD; }
 
 /* ---- Conversation workspace: full-bleed, viewport height, independent scroll ---- */
-.conv-workspace { display: flex; gap: 18px; align-items: stretch; height: calc(100vh - 300px); min-height: 520px; }
+.conv-workspace { display: flex; gap: 18px; align-items: stretch; height: calc(100vh - 210px); min-height: 460px; }
 .conv-workspace.focus { }
 .conv-main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #fff; border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-card); overflow: hidden; }
-.conv-toolbar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); background: #fff; flex-shrink: 0; }
+.conv-toolbar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: #fff; flex-shrink: 0; }
 .ct-who { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
 .ct-name { font-size: 14px; font-weight: 650; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ct-sub { font-size: 12px; color: var(--muted2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -672,15 +677,15 @@ iframe.preview { width: 100%; height: 70vh; border: 1px solid var(--border); bor
 .ct-status .dot { width: 7px; height: 7px; border-radius: 50%; }
 .ct-status.ok .dot { background: var(--ok); box-shadow: 0 0 0 3px rgba(18,183,106,.15); }
 .ct-status.off .dot { background: var(--muted2); }
-.conv-banner { display: flex; align-items: center; gap: 10px; padding: 9px 16px; font-size: 12.5px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.conv-banner { display: flex; align-items: center; gap: 10px; padding: 7px 16px; font-size: 12.5px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .conv-banner.warn { background: #FFFAEB; color: #B54708; }
 .conv-banner.followup { background: #fff; color: var(--text); }
 .conv-banner.followup.on { background: var(--primary-soft); }
 .conv-banner .fu-sub { color: var(--muted); }
 .conv-stream { background: #F7F9FC; }
 .conv-stream .msg-row { max-width: min(720px, 88%); }
-.conv-composer { flex-shrink: 0; }
-.conv-composer textarea { min-height: 120px; }
+.conv-composer { flex-shrink: 0; padding: 10px 12px; }
+.conv-composer textarea { min-height: 76px; }
 
 /* ---- right lead context panel ---- */
 .conv-context { width: 320px; flex-shrink: 0; background: #fff; border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-card); overflow-y: auto; }
