@@ -23,6 +23,9 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.send",
     "https://www.googleapis.com/auth/gmail.readonly",
 ]
+# RevCadence's permanent service-account Client ID — the one every Workspace admin
+# authorizes (published, not secret, exactly like Instantly). Env overrides it.
+DEFAULT_CLIENT_ID = "101484446945354944460"
 _BASE = "https://gmail.googleapis.com/gmail/v1/users"
 
 
@@ -45,7 +48,7 @@ def enabled() -> bool:
 
 def client_id() -> str:
     info = _sa_info() or {}
-    return (os.getenv("GOOGLE_WORKSPACE_CLIENT_ID", "") or info.get("client_id", "") or "").strip()
+    return (os.getenv("GOOGLE_WORKSPACE_CLIENT_ID", "") or info.get("client_id", "") or DEFAULT_CLIENT_ID).strip()
 
 
 def _token(subject: str) -> str:

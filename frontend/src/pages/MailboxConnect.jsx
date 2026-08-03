@@ -25,6 +25,7 @@ export default function MailboxConnect() {
   const { data: existing, loading, reload } = useApi("/api/mailbox", { workspace_id: wsParam });
   const { data: gw } = useApi("/api/mailbox/google-workspace");
   const { data: ms } = useApi("/api/mailbox/microsoft");
+  const { data: goauth } = useApi("/api/oauth/google/config");
   const [form, setForm] = useState({ provider: "google_workspace", email: "", app_password: "", from_name: "",
     username: "", smtp_host: "", smtp_port: "", imap_host: "", imap_port: "" });
   const [fu, setFu] = useState(null);
@@ -41,6 +42,21 @@ export default function MailboxConnect() {
       default_max_followups: existing.default_max_followups || 4 });
   }, [existing?.id, existing?.default_autopilot]);
   useEffect(() => { if (existing) setForm((f) => ({ ...f, provider: existing.provider, email: existing.email, from_name: existing.from_name || "" })); }, [existing]);
+
+  // Handle the return from the Google sign-in redirect.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.hash.split("?")[1] || "");
+    if (q.get("connected")) { toast("Mailbox connected via Google — importing recent conversations…"); setImporting(true); reload(); }
+    else if (q.get("oauth") === "error") { toast("Google sign-in didn't complete. Make sure your admin authorized RevCadence, then try again.", "bad"); }
+    if (q.get("connected") || q.get("oauth")) window.history.replaceState(null, "", window.location.hash.split("?")[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const signInGoogle = async () => {
+    if (!wsId) { toast("Pick a workspace first (top bar)", "bad"); return; }
+    try { const r = await api("/api/oauth/google/start", { params: { workspace_id: wsId } }); window.location.href = r.url; }
+    catch (e) { toast(e.message, "bad"); }
+  };
 
   const saveFu = async () => {
     try { await api("/api/mailbox/followup-defaults", { method: "PUT", body: { workspace_id: wsId, ...fu } }); toast("Follow-up defaults saved"); reload(); }
@@ -175,9 +191,25 @@ export default function MailboxConnect() {
         </div>
 
         {card.flow === "google" && (
-          <AuthSteps info={gw} title="Authorize RevCadence in Google Admin"
-            adminLabel="Google Admin → Security → Domain-wide delegation → Add new"
-            notConfiguredEnv="GOOGLE_WORKSPACE_SA_JSON" scopesLabel="OAuth scopes (paste comma-separated)" />
+          <>
+            <AuthSteps info={gw} title="Authorize RevCadence in Google Admin"
+              adminLabel="Google Admin → Security → Domain-wide delegation → Add new"
+              notConfiguredEnv="GOOGLE_WORKSPACE_SA_JSON" scopesLabel="OAuth scopes (paste comma-separated)" />
+            {goauth?.enabled && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 0 6px" }}>
+                <button onClick={signInGoogle}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 10, cursor: "pointer",
+                    padding: "10px 16px", borderRadius: 10, border: "1px solid var(--border-strong,#cdd0d8)",
+                    background: "#fff", fontWeight: 600, fontSize: 14 }}>
+                  <span style={{ width: 20, height: 20, borderRadius: 4, background: "#fff",
+                    border: "1px solid #e2e4e9", color: "#ea4335", fontWeight: 800,
+                    display: "inline-flex", alignItems: "center", justifyContent: "center" }}>G</span>
+                  Sign in with Google
+                </button>
+                <span style={{ fontSize: 12, color: "var(--muted)" }}>One click — pick your account, no typing.</span>
+              </div>
+            )}
+          </>
         )}
         {card.flow === "microsoft" && (
           <AuthSteps info={ms} title="Grant admin consent in Microsoft 365"
