@@ -377,6 +377,8 @@ def load_client_brain(db, workspace_id) -> dict:
 def build_reply_prompt(rws, thread: list, scheduling_context: str = "", prospect: dict = None,
                        client_brain: dict = None) -> tuple:
     fmt = rws.reply_format or {}
+    fups = fmt.get("followups", []) or []
+    n_fup = len(fups)
     rules = [ln.strip() for ln in (rws.ai_rules or "").splitlines() if ln.strip()]
     prospect = prospect or {}
     first = (prospect.get("first_name") or "").strip()
@@ -410,6 +412,13 @@ def build_reply_prompt(rws, thread: list, scheduling_context: str = "", prospect
         "fill the placeholders — do not blend types or add extra pitch paragraphs. MATCH YOUR LENGTH TO "
         "THEIRS: never answer a short, ready-to-book message with a multi-paragraph pitch.",
 
+        (f"STEP 4 — WRITE THE FOLLOW-UPS (REQUIRED, do not skip). In ADDITION to main_reply, write exactly "
+         f"{n_fup} follow-up emails as followup_1 through followup_{n_fup} — ONE for EACH item in FOLLOW-UP "
+         f"SPECS below, in the same order. Each follow-up must use that spec's template + intent and stay "
+         f"within its max_words. Follow-ups send later only if the prospect goes quiet, so each must add NEW "
+         f"value and propose or vary the times — never repeat main_reply. You MUST return all {n_fup}; never "
+         f"leave any blank." if n_fup else ""),
+
         "SCHEDULING RULE (critical): Propose ONLY specific dates/times that appear verbatim in SCHEDULING "
         "CONTEXT below. If there is NO scheduling context, DO NOT invent any times — instead invite them "
         "to pick a time"
@@ -422,8 +431,12 @@ def build_reply_prompt(rws, thread: list, scheduling_context: str = "", prospect
         + (f"'{first}'" if first else "the real first name") +
         ". NEVER include a sign-off or signature (no 'Best', 'Regards', name, or website) — the system appends one.",
 
-        "Return STRICT JSON: {\"intent\": str, \"confidence\": \"high|medium|low\", "
-        "\"human_review_needed\": bool, \"main_reply\": str, \"followup_1\": str, … up to \"followup_6\"}.",
+        (f"Return STRICT JSON with EXACTLY these keys: \"intent\" (str), \"confidence\" "
+         f"(\"high|medium|low\"), \"human_review_needed\" (bool), \"main_reply\" (str), and a non-empty "
+         f"\"followup_1\" … \"followup_{n_fup}\" (str) — one for each FOLLOW-UP SPEC. All {n_fup} follow-ups "
+         f"are mandatory." if n_fup else
+         "Return STRICT JSON: {\"intent\": str, \"confidence\": \"high|medium|low\", "
+         "\"human_review_needed\": bool, \"main_reply\": str}."),
 
         (f"PROSPECT: first name = {first}"
          + (f", company = {prospect.get('company')}" if prospect.get("company") else "")) if first else "",
