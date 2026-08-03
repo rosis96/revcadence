@@ -4,22 +4,32 @@
 // arrive, count down, run, and land — and diagnose "I replied but nothing
 // showed up yet" (webhook not arriving vs. still delayed vs. unrouted vs. error).
 import { useEffect, useRef, useState } from "react";
+import { Ban } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { Empty, ErrorBox, Metric, Spinner, StatusBadge } from "../components";
+import { Button, Empty, ErrorBox, Metric, Spinner, StatusBadge, useToast } from "../components";
 
 const TONE = { pending: "amber", running: "blue", done: "green", failed: "red", cancelled: "gray" };
 
 export default function ReplyProcessing() {
   const { wsParam } = useAuth();
+  const toast = useToast();
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
+  const [stopping, setStopping] = useState(0);
   const timer = useRef(null);
 
   const load = () => {
     api("/api/reply/processing", { params: { workspace_id: wsParam } })
       .then((d) => { setData(d); setError(""); })
       .catch((e) => setError(e.message));
+  };
+
+  const stopJob = async (id) => {
+    setStopping(id);
+    try { await api(`/api/reply/processing/${id}/cancel`, { method: "POST" }); toast("Stopped — this reply won't be sent"); load(); }
+    catch (e) { toast(e.message, "bad"); }
+    setStopping(0);
   };
 
   useEffect(() => {
@@ -80,7 +90,7 @@ export default function ReplyProcessing() {
       ) : (
         <table className="tbl">
           <thead><tr>
-            <th>Reply</th><th>Routed to</th><th>Status</th><th>When</th><th>Detail</th>
+            <th>Reply</th><th>Routed to</th><th>Status</th><th>When</th><th>Detail</th><th></th>
           </tr></thead>
           <tbody>
             {data.jobs.map((j) => {
@@ -113,6 +123,12 @@ export default function ReplyProcessing() {
                   </td>
                   <td style={{ fontSize: 12.5, color: j.error ? "var(--red-tx, #c0392b)" : "var(--muted)", maxWidth: 380 }}>
                     {detail}
+                  </td>
+                  <td style={{ textAlign: "right" }}>
+                    {j.can_cancel && (
+                      <Button size="sm" variant="danger" icon={Ban} loading={stopping === j.id}
+                        onClick={() => stopJob(j.id)}>Stop</Button>
+                    )}
                   </td>
                 </tr>
               );

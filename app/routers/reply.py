@@ -610,6 +610,8 @@ def reply_processing(workspace_id: int | None = None, ctx: AuthContext = Depends
             "platform": p.get("platform"), "flow": p.get("flow", "reply"),
             "email": _email(p),
             "seconds_until_run": max(0, secs),
+            "can_cancel": j.status == "pending",   # still held in the delay → stoppable
+
             "note": j.progress_note or "",
             "error": (j.error or "")[:300],
             "result": {k: v for k, v in (j.result or {}).items()} if j.result else {},
@@ -617,6 +619,27 @@ def reply_processing(workspace_id: int | None = None, ctx: AuthContext = Depends
             "finished_at": j.finished_at.isoformat() if j.finished_at else None,
         })
     return {"summary": summary, "worker_alive": worker_alive, "jobs": jobs}
+
+
+@router.post("/processing/{job_id}/cancel")
+def cancel_reply_job(job_id: int, ctx: AuthContext = Depends(get_ctx)):
+    """Stop a queued reply before it runs. Only jobs still HELD in the delay
+    window (status=pending, not yet claimed by the worker) can be cancelled —
+    once it's running or done it's too late. Use when a lead was marked
+    interested by mistake, or a webhook fired that you don't want answered."""
+    from ..models.jobs import Job
+    j = ctx.db.get(Job, job_id)
+    if not j or j.kind != "process_reply":
+        raise HTTPException(404, "Job not found")
+    if j.workspace_id is not None and j.workspace_id not in ctx.allowed_workspace_ids():
+        raise HTTPException(403, "Not allowed for this workspace")
+    if j.status != "pending":
+        raise HTTPException(409, f"Can't stop a reply that is already {j.status}.")
+    j.status = "cancelled"
+    j.finished_at = datetime.utcnow()
+    j.result = {**(j.result or {}), "skipped": "cancelled by user"}
+    ctx.db.commit()
+    return {"ok": True, "id": j.id, "status": j.status}
 
 
 @router.get("/leads/{lead_id}")
