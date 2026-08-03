@@ -74,13 +74,20 @@ def migrate(*, create_missing_tables: bool = True):
     if create_missing_tables:
         Base.metadata.create_all(engine)
     insp = inspect(engine)
-    with engine.begin() as conn:
-        for table in Base.metadata.sorted_tables:
-            if not insp.has_table(table.name):
+    for table in Base.metadata.sorted_tables:
+        if not insp.has_table(table.name):
+            continue
+        existing = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name in existing:
                 continue
-            existing = {c["name"] for c in insp.get_columns(table.name)}
-            for col in table.columns:
-                if col.name in existing:
-                    continue
-                coltype = col.type.compile(engine.dialect)
-                conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {coltype}'))
+            coltype = col.type.compile(engine.dialect)
+            # Each ADD COLUMN runs in its OWN transaction so a single failure (e.g.
+            # an incompatible type on one column) can't roll back every other add and
+            # break boot. Columns are added nullable (compile() emits no NOT NULL), so
+            # this is safe on populated tables; app-side defaults apply to new rows.
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {coltype}'))
+            except Exception as e:  # noqa: BLE001
+                print(f"[migrate] skipped {table.name}.{col.name}: {str(e)[:160]}")

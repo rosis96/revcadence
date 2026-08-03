@@ -83,6 +83,11 @@ export const splitQuoted = (text) => {
   if (cut < 0) return { main: (text || "").trimEnd(), quoted: "" };
   return { main: lines.slice(0, cut).join("\n").trimEnd(), quoted: lines.slice(cut).join("\n").trim() };
 };
+// Backend timestamps are naive UTC (no timezone). new Date(iso) would read them as
+// LOCAL time and show the wrong clock time. Normalize by appending Z, then format
+// in the user's locale. Use these instead of new Date(iso).toLocale*() directly.
+export const localDateTime = (iso) => iso ? new Date(String(iso) + (String(iso).endsWith("Z") ? "" : "Z")).toLocaleString() : "";
+export const localDate = (iso) => iso ? new Date(String(iso) + (String(iso).endsWith("Z") ? "" : "Z")).toLocaleDateString() : "";
 export const timeAgo = (iso) => {
   if (!iso) return "";
   const s = (Date.now() - new Date(iso + (iso.endsWith("Z") ? "" : "Z")).getTime()) / 1000;

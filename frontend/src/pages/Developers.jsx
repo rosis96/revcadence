@@ -2,7 +2,7 @@
 // and the client-facing API documentation. Shared components only.
 import { useMemo, useState } from "react";
 import { Copy, ExternalLink, KeyRound, Plus, RefreshCw, RotateCw, Trash2, Webhook } from "lucide-react";
-import { api, timeAgo } from "../api";
+import { api, localDate, timeAgo } from "../api";
 import { useAuth } from "../auth";
 import {
   Badge, Button, ConfirmDialog, DataTable, ErrorBox, Modal, PageHeader, RowCard,
@@ -73,7 +73,7 @@ function KeysTab() {
     { accessorKey: "last_used_at", header: "Last used", size: 130,
       cell: ({ getValue }) => (getValue() ? timeAgo(getValue()) : "never") },
     { accessorKey: "expires_at", header: "Expires", size: 120,
-      cell: ({ getValue }) => (getValue() ? new Date(getValue()).toLocaleDateString() : "never") },
+      cell: ({ getValue }) => (getValue() ? localDate(getValue()) : "never") },
     { id: "acts", header: "", size: 220, enableSorting: false,
       cell: ({ row }) => !row.original.revoked_at && (
         <span style={{ display: "inline-flex", gap: 6 }} onClick={(e) => e.stopPropagation()}>

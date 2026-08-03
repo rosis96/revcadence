@@ -320,7 +320,7 @@ export function CommentsPanel({ comments, onAdd, me = "You" }) {
           <Avatar name={c.author || me} size={24} />
           <div className="cmt-b">
             <div className="cmt-h"><b>{c.author || me}</b>
-              <em>{c.at ? new Date(c.at).toLocaleString() : ""}</em></div>
+              <em>{c.at ? new Date(String(c.at) + (String(c.at).endsWith("Z") ? "" : "Z")).toLocaleString() : ""}</em></div>
             <div className="cmt-t">{c.text}</div>
           </div>
         </div>

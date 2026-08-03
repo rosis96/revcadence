@@ -177,10 +177,15 @@ def build_scheduling_context(db, rws, location: str, prospect_key: str = "",
     if not token or not rws.calendly_scheduling_url:
         return ""
     from ..models.reply import ProposedSlot
-    # prune past reservations + collect still-reserved UTC keys for this workspace
+    # prune past reservations for this workspace
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     db.query(ProposedSlot).filter(ProposedSlot.workspace_id == rws.workspace_id,
                                   ProposedSlot.slot_utc < now_iso).delete(synchronize_session=False)
+    # release THIS prospect's own prior reservations, so re-drafting the same lead
+    # reuses their slots instead of accumulating new holds and draining availability.
+    if prospect_key:
+        db.query(ProposedSlot).filter(ProposedSlot.workspace_id == rws.workspace_id,
+                                      ProposedSlot.prospect == prospect_key).delete(synchronize_session=False)
     reserved = {r[0] for r in db.query(ProposedSlot.slot_utc)
                 .filter(ProposedSlot.workspace_id == rws.workspace_id).all()}
     tz = timezone_from_location(location)

@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Send, Sparkles, RefreshCw, Mail, Plus, Check, Trash2, Download, FileText, FileSignature, Receipt, PanelRightClose } from "lucide-react";
-import { api, download, emailText, money, splitQuoted, timeAgo } from "../api";
+import { api, download, emailText, localDate, money, splitQuoted, timeAgo } from "../api";
 import {
   Avatar, Badge, Breadcrumbs, Button, ErrorBox, Modal, Spinner, StatusPill, Timeline,
   useApi, useToast,
@@ -426,7 +426,7 @@ function ConversationTab({ dealId, deal, contact, setTab }) {
               <b style={{ fontSize: 12.5 }}>Follow-up autopilot {conv.autopilot ? "· Active" : "· Off"}</b>
               <span className="fu-sub">
                 {conv.autopilot
-                  ? ` Next ${conv.next_followup_at ? new Date(conv.next_followup_at).toLocaleDateString() : "when due"} · ${conv.followups_sent}/${conv.max_followups} sent · stops when they reply`
+                  ? ` Next ${conv.next_followup_at ? localDate(conv.next_followup_at) : "when due"} · ${conv.followups_sent}/${conv.max_followups} sent · stops when they reply`
                   : " Preview and edit each email, set timing, then turn it on. Stops when they reply."}
               </span>
             </div>
@@ -538,7 +538,7 @@ function LeadContextPanel({ deal, conv, contact, setTab, onCollapse }) {
       </div>
       <div className="lcp-sec">
         <div className="lcp-title">Activity</div>
-        <Row k="Next follow-up" v={conv?.next_followup_at ? new Date(conv.next_followup_at).toLocaleDateString() : "None"} />
+        <Row k="Next follow-up" v={conv?.next_followup_at ? localDate(conv.next_followup_at) : "None"} />
         <Row k="Autopilot" v={conv?.autopilot ? "Active" : "Off"} />
       </div>
       <div className="lcp-sec">

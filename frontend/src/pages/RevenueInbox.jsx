@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Mail, X, ArrowRight, RefreshCw, Download, Inbox as InboxIcon, ChevronDown } from "lucide-react";
-import { api, emailText, splitQuoted, timeAgo } from "../api";
+import { api, emailText, localDateTime, splitQuoted, timeAgo } from "../api";
 import { useAuth } from "../auth";
 import { Avatar, Badge, Button, Empty, ErrorBox, Modal, PageHeader, Spinner, useApi, useToast } from "../components";
 
@@ -16,7 +16,7 @@ function ThreadMsg({ mm, name, last }) {
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--muted)", marginBottom: 3 }}>
         <b style={{ color: mm.direction === "out" ? "var(--primary)" : "var(--text)" }}>
           {mm.direction === "out" ? "You" : (name || mm.from_email || "Them")}</b>
-        <span>{mm.at ? new Date(mm.at).toLocaleString() : ""}</span>
+        <span>{localDateTime(mm.at)}</span>
       </div>
       <div style={{ fontSize: 13, whiteSpace: "pre-wrap", color: "var(--text)" }}>{main}</div>
       {quoted && (
