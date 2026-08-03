@@ -87,12 +87,17 @@ async def bison_webhook(request: Request, reply_workspace: str = "", fup_workspa
 
 
 @router.post("/webhooks/instantly")
-async def instantly_webhook(request: Request, workspace_name: str = ""):
+async def instantly_webhook(request: Request, workspace_name: str = "", flow: str = "reply"):
     """Routing order (legacy workspace-isolation fix): explicit ?workspace_name
     → payload workspace_name → single active Instantly workspace → 'Unrouted'.
-    NEVER attribute unmatched leads to another workspace."""
+    NEVER attribute unmatched leads to another workspace.
+
+    ?flow=followup runs the follow-up-only path (write {{followup_1}}… onto the
+    lead, never send a reply) for leads that missed their follow-ups. The space's
+    mode='followup' forces this too, so either trigger works."""
     from ..db import SessionLocal
     payload = await request.json()
+    flow = flow if flow in ("reply", "followup") else "reply"
     db = SessionLocal()
     try:
         name = workspace_name or str(payload.get("workspace_name", ""))
@@ -107,8 +112,8 @@ async def instantly_webhook(request: Request, workspace_name: str = ""):
             if len(actives) == 1:
                 rws = actives[0]
         job_id = _enqueue(db, rws.name if rws else "Unrouted",
-                          rws.workspace_id if rws else None, "instantly", payload, "reply")
-        return {"ok": True, "job_id": job_id, "routed_to": rws.name if rws else "Unrouted"}
+                          rws.workspace_id if rws else None, "instantly", payload, flow)
+        return {"ok": True, "job_id": job_id, "routed_to": rws.name if rws else "Unrouted", "flow": flow}
     finally:
         db.close()
 

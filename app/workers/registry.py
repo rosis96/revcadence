@@ -418,9 +418,19 @@ def process_reply_job(db, job):
     lead.reply_added = bool(lead.main_reply) and gen["model_ran"]
     action = gen["action"]
 
-    if action == "send" and not E.auto_send_enabled():
+    # FOLLOW-UP-ONLY mode: for leads that missed their follow-ups. We never send a
+    # reply here — we only write the follow-up emails onto the lead's variables so
+    # the platform's follow-up steps ({{followup_1}}…) send them. Triggered by the
+    # webhook flow OR the reply-space mode being "followup".
+    is_followup = (flow == "followup") or (getattr(rws, "mode", "reply") == "followup")
+    if is_followup:
+        action = "followups_only"
+        lead.action = action
+    elif action == "send" and not E.auto_send_enabled():
         action = "would_send"   # kill-switch: review instead of sending
-    lead.action = action
+        lead.action = action
+    else:
+        lead.action = action
 
     sent = False
     if action == "send":
@@ -464,7 +474,13 @@ def process_reply_job(db, job):
         pass  # CRM sync must never block the reply pipeline
 
     # write follow-up variables back so the platform's follow-up steps can send them.
-    if lead.followups and action in ("send", "would_send", "skip_enrich"):
+    # Runs on any drafted lead AND always in follow-up-only mode. Errors are surfaced
+    # (no longer swallowed) so "follow-ups didn't push" is diagnosable in Processing.
+    fup_status = ""
+    should_push = bool(lead.followups) and (is_followup or action in ("send", "would_send", "skip_enrich"))
+    if is_followup and not lead.followups:
+        fup_status = "no follow-ups were generated (check the follow-up templates / AI model)"
+    elif should_push:
         if platform == "bison":
             try:
                 E.merge_bison_variables(rws, external_id, {
@@ -472,8 +488,10 @@ def process_reply_job(db, job):
                     **{f"followup_{i+1}": f for i, f in enumerate(lead.followups)},
                     "reply_intent": lead.intent, "reply_confidence": lead.confidence})
                 lead.fup_added = True
-            except Exception:
-                pass
+                fup_status = f"pushed {len(lead.followups)} follow-up(s)"
+            except Exception as e:  # noqa: BLE001
+                fup_status = f"push failed: {str(e)[:200]}"
+                lead.lead_data = {**(lead.lead_data or {}), "_fup_push_error": fup_status}
         elif platform == "instantly":
             # push followup_1..N onto the Instantly lead as custom variables
             # (also auto-declares them on the campaign) so a follow-up
@@ -482,13 +500,21 @@ def process_reply_job(db, job):
                 res = E.push_instantly_followups(rws, lead.email, (send_meta or {}).get("campaign_id"),
                                                  lead.followups, lead.main_reply)
                 lead.fup_added = bool(res.get("ok"))
+                fup_status = (f"pushed {res.get('written', 0)} variable(s)" if res.get("ok")
+                              else f"push failed: {str(res.get('error', ''))[:200]}")
                 if not res.get("ok"):
-                    lead.lead_data = {**(lead.lead_data or {}), "_fup_push_error": str(res.get("error", ""))[:300]}
-            except Exception:
-                pass
+                    lead.lead_data = {**(lead.lead_data or {}), "_fup_push_error": fup_status}
+            except Exception as e:  # noqa: BLE001
+                fup_status = f"push failed: {str(e)[:200]}"
+                lead.lead_data = {**(lead.lead_data or {}), "_fup_push_error": fup_status}
     lead.updated_at = datetime.utcnow()
     db.commit()
-    return {"recorded": lead.id, "intent": lead.intent, "action": lead.action, "sent": sent}
+    out = {"recorded": lead.id, "intent": lead.intent, "action": lead.action, "sent": sent}
+    if is_followup:
+        out["followup_only"] = True
+    if fup_status:
+        out["followups"] = fup_status
+    return out
 
 
 # Future handlers, one decorator each:

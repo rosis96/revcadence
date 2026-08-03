@@ -100,6 +100,8 @@ export default function ReplyProcessing() {
                 : res.unrouted ? "Unrouted — no matching reply-space"
                 : res.skipped ? `Skipped: ${res.skipped}`
                 : res.guard ? `Guard: ${res.guard}`
+                : res.followup_only ? `Follow-up only · ${res.followups || "—"}`
+                : res.followups ? `${res.action ? `Decision: ${res.action} · ` : ""}Follow-ups ${res.followups}`
                 : res.action ? `Decision: ${res.action}${res.intent ? ` · ${res.intent}` : ""}`
                 : j.note || "";
               return (
