@@ -322,17 +322,17 @@ function NotesTab({ dealId }) {
 // ---------------------------------------------------------------- Conversation
 function ConversationTab({ dealId, deal, contact, setTab }) {
   const toast = useToast();
-  const { data, loading, error, reload } = useApi(`/api/deals/${dealId}/conversation`);
+  const { data, loading, error, reload, refresh } = useApi(`/api/deals/${dealId}/conversation`);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState("");
   const [plan, setPlan] = useState(null);   // follow-up plan modal state (hook must be before any early return)
   const [focus, setFocus] = useState(false); // full-width focus mode (context panel collapsed)
-  // Live-ish: quietly re-sync the thread every 15s while the conversation is open,
-  // so new replies show up on their own (the GET auto-syncs the mailbox thread).
+  // Live-ish: quietly re-sync the thread every 15s while the conversation is open.
+  // refresh() updates in place (no spinner) so the view never blanks while you read.
   useEffect(() => {
-    const t = setInterval(() => reload(), 15000);
+    const t = setInterval(() => refresh(), 15000);
     return () => clearInterval(t);
-  }, [reload]);
+  }, [refresh]);
   if (loading) return <Spinner />;
   if (error) return <ErrorBox msg={error} retry={reload} />;
   const msgs = data?.messages || [];
@@ -346,18 +346,18 @@ function ConversationTab({ dealId, deal, contact, setTab }) {
   const send = async () => {
     if (!draft.trim()) { toast("Write or draft a message first", "bad"); return; }
     setBusy("send");
-    try { await api(`/api/deals/${dealId}/conversation/send`, { method: "POST", body: { body: draft } }); setDraft(""); reload(); toast("Sent in the same thread"); }
+    try { await api(`/api/deals/${dealId}/conversation/send`, { method: "POST", body: { body: draft } }); setDraft(""); await refresh(); toast("Sent in the same thread"); }
     catch (e) { toast(e.message, "bad"); }
     setBusy("");
   };
-  const syncNow = async () => { setBusy("sync"); await reload(); setBusy(""); toast("Synced with the mailbox"); };
+  const syncNow = async () => { setBusy("sync"); await refresh(); setBusy(""); toast("Synced with the mailbox"); };
   const conv = data?.conversation || {};
   const lastInbound = [...msgs].reverse().find((m) => m.direction === "in");
   const toggleAutopilot = async () => {
     setBusy("auto");
     try {
       await api(`/api/deals/${dealId}/conversation/autopilot`, { method: "POST", body: { enabled: !conv.autopilot } });
-      reload();
+      await refresh();
       toast(conv.autopilot ? "Follow-ups off" : "Follow-ups on");
     } catch (e) { toast(e.message, "bad"); }
     setBusy("");
@@ -381,7 +381,7 @@ function ConversationTab({ dealId, deal, contact, setTab }) {
     setBusy("saveplan");
     try { await api(`/api/deals/${dealId}/conversation/followup-plan`, { method: "PUT",
         body: { guidance: plan.guidance, enabled, plan: plan.items } });
-      setPlan(null); reload(); toast(enabled ? "Follow-up sequence scheduled" : "Plan saved"); }
+      setPlan(null); await refresh(); toast(enabled ? "Follow-up sequence scheduled" : "Plan saved"); }
     catch (e) { toast(e.message, "bad"); }
     setBusy("");
   };

@@ -21,8 +21,15 @@ export function useApi(path, params, deps = []) {
     api(path, { params }).then(setData).catch((e) => setError(e.message)).finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, JSON.stringify(params), ...deps]);
+  // Quiet refresh: fetch fresh data WITHOUT flipping the loading spinner, so
+  // background polls and syncs update in place instead of blanking the view.
+  const refresh = useCallback(() => {
+    if (!path) return Promise.resolve();
+    return api(path, { params }).then(setData).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path, JSON.stringify(params), ...deps]);
   useEffect(() => { reload(); }, [reload]);
-  return { data, error, loading, reload };
+  return { data, error, loading, reload, refresh };
 }
 
 export const Spinner = () => <div className="center"><div className="spinner" /></div>;
