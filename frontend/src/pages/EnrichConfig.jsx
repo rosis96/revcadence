@@ -29,6 +29,9 @@ export default function EnrichConfigPage({ tab }) {
   const [brain, setBrain] = useState({ website: "", material: "", busy: false, done: null });
   const [icpB, setIcpB] = useState({ file: null, text: "", website: "", busy: false, done: null });
   const [fmtB, setFmtB] = useState({ instructions: "", busy: false, done: null });
+  const [openVars, setOpenVars] = useState(() => new Set());   // which variable cards are expanded
+  const toggleVar = (i) => setOpenVars((s) => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n; });
+  const [varJson, setVarJson] = useState({});                  // index -> { open, text } for per-variable JSON paste
 
   // Paste Client Profile JSON → fills the boxes. Accepts the training-file
   // schema incl. aliases (value_prop → what_we_are_pitching) and keeps extra
@@ -115,15 +118,33 @@ export default function EnrichConfigPage({ tab }) {
   };
   const setPh = (i, ti, patch) =>
     setFmt(i, { placeholders: cfg.formats[i].placeholders.map((p, k) => (k === ti ? { ...p, ...patch } : p)) });
-  const addVariable = () => setCfg({ ...cfg, formats: [
-    ...(cfg.formats || []),
-    { label: "New variable", name: `var_${(cfg.formats || []).length + 1}`, guidance: "",
-      template: "", min_words: null, max_words: null, rules: [], examples: [], placeholders: [] }] });
+  const addVariable = () => {
+    const idx = (cfg.formats || []).length;
+    setCfg({ ...cfg, formats: [
+      ...(cfg.formats || []),
+      { label: "New variable", name: `var_${idx + 1}`, guidance: "",
+        template: "", min_words: null, max_words: null, rules: [], examples: [], placeholders: [] }] });
+    setOpenVars((s) => new Set(s).add(idx));   // open the new one for editing
+  };
   const duplicateVariable = (i) => {
     const src = cfg.formats[i];
     const copy = { ...src, label: `${src.label} (copy)`, name: `${src.name}_copy` };
     const formats = [...cfg.formats]; formats.splice(i + 1, 0, copy);
     setCfg({ ...cfg, formats });
+  };
+  // Per-variable JSON: clean this ONE variable and refill it from a pasted object
+  // (label, guidance, template, word ranges, rules, examples, placeholders). Keeps
+  // the current output-key/slug unless the JSON supplies one, so links don't break.
+  const fillVarFromJson = (i) => {
+    try {
+      const parsed = JSON.parse((varJson[i]?.text || "").trim());
+      const obj = Array.isArray(parsed) ? parsed[0] : (parsed.variables ? parsed.variables[0] : parsed);
+      if (!obj || typeof obj !== "object") throw new Error("No variable object found.");
+      const norm = normFormat(obj, i);
+      if (!obj.name) norm.name = cfg.formats[i].name;   // preserve existing slug when JSON omits it
+      setFmt(i, norm);
+      setVarJson((s) => ({ ...s, [i]: { open: false, text: "" } }));
+    } catch (e) { alertDialog("Invalid JSON: " + e.message); }
   };
   // Trim blank lines out of the newline-edited arrays right before saving.
   const cleanFormats = (formats) => (formats || []).map((f) => ({
@@ -484,9 +505,51 @@ export default function EnrichConfigPage({ tab }) {
             </div>
           </div>
 
-          {(cfg.formats || []).map((f, i) => (
-            <div className="card" style={{ padding: 18, marginTop: 14 }} key={i}>
-              <div style={{ display: "flex", gap: 10, alignItems: "flex-end", marginBottom: 10 }}>
+          {(cfg.formats || []).map((f, i) => {
+            const open = openVars.has(i);
+            const vj = varJson[i] || {};
+            return (
+            <div className="card" style={{ padding: 0, marginTop: 12, overflow: "hidden" }} key={i}>
+              {/* collapsed header — click to expand this variable */}
+              <div onClick={() => toggleVar(i)}
+                   style={{ display: "flex", gap: 10, alignItems: "center", padding: "13px 16px", cursor: "pointer",
+                            background: open ? "var(--soft)" : "#fff" }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"
+                     style={{ color: "var(--muted)", transform: open ? "" : "rotate(-90deg)", transition: "transform .15s", flexShrink: 0 }}>
+                  <path d="M6 9l6 6 6-6" /></svg>
+                <b style={{ flex: 1, fontSize: 14 }}>{f.label || "Untitled variable"}</b>
+                <code style={{ fontSize: 11.5, color: "var(--muted2)" }}>{f.name}</code>
+                {f.template ? <span className="badge indigo">template</span> : null}
+                {f.enabled === false && <span className="badge gray">off</span>}
+                <label onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5, whiteSpace: "nowrap" }}>
+                  <input type="checkbox" checked={f.enabled !== false}
+                         onChange={(e) => setFmt(i, { enabled: e.target.checked })} /> Write
+                </label>
+                <button className="btn ghost sm" onClick={(e) => { e.stopPropagation(); duplicateVariable(i); }}>Duplicate</button>
+                <button className="btn danger sm"
+                        onClick={(e) => { e.stopPropagation(); setCfg({ ...cfg, formats: cfg.formats.filter((_, j) => j !== i) }); }}>Remove</button>
+              </div>
+
+              {open && (
+              <div style={{ padding: "4px 16px 16px" }}>
+              {/* per-variable JSON paste — clean & refill just this one */}
+              <div className="field">
+                <button className="btn ghost sm" onClick={() => setVarJson((s) => ({ ...s, [i]: { ...vj, open: !vj.open } }))}>
+                  {vj.open ? "Hide JSON" : "⤓ Paste JSON for this variable"}</button>
+                {vj.open && (
+                  <div style={{ marginTop: 8 }}>
+                    <textarea rows={4} style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
+                              value={vj.text || ""} onChange={(e) => setVarJson((s) => ({ ...s, [i]: { ...vj, text: e.target.value } }))}
+                              placeholder='{"label":"Value Proposition","guidance":"…","template":"We help {{industry}} {{result}}.","min_words":15,"max_words":30,"rules":["…"],"examples":["…"],"placeholders":[{"token":"industry","description":"the prospect category","min_words":2,"max_words":5,"examples":["marketing agencies"]}]}' />
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+                      <button className="btn sm" onClick={() => fillVarFromJson(i)}>Clean &amp; fill this variable</button>
+                      <span style={{ fontSize: 12, color: "var(--muted)" }}>Replaces only this variable (guidance, template, rules, word ranges, placeholders, examples).</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: "flex", gap: 10, alignItems: "flex-end", marginBottom: 4 }}>
                 <div className="field" style={{ flex: 1, margin: 0 }}>
                   <label>Variable name</label>
                   <input style={{ width: "100%" }} value={f.label || ""}
@@ -498,14 +561,6 @@ export default function EnrichConfigPage({ tab }) {
                   <input style={{ width: "100%", fontFamily: "monospace", fontSize: 12.5 }} value={f.name || ""}
                          onChange={(e) => setFmt(i, { name: e.target.value })} placeholder="personalized_first_line" />
                 </div>
-                <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5, whiteSpace: "nowrap" }}>
-                  <input type="checkbox" checked={f.enabled !== false}
-                         onChange={(e) => setFmt(i, { enabled: e.target.checked })} />
-                  Write this
-                </label>
-                <button className="btn ghost sm" onClick={() => duplicateVariable(i)}>Duplicate</button>
-                <button className="btn danger sm"
-                        onClick={() => setCfg({ ...cfg, formats: cfg.formats.filter((_, j) => j !== i) })}>Remove</button>
               </div>
 
               <div className="field"><label>How to write it — guidance</label>
@@ -576,11 +631,18 @@ export default function EnrichConfigPage({ tab }) {
                 <textarea rows={3} style={{ width: "100%" }} value={(f.examples || []).join("\n")}
                           onChange={(e) => setFmt(i, { examples: e.target.value.split("\n") })}
                           placeholder={"Your work for Acme Dental shows a clear focus on local clinics.\nThe way you bundle SEO with paid search is a sharp combo for B2B teams."} /></div>
+              </div>
+              )}
             </div>
-          ))}
+            );
+          })}
 
           <div className="toolbar" style={{ marginTop: 14 }}>
             <button className="btn ghost" onClick={addVariable}>+ Add variable</button>
+            {(cfg.formats || []).length > 1 && (
+              <button className="btn ghost" onClick={() => setOpenVars((s) => s.size ? new Set() : new Set((cfg.formats || []).map((_, i) => i)))}>
+                {openVars.size ? "Collapse all" : "Expand all"}</button>
+            )}
             <button className="btn" disabled={busy} onClick={() => save({ formats: cleanFormats(cfg.formats) })}>Save formats</button>
           </div>
         </>
