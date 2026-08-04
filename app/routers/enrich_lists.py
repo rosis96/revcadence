@@ -336,6 +336,32 @@ def run(list_id: int, body: RunIn, ctx: AuthContext = Depends(get_ctx)):
     return {"job_id": j.id, "selected": len(lead_ids), "capped_at": body.limit or None, "workers": workers}
 
 
+# ---------------------------------------------------------------- grammar fix
+class GrammarFixIn(BaseModel):
+    lead_ids: list[int] = []
+    view: str = "enriched"   # used when lead_ids empty (select-all-in-view)
+    esp: list[str] = []
+    variable: str | None = None   # None = fix every variable; else just this one
+
+
+@router.post("/{list_id}/fix-grammar")
+def fix_grammar_ep(list_id: int, body: GrammarFixIn, ctx: AuthContext = Depends(get_ctx)):
+    """Bulk grammar/punctuation cleanup over generated variables — all of them, or a
+    single variable. Runs as a background job; preserves every fact (no re-crawl)."""
+    lst = _get_list(ctx, list_id)
+    lead_ids = body.lead_ids
+    if not lead_ids:
+        base = ctx.db.query(EnrichLead.id).filter(EnrichLead.list_id == lst.id)
+        lead_ids = [r[0] for r in _esp_filter(_view_filter(base, body.view), body.esp).all()]
+    if not lead_ids:
+        raise HTTPException(422, "No enriched leads in this selection to correct.")
+    j = Job(kind="fix_grammar_list", workspace_id=lst.workspace_id,
+            payload={"list_id": lst.id, "lead_ids": lead_ids, "variable": body.variable})
+    ctx.db.add(j)
+    ctx.db.commit()
+    return {"job_id": j.id, "selected": len(lead_ids), "variable": body.variable or "all"}
+
+
 # ---------------------------------------------------------------- competitor finder
 class CompetitorsIn(BaseModel):
     lead_ids: list[int] = []

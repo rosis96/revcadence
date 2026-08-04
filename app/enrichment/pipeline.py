@@ -1238,6 +1238,37 @@ def _humanize_pass(cfg, vars_out: dict, facts: dict, assign: dict, formats: list
     return vars_out, 1
 
 
+def fix_grammar(cfg, texts: dict, only_var: str | None = None) -> dict:
+    """Correct ONLY grammar, spelling, spacing, run-together words and punctuation in
+    already-generated variables — without changing meaning, facts, company/product
+    names, numbers, or length. One cheap call (extract model). Returns {name: fixed}.
+    Used by the on-demand 'Fix grammar' button (bulk or a single variable)."""
+    live = {k: v for k, v in (texts or {}).items()
+            if v and str(v).strip() and not str(k).startswith("_")
+            and (only_var is None or k == only_var)}
+    if not live or not ai.has_ai():
+        return {}
+    system = (
+        "You are a meticulous copy editor for cold-email variables. Fix ONLY: grammar, spelling, spacing, "
+        "run-together words (e.g. 'systemshas' -> 'systems. Has it', 'build-outre' -> 'build-out. Are'), "
+        "stray/duplicated characters, and missing end punctuation (add a full stop or question mark). Do "
+        "NOT change meaning, tone, or length; keep every company/product/project name, number, and quoted "
+        "phrase EXACTLY as-is; do not add or remove ideas. If a variable is already clean, return it "
+        "unchanged. Return ONLY JSON: {\"<variable name>\": \"<corrected text>\"}.")
+    try:
+        out = ai._call_openai(system, json.dumps(live), model=ai.extract_model())
+    except Exception:  # noqa: BLE001
+        return {}
+    cand = out.get("candidates") if isinstance(out, dict) and isinstance(out.get("candidates"), dict) else out
+    if not isinstance(cand, dict):
+        return {}
+    fixed = {}
+    for k, v in cand.items():
+        if k in live and str(v or "").strip():
+            fixed[k] = _tidy_variable(str(v))
+    return fixed
+
+
 def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None) -> dict:
     """Research → evidence bank → signal scoring → per-variable evidence assignment
     → generation → QC/regeneration. `enrichments`: selected output variable names —

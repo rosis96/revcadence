@@ -124,6 +124,34 @@ def classify_reply_intents_job(db, job):
     return {"classified": n, "total": len(ids)}
 
 
+@register("fix_grammar_list")
+def fix_grammar_list(db, job):
+    """On-demand grammar/punctuation cleanup over already-generated variables.
+    payload: {list_id, lead_ids: [..], variable?: str}. Preserves all facts; only
+    fixes grammar. Cheap model, one call per lead. Never re-crawls or re-charges."""
+    from datetime import datetime as _dt
+    from ..models.enrich import EnrichLead
+    from ..enrichment.pipeline import _config, fix_grammar
+    wid = job.workspace_id
+    cfg = _config(db, wid)
+    only_var = (job.payload or {}).get("variable") or None
+    lead_ids = (job.payload or {}).get("lead_ids") or []
+    fixed = 0
+    for i, lid in enumerate(lead_ids):
+        lead = db.get(EnrichLead, lid)
+        if not lead or not isinstance(lead.result, dict):
+            continue
+        vars_only = {k: v for k, v in lead.result.items() if not str(k).startswith("_")}
+        corrections = fix_grammar(cfg, vars_only, only_var=only_var)
+        if corrections:
+            lead.result = {**lead.result, **corrections}
+            lead.updated_at = _dt.utcnow()
+            fixed += 1
+        job.progress = int((i + 1) / max(1, len(lead_ids)) * 100)
+        db.commit()
+    return {"fixed": fixed, "total": len(lead_ids), "variable": only_var or "all"}
+
+
 @register("run_enrich_list")
 def run_enrich_list(db, job):
     """List pipeline runner. payload: {list_id, lead_ids?: [..], steps: 'verify'|'pipeline',

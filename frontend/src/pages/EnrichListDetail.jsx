@@ -170,6 +170,17 @@ export default function EnrichListDetail() {
       reload();
     } catch (e) { toast(e.message, "bad"); }
   };
+  const [grammarVar, setGrammarVar] = useState("");   // "" = all variables
+  const fixGrammar = async () => {
+    const scope = allInView || selIds.length === 0 ? { view, esp: espSel } : { lead_ids: selIds };
+    const n = selIds.length || data?.total_in_view || 0;
+    const varLabel = grammarVar ? `the "${grammarVar}" variable` : "all variables";
+    if (!await confirmDialog(`Fix grammar & punctuation on ${varLabel} for ${n.toLocaleString()} lead(s)? Company/product names, numbers and meaning are preserved.`)) return;
+    try {
+      const r = await api(`/api/enrich-lists/${id}/fix-grammar`, { method: "POST", body: { ...scope, variable: grammarVar || null } });
+      setJob(r.job_id); setSelIds([]); setAllInView(false); toast("Fixing grammar…");
+    } catch (e) { toast(e.message, "bad"); }
+  };
   const espQs = espParam ? `&esp=${encodeURIComponent(espParam)}` : "";
   const clearAction = async (what) => {
     const label = what === "clear-results" ? "Clear enrichment results" : "Clear verification";
@@ -393,6 +404,14 @@ export default function EnrichListDetail() {
                 <button className="dt-tool" onClick={exportCsv}><Download size={15} /> Export view</button>
                 <button className="dt-tool" disabled={!!job} onClick={findCompetitors}>Find competitors</button>
                 <button className="dt-tool" disabled={!!job} onClick={splitByIndustry}>Split by industry</button>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  <button className="dt-tool" disabled={!!job} onClick={fixGrammar}>Fix grammar</button>
+                  <select value={grammarVar} onChange={(e) => setGrammarVar(e.target.value)} title="Which variable to fix (default: all)"
+                    style={{ fontSize: 12, padding: "5px 6px", borderRadius: 7, maxWidth: 150 }}>
+                    <option value="">all variables</option>
+                    {(cfg.data?.formats || []).map((f) => <option key={f.name} value={f.name}>{f.label || f.name}</option>)}
+                  </select>
+                </span>
                 <button className="dt-tool" onClick={openDedupe}>Dedupe</button>
                 <button className="dt-tool" onClick={() => clearAction("clear-results")}>Clear results</button>
                 <button className="dt-tool" onClick={() => clearAction("clear-verification")}>Clear verification</button>
