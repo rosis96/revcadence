@@ -1,3 +1,4 @@
+import { alertDialog } from "../components";
 // Client Profile / Formats / Rules — the old dashboard's config sections,
 // per workspace. Formats accepts the same Format JSON the old system used
 // ("Paste Format JSON" → fills the editor).
@@ -39,7 +40,7 @@ export default function EnrichConfigPage({ tab }) {
       if (p.value_prop && !p.what_we_are_pitching) merged.what_we_are_pitching = p.value_prop;
       setCfg({ ...cfg, profile: merged, icp_definition: p.icp_definition || cfg.icp_definition });
       setProfileJson("");
-    } catch (e) { alert("Invalid JSON: " + e.message); }
+    } catch (e) { alertDialog("Invalid JSON: " + e.message); }
   };
 
   useEffect(() => {
@@ -58,7 +59,7 @@ export default function EnrichConfigPage({ tab }) {
       await api(`/api/enrich-lists/config/${wsId}`, { method: "PUT", body: patch });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-    } catch (e) { alert(e.message); }
+    } catch (e) { alertDialog(e.message); }
     setBusy(false);
   };
 
@@ -99,7 +100,7 @@ export default function EnrichConfigPage({ tab }) {
         patch.rules = parsed.global_output_rules.join("\n");
       setCfg(patch);
       setFormatJson("");
-    } catch (e) { alert("Invalid JSON: " + e.message); }
+    } catch (e) { alertDialog("Invalid JSON: " + e.message); }
   };
   const setFmt = (i, patch) => setCfg({ ...cfg, formats: cfg.formats.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
   // Editing the template re-syncs placeholder boxes: keep the ones whose token
@@ -173,7 +174,7 @@ export default function EnrichConfigPage({ tab }) {
                       { method: "POST", body: { website: brain.website.trim(), material: brain.material.trim(), merge: true } });
                     setCfg((c) => ({ ...c, profile: r.profile }));
                     setBrain((b) => ({ ...b, busy: false, done: { ...r.counts, pages_crawled: r.pages_crawled, js_rendered: r.js_rendered } }));
-                  } catch (e) { alert(e.message); setBrain((b) => ({ ...b, busy: false })); }
+                  } catch (e) { alertDialog(e.message); setBrain((b) => ({ ...b, busy: false })); }
                 }}>
                 {brain.busy ? "Reading & building…" : "Build with AI"}</button>
               {brain.done && <span style={{ fontSize: 12.5, color: "#15803d" }}>
@@ -402,7 +403,7 @@ export default function EnrichConfigPage({ tab }) {
                     const r = await res.json();
                     setCfg((c) => ({ ...c, icp_definition: r.icp_json }));
                     setIcpB((b) => ({ ...b, busy: false, done: r.counts }));
-                  } catch (e) { alert(e.message); setIcpB((b) => ({ ...b, busy: false })); }
+                  } catch (e) { alertDialog(e.message); setIcpB((b) => ({ ...b, busy: false })); }
                 }}>{icpB.busy ? "Reading & building…" : "Build ICP with AI"}</button>
               {icpB.done && <span style={{ fontSize: 12.5, color: "#15803d" }}>
                 ✓ {icpB.done.categories} fit categories · {icpB.done.rejects} auto-rejects. Review below, then <b>Save</b>.</span>}
@@ -452,7 +453,7 @@ export default function EnrichConfigPage({ tab }) {
                       { method: "POST", body: { instructions: fmtB.instructions, current: cfg.formats || [], merge: fmtB.merge !== false } });
                     setCfg((c) => ({ ...c, formats: r.formats }));
                     setFmtB((b) => ({ ...b, busy: false, done: r.merged ? `updated ${r.updated.length} (${r.updated.join(", ")})` : `${r.count} built` }));
-                  } catch (e) { alert(e.message); setFmtB((b) => ({ ...b, busy: false })); }
+                  } catch (e) { alertDialog(e.message); setFmtB((b) => ({ ...b, busy: false })); }
                 }}>{fmtB.busy ? "Working…" : ((cfg.formats || []).length > 0 && fmtB.merge !== false ? "Update formats with AI" : "Build formats with AI")}</button>
               {(cfg.formats || []).length > 0 && (
                 <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5, color: "var(--muted)" }}>

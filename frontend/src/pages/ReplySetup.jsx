@@ -1,3 +1,4 @@
+import { alertDialog, confirmDialog } from "../components";
 // Reply Management → Setup: edits THE current workspace's reply space (which is
 // auto-provisioned with the workspace — no "create" step). Full structured
 // editor: connection + AI + client profile + response types + follow-ups + rules.
@@ -142,14 +143,14 @@ export default function ReplySetup() {
   const setRf = (patch) => set("reply_format", { ...rf, ...patch });
 
   // REPLACE the sections with the pasted JSON (asks first — this overwrites).
-  const fillFromJson = () => {
+  const fillFromJson = async () => {
     try {
       const p = JSON.parse(pasteJson);
-      if (!confirm("Replace the current response types and follow-ups with the pasted JSON? "
+      if (!await confirmDialog("Replace the current response types and follow-ups with the pasted JSON? "
                    + "Use 'Add to existing' instead if you want to keep what's here.")) return;
       setRf({ response_types: p.response_types || rf.response_types || [], followups: p.followups || rf.followups || [] });
       setPasteJson("");
-    } catch (e) { alert("Invalid JSON: " + e.message); }
+    } catch (e) { alertDialog("Invalid JSON: " + e.message); }
   };
 
   // ADD the pasted intents without deleting anything: merge response types by
@@ -169,8 +170,8 @@ export default function ReplySetup() {
       const fups = Array.isArray(p.followups) ? [...(rf.followups || []), ...p.followups] : (rf.followups || []);
       setRf({ response_types: merged, followups: fups });
       setPasteJson("");
-      alert(`Added. Response types now: ${merged.length}. Review, then Save all.`);
-    } catch (e) { alert("Invalid JSON: " + e.message); }
+      alertDialog(`Added. Response types now: ${merged.length}. Review, then Save all.`);
+    } catch (e) { alertDialog("Invalid JSON: " + e.message); }
   };
 
   // ---- Follow-ups: their own paster (add / replace / download) ----
@@ -180,16 +181,16 @@ export default function ReplySetup() {
       const incoming = fupArray(JSON.parse(fupJson)).filter((x) => x && (x.template || x.label));
       setRf({ followups: [...(rf.followups || []), ...incoming] });
       setFupJson("");
-      alert(`Added ${incoming.length} follow-up(s). Review, then Save all.`);
-    } catch (e) { alert("Invalid JSON: " + e.message); }
+      alertDialog(`Added ${incoming.length} follow-up(s). Review, then Save all.`);
+    } catch (e) { alertDialog("Invalid JSON: " + e.message); }
   };
-  const replaceFupFromJson = () => {
+  const replaceFupFromJson = async () => {
     try {
       const arr = fupArray(JSON.parse(fupJson));
-      if (!confirm("Replace ALL follow-ups with the pasted JSON? Use 'Add' to keep the existing ones.")) return;
+      if (!await confirmDialog("Replace ALL follow-ups with the pasted JSON? Use 'Add' to keep the existing ones.")) return;
       setRf({ followups: arr });
       setFupJson("");
-    } catch (e) { alert("Invalid JSON: " + e.message); }
+    } catch (e) { alertDialog("Invalid JSON: " + e.message); }
   };
   const downloadFup = () => {
     const blob = new Blob([JSON.stringify({ followups: rf.followups || [] }, null, 2)], { type: "application/json" });
@@ -226,7 +227,7 @@ export default function ReplySetup() {
         ai_rules: w.ai_rules, reply_delay_seconds: w.reply_delay_seconds, ...secrets,
       } });
       setSaved(true); setSecrets({}); setTimeout(() => setSaved(false), 2500);
-    } catch (e) { alert(e.message); }
+    } catch (e) { alertDialog(e.message); }
     setBusy(false);
   };
 
@@ -325,7 +326,7 @@ export default function ReplySetup() {
             </label>
             <button className="btn" disabled={rfB.busy}
               onClick={async () => {
-                if (!confirm("Build reply formats from your instructions? This replaces the current response types" + (rfB.followups ? " and follow-up ladder" : "") + " below (review, then Save).")) return;
+                if (!await confirmDialog("Build reply formats from your instructions? This replaces the current response types" + (rfB.followups ? " and follow-up ladder" : "") + " below (review, then Save).")) return;
                 setRfB((b) => ({ ...b, busy: true }));
                 try {
                   const r = await api(`/api/reply/workspaces/${w.id}/build-reply-formats`,
@@ -333,7 +334,7 @@ export default function ReplySetup() {
                   setRf({ response_types: r.reply_format.response_types,
                           ...(rfB.followups ? { followups: r.reply_format.followups } : {}) });
                   setRfB((b) => ({ ...b, busy: false, done: `${r.count} response types${rfB.followups ? `, ${r.followup_count} follow-ups` : ""}` }));
-                } catch (e) { alert(e.message); setRfB((b) => ({ ...b, busy: false })); }
+                } catch (e) { alertDialog(e.message); setRfB((b) => ({ ...b, busy: false })); }
               }}>{rfB.busy ? "Designing…" : "Build reply formats with AI"}</button>
             {rfB.done && <span style={{ fontSize: 12.5, color: "#15803d" }}>✓ built {rfB.done}. Review below, then <b>Save</b>.</span>}
           </div>

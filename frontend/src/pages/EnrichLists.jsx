@@ -1,3 +1,4 @@
+import { alertDialog, confirmDialog } from "../components";
 // Outbound → Lists: named lead lists per workspace (the old dashboard's Lists).
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -65,7 +66,7 @@ export default function EnrichLists() {
   const createList = async (e) => {
     e.preventDefault();
     const targetWs = wsParam || (me.is_master ? null : me.workspaces[0]?.id);
-    if (!targetWs) { alert("Pick a specific workspace first (top-left)."); return; }
+    if (!targetWs) { alertDialog("Pick a specific workspace first (top-left)."); return; }
     setBusy(true);
     try {
       const r = await api("/api/enrich-lists", { method: "POST",
@@ -80,14 +81,14 @@ export default function EnrichLists() {
       }
       setModal(false); setName(""); pendingFile.current = null;
       nav(`/enrichment/lists/${r.id}`);
-    } catch (err) { alert(err.message); }
+    } catch (err) { alertDialog(err.message); }
     setBusy(false);
   };
 
   const remove = async (id) => {
-    if (!confirm("Delete this list and all its leads?")) return;
+    if (!await confirmDialog("Delete this list and all its leads?")) return;
     try { await api(`/api/enrich-lists/${id}`, { method: "DELETE" }); reload(); }
-    catch (e) { alert(e.message); }
+    catch (e) { alertDialog(e.message); }
   };
 
   return (

@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { Badge, Empty, ErrorBox, Modal, Spinner, useApi } from "../components";
+import { alertDialog } from "../components";
 
 const statusTone = { draft: "amber", published: "green", viewed: "green", executed: "green" };
 
@@ -28,15 +29,15 @@ export default function Blueprints() {
   useEffect(() => { if (companies?.length && !companyId) setCompanyId(String(companies[0].id)); }, [companies]);
 
   const create = async () => {
-    if (!wsId) { alert("Pick a specific workspace first (top-left)."); return; }
-    if (!companyId) { alert("Pick a company."); return; }
-    if (!transcript.trim()) { alert("Paste the call transcript."); return; }
+    if (!wsId) { alertDialog("Pick a specific workspace first (top-left)."); return; }
+    if (!companyId) { alertDialog("Pick a company."); return; }
+    if (!transcript.trim()) { alertDialog("Paste the call transcript."); return; }
     setBusy(true);
     try {
       const doc = await api("/api/blueprints/from-transcript", { method: "POST",
         body: { workspace_id: Number(wsId), company_id: Number(companyId), transcript } });
       nav(`/blueprints/${doc.id}`);
-    } catch (e) { alert(e.message); }
+    } catch (e) { alertDialog(e.message); }
     setBusy(false);
   };
 
@@ -53,15 +54,15 @@ export default function Blueprints() {
   };
 
   const upload = async () => {
-    if (!wsId) { alert("Pick a specific workspace first (top-left)."); return; }
-    if (!upHtml.trim()) { alert("Choose an HTML file or paste the markup."); return; }
+    if (!wsId) { alertDialog("Pick a specific workspace first (top-left)."); return; }
+    if (!upHtml.trim()) { alertDialog("Choose an HTML file or paste the markup."); return; }
     setBusy(true);
     try {
       const doc = await api("/api/blueprints/upload", { method: "POST",
         body: { workspace_id: Number(wsId), company_id: companyId ? Number(companyId) : null,
                 title: upTitle || null, html: upHtml } });
       nav(`/blueprints/${doc.id}`);
-    } catch (e) { alert(e.message); }
+    } catch (e) { alertDialog(e.message); }
     setBusy(false);
   };
 

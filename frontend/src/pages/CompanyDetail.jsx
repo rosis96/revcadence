@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { api, money } from "../api";
 import { Badge, Breadcrumbs, Button, ConfirmDialog, ErrorBox, JourneyTimeline, Modal, PageHeader, RowCard, Spinner, Timeline, fitTone, scoreTone, useApi, useToast } from "../components";
 import { StatusPill } from "./Companies";
+import { alertDialog } from "../components";
 
 // Public blueprint/agreement URL — prefer a blueprint.<domain> host on engine.<domain>.
 function publicUrl(slug) {
@@ -56,14 +57,14 @@ export default function CompanyDetail() {
     setBusy("enrich");
     try {
       await api("/api/enrich", { method: "POST", body: { workspace_id: c.workspace_id, company_ids: [c.id] } });
-      alert("Enrichment queued — watch Jobs, then refresh this page.");
-    } catch (e) { alert(e.message); }
+      alertDialog("Enrichment queued — watch Jobs, then refresh this page.");
+    } catch (e) { alertDialog(e.message); }
     setBusy("");
   };
   const [edit, setEdit] = useState(null);   // edit form when open
   const saveEdit = async () => {
     try { await api(`/api/companies/${id}`, { method: "PUT", body: edit }); setEdit(null); reload(); }
-    catch (e) { alert(e.message); }
+    catch (e) { alertDialog(e.message); }
   };
   const removeCompany = async () => {
     try { await api(`/api/companies/${id}`, { method: "DELETE" }); toast("Company deleted"); nav("/companies"); }
@@ -71,13 +72,13 @@ export default function CompanyDetail() {
   };
   // Build a blueprint straight from a Fathom call transcript for THIS company.
   const buildFromTranscript = async () => {
-    if (!transcript.trim()) { alert("Paste the call transcript first."); return; }
+    if (!transcript.trim()) { alertDialog("Paste the call transcript first."); return; }
     setBusy("bp");
     try {
       const doc = await api("/api/blueprints/from-transcript", { method: "POST",
         body: { workspace_id: c.workspace_id, company_id: c.id, transcript } });
       nav(`/blueprints/${doc.id}`);
-    } catch (e) { alert(e.message); }
+    } catch (e) { alertDialog(e.message); }
     setBusy("");
   };
   // Upload a custom HTML blueprint for THIS company.
@@ -90,13 +91,13 @@ export default function CompanyDetail() {
     r.readAsText(f);
   };
   const uploadBlueprint = async () => {
-    if (!upHtml.trim()) { alert("Choose an HTML file or paste the markup first."); return; }
+    if (!upHtml.trim()) { alertDialog("Choose an HTML file or paste the markup first."); return; }
     setBusy("up");
     try {
       const doc = await api("/api/blueprints/upload", { method: "POST",
         body: { workspace_id: c.workspace_id, company_id: c.id, title: upTitle || null, html: upHtml } });
       nav(`/blueprints/${doc.id}`);
-    } catch (e) { alert(e.message); }
+    } catch (e) { alertDialog(e.message); }
     setBusy("");
   };
   const newAgreement = async () => {
@@ -106,7 +107,7 @@ export default function CompanyDetail() {
       const ag = await api("/api/agreements/generate", { method: "POST",
         body: { workspace_id: c.workspace_id, company_id: c.id, deal_id: deal ? deal.id : null } });
       nav(`/agreements/${ag.id}`);
-    } catch (e) { alert(e.message); }
+    } catch (e) { alertDialog(e.message); }
     setBusy("");
   };
   const newInvoice = async () => {
@@ -115,7 +116,7 @@ export default function CompanyDetail() {
       const inv = await api("/api/invoices", { method: "POST",
         body: { workspace_id: c.workspace_id, company_id: c.id } });
       nav(`/invoices/${inv.id}`);
-    } catch (e) { alert(e.message); }
+    } catch (e) { alertDialog(e.message); }
     setBusy("");
   };
   const AGR_TONE = { draft: "", ready: "blue", sent: "blue", viewed: "indigo", client_signed: "amber", countersigned: "amber", executed: "green", voided: "red", archived: "" };

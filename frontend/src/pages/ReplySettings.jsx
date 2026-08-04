@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { ErrorBox, Spinner } from "../components";
+import { alertDialog } from "../components";
 
 function Field({ label, children, hint }) {
   return <div className="field"><label>{label}</label>{children}{hint && <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 3 }}>{hint}</div>}</div>;
@@ -34,7 +35,7 @@ export default function ReplySettings() {
         followup_trigger_tag: s.followup_trigger_tag,
       } });
       setSaved(true); setTimeout(() => setSaved(false), 2500);
-    } catch (e) { alert(e.message); }
+    } catch (e) { alertDialog(e.message); }
     setBusy(false);
   };
 

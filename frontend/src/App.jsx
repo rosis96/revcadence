@@ -7,7 +7,7 @@ import {
   LogOut, Search, ClipboardList, Radar, Briefcase, Bell, KeyRound, Plug, BarChart3, Sparkles,
 } from "lucide-react";
 import { AuthProvider, useAuth } from "./auth";
-import { CommandPalette, ToastProvider, useApi, useClickOutside } from "./components";
+import { CommandPalette, GlobalDialogs, ToastProvider, useApi, useClickOutside } from "./components";
 import KitchenSink from "./pages/KitchenSink";
 import Developers from "./pages/Developers";
 import CrmSync from "./pages/CrmSync";
@@ -299,6 +299,7 @@ function Shell({ children }) {
         </div>
         <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       </div>
+      <GlobalDialogs />
     </ToastProvider>
   );
 }

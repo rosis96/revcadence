@@ -3,6 +3,7 @@ import { CheckCircle2, Download, History, ShieldCheck, UploadCloud } from "lucid
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { ErrorBox, Spinner } from "../components";
+import { confirmDialog, alertDialog } from "../components";
 
 const card = { padding: 18, marginBottom: 14 };
 
@@ -57,13 +58,13 @@ export default function TrainingBridge() {
       setMessage(result.changes.length
         ? `Preview ready: ${result.changes.length} section${result.changes.length === 1 ? "" : "s"} will change.`
         : "This package already matches the workspace.");
-    } catch (e) { setMessage(""); alert(e.message); }
+    } catch (e) { setMessage(""); alertDialog(e.message); }
     setBusy(false);
   };
 
   const applyPackage = async () => {
     if (!preview?.changes?.length) return;
-    if (!window.confirm(`Apply ${preview.changes.length} reviewed training change(s)? A rollback point will be saved first.`)) return;
+    if (!await confirmDialog(`Apply ${preview.changes.length} reviewed training change(s)? A rollback point will be saved first.`)) return;
     setBusy(true);
     try {
       await api(`/api/enrich-lists/config/${wsId}/training/apply`, {
@@ -76,25 +77,25 @@ export default function TrainingBridge() {
       });
       setText(""); setPreview(null); setMessage("Training package applied. A rollback point was saved.");
       await refresh();
-    } catch (e) { alert(e.message); }
+    } catch (e) { alertDialog(e.message); }
     setBusy(false);
   };
 
   const rollback = async (revision) => {
-    if (!window.confirm(`Restore workspace training snapshot v${revision.version}? The current state will be saved first.`)) return;
+    if (!await confirmDialog(`Restore workspace training snapshot v${revision.version}? The current state will be saved first.`)) return;
     setBusy(true);
     try {
       await api(`/api/enrich-lists/config/${wsId}/training/rollback/${revision.id}`, { method: "POST" });
       setPreview(null); setMessage(`Restored training snapshot v${revision.version}.`);
       await refresh();
-    } catch (e) { alert(e.message); }
+    } catch (e) { alertDialog(e.message); }
     setBusy(false);
   };
 
   const runEvaluation = async () => {
     const count = bundle.evaluation_cases?.filter((x) => x.active !== false).length || 0;
     if (!count) return;
-    if (!window.confirm(`Run up to ${Math.min(count, 5)} golden case(s) through the live writer? This uses OpenAI tokens but does not modify leads or training.`)) return;
+    if (!await confirmDialog(`Run up to ${Math.min(count, 5)} golden case(s) through the live writer? This uses OpenAI tokens but does not modify leads or training.`)) return;
     setBusy(true); setEvaluation(null);
     try {
       const result = await api(`/api/enrich-lists/config/${wsId}/training/evaluate`, {
@@ -102,7 +103,7 @@ export default function TrainingBridge() {
       });
       setEvaluation(result);
       setMessage(`Evaluation finished: ${result.passed}/${result.cases} cases passed, average score ${result.average_score}.`);
-    } catch (e) { alert(e.message); }
+    } catch (e) { alertDialog(e.message); }
     setBusy(false);
   };
 

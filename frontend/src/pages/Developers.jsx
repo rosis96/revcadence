@@ -1,3 +1,4 @@
+import { confirmDialog } from "../components";
 // Settings → Developers: API keys, request logs, webhook endpoints + deliveries,
 // and the client-facing API documentation. Shared components only.
 import { useMemo, useState } from "react";
@@ -197,7 +198,7 @@ function HooksTab() {
                   await api(`/api/devapi/webhooks/${h.id}`, { method: "PUT", body: { active: !h.active } }); reload();
                 }}>{h.active ? "Disable" : "Enable"}</Button>
                 <Button size="sm" variant="danger" icon={Trash2} onClick={async () => {
-                  if (!confirm("Delete this endpoint?")) return;
+                  if (!await confirmDialog("Delete this endpoint?")) return;
                   await api(`/api/devapi/webhooks/${h.id}`, { method: "DELETE" }); reload();
                 }} />
               </span>

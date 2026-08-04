@@ -1,3 +1,4 @@
+import { confirmDialog } from "../components";
 // Ask the brain — a ChatGPT-style panel grounded in the workspace's Client Brain.
 // Answers from the brain, and LEARNS new facts you tell it (saved + deduped).
 import { useEffect, useRef, useState } from "react";
@@ -58,7 +59,7 @@ export default function BrainChat() {
     if (busy) return;
     const instructions = messages.filter((m) => m.role === "user").map((m) => m.content).join("\n\n").trim();
     if (!instructions) { toast("Explain your formats in the chat first", "bad"); return; }
-    if (!confirm("Apply this conversation to your formats? It updates the variables you described (e.g. value proposition) and keeps the rest. Review/edit on the Formats tab afterward.")) return;
+    if (!await confirmDialog("Apply this conversation to your formats? It updates the variables you described (e.g. value proposition) and keeps the rest. Review/edit on the Formats tab afterward.")) return;
     setBusy(true);
     try {
       // merge=true (default): revise only the variables discussed, keep everything else as saved

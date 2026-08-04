@@ -1,3 +1,4 @@
+import { confirmDialog } from "../components";
 // Reply Management → Inbox (DESIGN_SYSTEM.md step 5). Gmail-feel, three panes:
 // conversation list · thread + composer · AI panel. Status tabs across the top.
 // Same backend as before; pinning is a local flag (no engine changes).
@@ -266,8 +267,8 @@ function Thread({ id, pinned, onPin, aiOpen, onToggleAi, onChanged }) {
   };
   const setLabel = (token) => act(() => api(`/api/reply/leads/${id}/action`,
     { method: "POST", body: { stage: token, reviewed: true } }), "label", `Marked ${LABEL_OF[token] || token}`);
-  const removeLead = (block) => {
-    if (!confirm(block ? "Delete this lead and block the sender?" : "Delete this lead?")) return;
+  const removeLead = async (block) => {
+    if (!await confirmDialog(block ? "Delete this lead and block the sender?" : "Delete this lead?")) return;
     act(async () => { await api(`/api/reply/leads/${id}?block=${block ? "true" : "false"}`, { method: "DELETE" }); onChanged(); },
       "del", block ? "Lead deleted & sender blocked" : "Lead deleted");
     setMenu(false);

@@ -1,3 +1,4 @@
+import { confirmDialog } from "../components";
 // Settings → Integrations → CRM: connect an external CRM, configure sync
 // direction / entities / mappings / conflict policy, test, run, and monitor.
 // The Generic webhook/API provider is production-ready; native adapters are
@@ -161,7 +162,7 @@ export default function CrmSync() {
                 )}
                 <Button size="sm" variant="ghost" onClick={() => setModal(c)}>Configure</Button>
                 <Button size="sm" variant="danger" icon={Trash2} onClick={async () => {
-                  if (!confirm("Disconnect this CRM? Mappings are kept.")) return;
+                  if (!await confirmDialog("Disconnect this CRM? Mappings are kept.")) return;
                   await api(`/api/devapi/sync/connections/${c.id}`, { method: "DELETE" }); reload();
                 }} />
               </span>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Badge, Empty, ErrorBox, Spinner, useApi } from "../components";
+import { alertDialog } from "../components";
 
 const tone = { done: "green", failed: "red", running: "indigo", pending: "amber" };
 
@@ -17,7 +18,7 @@ export default function Jobs() {
 
   const cancel = async (id) => {
     try { await api(`/api/jobs/${id}/cancel`, { method: "POST" }); reload(); }
-    catch (e) { alert(e.message); }
+    catch (e) { alertDialog(e.message); }
   };
 
   return (

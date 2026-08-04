@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api } from "../api";
 import { Badge, Breadcrumbs, ErrorBox, PageHeader, Spinner, StatusPill, useApi } from "../components";
+import { alertDialog } from "../components";
 
 const TABS = [
   ["overview", "Offer"], ["icp", "ICP"], ["sales_process", "Sales Process"],
@@ -30,7 +31,7 @@ export default function ClientProfile() {
 
   const activate = async () => {
     try { setP(await api(`/api/client-profiles/${id}/activate`, { method: "POST", body: {} })); setErr(""); }
-    catch (e) { alert(e.message); }
+    catch (e) { alertDialog(e.message); }
   };
 
   if (loading) return <Spinner />;
@@ -51,11 +52,11 @@ export default function ClientProfile() {
 
   const setField = async (section, field, value, visibility) => {
     try { setP(await api(`/api/client-profiles/${id}/field`, { method: "PUT", body: { section, field, value, visibility } })); }
-    catch (e) { alert(e.message); }
+    catch (e) { alertDialog(e.message); }
   };
   const setScope = async (scope_type) => {
     try { setP(await api(`/api/client-profiles/${id}/scope`, { method: "PUT", body: { scope_type } })); }
-    catch (e) { alert(e.message); }
+    catch (e) { alertDialog(e.message); }
   };
 
   return (
@@ -136,12 +137,12 @@ function OnboardingTab({ p, id, setP }) {
   const [ans, setAns] = useState({});
   const submit = async () => {
     try { const r = await api(`/api/client-profiles/${id}/onboarding-submit`, { method: "POST", body: { answers: ans, submitted_by: "internal" } });
-      setP(r); setAns({}); alert(`Saved: ${r.applied} applied, ${r.flagged} flagged for review.`); }
-    catch (e) { alert(e.message); }
+      setP(r); setAns({}); alertDialog(`Saved: ${r.applied} applied, ${r.flagged} flagged for review.`); }
+    catch (e) { alertDialog(e.message); }
   };
   const resolve = async (index, accept) => {
     try { setP(await api(`/api/client-profiles/${id}/resolve-flag`, { method: "POST", body: { index, accept } })); }
-    catch (e) { alert(e.message); }
+    catch (e) { alertDialog(e.message); }
   };
   const fields = (p.onboarding_form || {}).fields || [];
   return (

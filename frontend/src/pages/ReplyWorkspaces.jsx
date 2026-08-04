@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { Badge, Empty, ErrorBox, Modal, Spinner, useApi } from "../components";
+import { alertDialog } from "../components";
 
 function Field({ label, children, half }) {
   return <div className="field" style={half ? { flex: 1 } : {}}><label>{label}</label>{children}</div>;
@@ -106,7 +107,7 @@ export default function ReplyWorkspaces() {
   const { data, error, loading, reload } = useApi("/api/reply/workspaces", { workspace_id: wsParam });
   const [modal, setModal] = useState(null);
   if (!me.is_master) return <ErrorBox msg="Master access required." />;
-  const dup = async (id) => { try { await api(`/api/reply/workspaces/${id}/duplicate`, { method: "POST" }); reload(); } catch (e) { alert(e.message); } };
+  const dup = async (id) => { try { await api(`/api/reply/workspaces/${id}/duplicate`, { method: "POST" }); reload(); } catch (e) { alertDialog(e.message); } };
   return (
     <>
       <div className="card" style={{ padding: 12, marginBottom: 14, fontSize: 12.5, color: "var(--muted)" }}>

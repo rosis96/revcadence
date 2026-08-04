@@ -4,6 +4,7 @@ import { api, getToken } from "../api";
 import { useAuth } from "../auth";
 import { Badge, Empty, ErrorBox, Spinner, fitTone, useApi } from "../components";
 import { NewCompanyModal } from "./Companies";
+import { alertDialog, confirmDialog } from "../components";
 
 const jobTone = { done: "green", failed: "red", running: "indigo", pending: "amber", cancelled: "" };
 
@@ -70,21 +71,21 @@ export default function Enrichment() {
   const fileRef = useRef(null);
 
   const importCsv = async (file) => {
-    if (!wsParam && me.is_master) { alert("Pick a specific workspace before importing."); return; }
+    if (!wsParam && me.is_master) { alertDialog("Pick a specific workspace before importing."); return; }
     const targetWs = wsParam || me.workspaces[0]?.id;
     const text = await file.text();
     const rows = mapRows(parseCsv(text));
-    if (rows.length === 0) { alert("No rows found. Expected headers like: first_name, last_name, email, title, company, website"); return; }
-    const auto = confirm(`Import ${rows.length} rows into this workspace?\n\nOK = import + auto-enrich every contact\nCancel = abort`);
+    if (rows.length === 0) { alertDialog("No rows found. Expected headers like: first_name, last_name, email, title, company, website"); return; }
+    const auto = await confirmDialog(`Import ${rows.length} rows into this workspace?\n\nOK = import + auto-enrich every contact\nCancel = abort`);
     if (!auto) return;
     setBusy(true);
     try {
       const r = await api("/api/import/contacts", { method: "POST",
         body: { workspace_id: Number(targetWs), rows, auto_enrich: true } });
-      alert(`Imported: ${r.contacts_created} new contacts, ${r.contacts_merged} merged, ` +
+      alertDialog(`Imported: ${r.contacts_created} new contacts, ${r.contacts_merged} merged, ` +
             `${r.companies_created} companies, ${r.enrich_jobs_queued} enrichment jobs queued.`);
       reload(); reloadJobs();
-    } catch (e) { alert(e.message); }
+    } catch (e) { alertDialog(e.message); }
     setBusy(false);
   };
 
@@ -92,7 +93,7 @@ export default function Enrichment() {
     const url = new URL("/api/export/leads", window.location.origin);
     if (wsParam) url.searchParams.set("workspace_id", wsParam);
     const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
-    if (!res.ok) { alert("Export failed"); return; }
+    if (!res.ok) { alertDialog("Export failed"); return; }
     const blob = await res.blob();
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -114,7 +115,7 @@ export default function Enrichment() {
       }
       setSelected({});
       reloadJobs();
-    } catch (e) { alert(e.message); }
+    } catch (e) { alertDialog(e.message); }
     setBusy(false);
   };
 

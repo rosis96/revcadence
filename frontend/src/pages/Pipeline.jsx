@@ -7,6 +7,7 @@ import {
   Badge, Button, DataTable, Drawer, ErrorBox, Modal, MoneyEst, PageHeader, Spinner, Tabs,
   Timeline, useApi,
 } from "../components";
+import { alertDialog } from "../components";
 
 function NewLeadModal({ onClose, onCreated, workspaceId, stages }) {
   const { data: companies } = useApi("/api/companies", { workspace_id: workspaceId });
@@ -119,13 +120,13 @@ function DealDrawer({ dealId, onClose, onChanged }) {
   const move = async (stageId) => {
     setBusy(true);
     try { await api(`/api/deals/${dealId}/move`, { method: "POST", body: { stage_id: Number(stageId) } }); reload(); onChanged(); }
-    catch (e) { alert(e.message); }
+    catch (e) { alertDialog(e.message); }
     setBusy(false);
   };
   const newAgreement = async () => {
     setBusy(true);
     try { const a = await api("/api/agreements/generate", { method: "POST", body: { deal_id: Number(dealId) } }); nav(`/agreements/${a.id}`); }
-    catch (e) { alert(e.message); }
+    catch (e) { alertDialog(e.message); }
     setBusy(false);
   };
   return (
@@ -190,7 +191,7 @@ export default function Pipeline() {
     const dealId = e.dataTransfer.getData("dealId");
     if (!dealId) return;
     try { await api(`/api/deals/${dealId}/move`, { method: "POST", body: { stage_id: stage.id } }); reload(); }
-    catch (err) { alert(err.message); }
+    catch (err) { alertDialog(err.message); }
   };
 
   const [view, setView] = useState(localStorage.getItem("rc_pipeline_view") || "board");

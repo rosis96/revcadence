@@ -1,3 +1,4 @@
+import { alertDialog } from "../components";
 // CRM → Onboarding: create a client's onboarding link, track status/progress,
 // review what they submitted + the auto-generated checklist.
 import { useState } from "react";
@@ -48,7 +49,7 @@ export default function Onboarding() {
     try {
       const r = await api("/api/onboarding", { method: "POST", body: { workspace_id: Number(ws) } });
       setNewLink(r.link); reload();
-    } catch (e) { alert(e.message); }
+    } catch (e) { alertDialog(e.message); }
   };
   const copy = (link, id) => { navigator.clipboard.writeText(link); setCopied(id); setTimeout(() => setCopied(""), 1500); };
   const linkFor = (t) => `${window.location.origin}/#/onboard/${t}`;

@@ -1,3 +1,4 @@
+import { promptDialog } from "./dialogs";
 /* THE DataTable (DESIGN_SYSTEM.md Part 3). One table for every list in RevCadence.
    TanStack Table (headless) + TanStack Virtual. Features: search, sorting, column
    chooser (persisted), saved views (persisted), bulk actions, sticky header,
@@ -58,8 +59,8 @@ function ViewsMenu({ views, current, onSave, onApply, onDelete }) {
               <button className="del" title="Delete view" onClick={() => onDelete(name)}><Trash2 size={13} /></button>
             </div>
           ))}
-          <button className="dt-pop-save" onClick={() => {
-            const name = prompt("Save current view as:");
+          <button className="dt-pop-save" onClick={async () => {
+            const name = await promptDialog("Save current view as:");
             if (name) { onSave(name); setOpen(false); }
           }}>+ Save current view</button>
         </div>

@@ -3,6 +3,7 @@
    Names deliberately do NOT clash with legacy exports in components.jsx. */
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, Inbox as InboxIcon, Search, X } from "lucide-react";
+export { confirmDialog, promptDialog, alertDialog, GlobalDialogs } from "./dialogs";
 
 /* ---------------------------------------------------------------- Button */
 export function Button({ variant = "primary", size = "md", loading = false, icon: Icon, children, className = "", ...rest }) {

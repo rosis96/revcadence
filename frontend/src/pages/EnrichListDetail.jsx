@@ -1,3 +1,4 @@
+import { alertDialog, confirmDialog, promptDialog } from "../components";
 // Enrichment list (DESIGN_SYSTEM.md step 4). Apollo Find-People philosophy:
 // sticky left filter rail with live full-list counts, instant server-side
 // filtering, one shared DataTable (server pagination), quick profile Drawer.
@@ -126,7 +127,7 @@ export default function EnrichListDetail() {
     } else body.lead_ids = selIds;
     const n = selectedCount || (opts.fullView ? data.chips.all : data.total_in_view);
     const label = { esp: "ESP check", verify: "Verify", pipeline: "Verify → Enrich" }[steps] || steps;
-    if (n > 50 && !confirm(`Run ${label} on ${n.toLocaleString()} leads${body.limit ? ` (capped at ${body.limit})` : ""}?`)) return;
+    if (n > 50 && !await confirmDialog(`Run ${label} on ${n.toLocaleString()} leads${body.limit ? ` (capped at ${body.limit})` : ""}?`)) return;
     try {
       const r = await api(`/api/enrich-lists/${id}/run`, { method: "POST", body });
       setJob(r.job_id); setSelIds([]); setAllInView(false);
@@ -142,7 +143,7 @@ export default function EnrichListDetail() {
       const working = Object.entries(r.probe?.tiers || {}).filter(([, v]) => v.ok).map(([k]) => k);
       const sample = (le.samples || []).map((s) => `  ${s.email} → ${s.esp_live} (stored: ${s.esp_stored || "—"})`).join("\n");
       // eslint-disable-next-line no-alert
-      alert(
+      alertDialog(
         `DNS working: ${r.dns_working}   ·   ESP for gmail.com: ${r.probe?.result?.esp}\n` +
         `Working tiers: ${working.length ? working.join(", ") : "NONE"}\n\n` +
         `THIS LIST (${le.list}):\n` +
@@ -160,7 +161,7 @@ export default function EnrichListDetail() {
     } catch (e) { toast(e.message, "bad"); }
   };
   const splitByIndustry = async () => {
-    if (!confirm("Create '<List> — <Industry>' lists and move classified leads into them?")) return;
+    if (!await confirmDialog("Create '<List> — <Industry>' lists and move classified leads into them?")) return;
     try {
       const r = await api(`/api/enrich-lists/${id}/split-by-industry`, { method: "POST" });
       toast(`Moved ${r.moved} leads into ${r.lists_created.length} industry lists.`);
@@ -173,7 +174,7 @@ export default function EnrichListDetail() {
     const filterNote = (view !== "all" || espSel.length)
       ? `the CURRENT FILTER only — view "${view}"${espSel.length ? `, ESP: ${espSel.join("/")}` : ""}`
       : "the WHOLE list";
-    if (!confirm(`${label} for ${(data?.total_in_view ?? 0).toLocaleString()} lead(s) — ${filterNote}.\n\nTo affect every lead, clear all filters first (View = All, no ESP).\n\nContinue?`)) return;
+    if (!await confirmDialog(`${label} for ${(data?.total_in_view ?? 0).toLocaleString()} lead(s) — ${filterNote}.\n\nTo affect every lead, clear all filters first (View = All, no ESP).\n\nContinue?`)) return;
     try { await api(`/api/enrich-lists/${id}/${what}?view=${view}${espQs}`, { method: "POST" }); reload(); }
     catch (e) { toast(e.message, "bad"); }
   };
@@ -181,7 +182,7 @@ export default function EnrichListDetail() {
     const body = allInView || (!rows?.length && selIds.length === 0) ? { view, esp: espSel }
       : { lead_ids: rows?.length ? rows.map((r) => r.id) : selIds };
     const n = body.lead_ids?.length || selectedCount || data.chips[view] || 0;
-    if (!confirm(`Delete ${n.toLocaleString()} lead(s)? This cannot be undone.`)) return;
+    if (!await confirmDialog(`Delete ${n.toLocaleString()} lead(s)? This cannot be undone.`)) return;
     try {
       const r = await api(`/api/enrich-lists/${id}/delete-leads`, { method: "POST", body });
       toast(`Deleted ${r.deleted} lead(s).`); setSelIds([]); setAllInView(false); reload();
@@ -206,7 +207,7 @@ export default function EnrichListDetail() {
   };
   const runDedupe = async () => {
     if (!dedupePreview?.matches) return;
-    if (!confirm(`Delete ${dedupePreview.matches.toLocaleString()} duplicate lead(s) from "${dedupePreview.target_list}"? This cannot be undone.`)) return;
+    if (!await confirmDialog(`Delete ${dedupePreview.matches.toLocaleString()} duplicate lead(s) from "${dedupePreview.target_list}"? This cannot be undone.`)) return;
     setDedupeBusy(true);
     try {
       const r = await dedupeCall(false);
@@ -247,7 +248,7 @@ export default function EnrichListDetail() {
   const rejectOutput = async (name, text) => {
     const wsId = data?.list?.workspace_id;
     if (!wsId || !String(text || "").trim()) return;
-    const reason = window.prompt(
+    const reason = await promptDialog(
       "Why should the writer avoid this output? Be specific, for example: “too corporate”, “ignored the number”, or “sentence is too complex”.",
     );
     if (reason == null) return;
