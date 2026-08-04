@@ -307,17 +307,22 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
         recognized = {"procedure", "icp_categories", "hard_non_icp", "default"}
         try:
             icp = json.loads(raw_icp) if raw_icp else None
-            if isinstance(icp, dict) and set(icp) <= recognized:
-                # Our simple structured schema — format it into clean guidance.
+            if isinstance(icp, dict) and (set(icp) & recognized):
+                # Structured schema (even with EXTRA keys like mode/note) — format the
+                # known parts cleanly and append any extra keys verbatim so nothing is lost.
                 icp_block = ""
                 if icp.get("procedure"):
-                    icp_block += "PROCEDURE (follow in order):\n" + "\n".join(icp["procedure"]) + "\n"
+                    proc = icp["procedure"]
+                    icp_block += "PROCEDURE (follow in order):\n" + "\n".join(proc if isinstance(proc, list) else [str(proc)]) + "\n"
                 if icp.get("icp_categories"):
                     icp_block += "ICP CATEGORIES (allowed fits):\n- " + "\n- ".join(icp["icp_categories"]) + "\n"
                 if icp.get("hard_non_icp"):
                     icp_block += "HARD NON-ICP (auto-reject if any matches):\n- " + "\n- ".join(icp["hard_non_icp"]) + "\n"
                 if icp.get("default"):
                     icp_block += f"WHEN UNSURE, RETURN: {icp['default']}\n"
+                extra = {k: v for k, v in icp.items() if k not in recognized and v not in (None, "", [], {})}
+                if extra:
+                    icp_block += "ADDITIONAL ICP CONTEXT:\n" + json.dumps(extra) + "\n"
             # else: richer/unknown JSON or plain prose — hand the WHOLE definition to
             # the classifier verbatim so no guidance (reasoning, rules) is ever dropped.
             # (icp_block already holds raw_icp.)
@@ -1003,31 +1008,31 @@ def _compact_profile(profile: dict) -> dict:
                     if v not in (None, "", [], {})}
         return value
 
-    keys = (
-        "client_name", "one_liner", "service_brief", "main_offer",
-        "what_we_are_pitching", "target_outcome", "icp_summary", "industries",
-        "services", "positioning", "methodology", "proof_points", "target_titles",
-        "tone", "problem_library", "case_studies",
-    )
+    # Pass through EVERY field the operator puts in the profile (bounded in size),
+    # rather than a fixed allow-list — so custom keys like problems_we_solve,
+    # customer_challenges, results_we_bring, icp, non_icp, global_rules, etc. actually
+    # reach the writer. Only pure metadata is skipped. This is the alignment fix: the
+    # system uses the profile YOU build, not a hardcoded subset of key names.
+    _SKIP = {"profile_version", "website", "url", "created_at", "updated_at", "id", "_id"}
+    _SMALL = {"case_studies", "problem_library", "case_study_library"}   # keep fewer, richer items
+
     def _clean_list(items):
         # Drop junk from a merge that exploded a string into single characters, plus
         # any too-short/blank entries. Keeps real multi-word positioning/services.
         out_items = []
         for x in items:
-            if isinstance(x, str):
-                if len(x.strip()) < 3:
-                    continue
+            if isinstance(x, str) and len(x.strip()) < 3:
+                continue
             out_items.append(x)
         return out_items
 
     out = {}
-    for key in keys:
-        value = profile.get(key)
-        if value in (None, "", [], {}):
+    for key, value in (profile or {}).items():
+        if key in _SKIP or value in (None, "", [], {}):
             continue
         if isinstance(value, list):
             value = _clean_list(value)
-            capped = value[:8] if key not in ("case_studies", "problem_library") else value[:4]
+            capped = value[:4] if key in _SMALL else value[:10]
             out[key] = clip(capped)
         elif isinstance(value, str):
             out[key] = value[:1800]

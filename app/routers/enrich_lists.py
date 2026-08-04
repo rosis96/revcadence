@@ -581,6 +581,7 @@ class ConfigIn(BaseModel):
     profile: dict | None = None
     icp_definition: str | None = None
     formats: list | None = None
+    variables: list | None = None   # alias: old variable-set JSON calls the array "variables"
     rules: str | None = None
     skip_title_gate: bool | None = None
     skip_icp: bool | None = None
@@ -1018,6 +1019,8 @@ def put_config(workspace_id: int, body: ConfigIn, ctx: AuthContext = Depends(get
         cfg.icp_definition = body.icp_definition
     if body.formats is not None:
         cfg.formats = body.formats
+    elif body.variables is not None:      # accept the old "variables" array name too
+        cfg.formats = body.variables
     if body.rules is not None:
         cfg.rules = body.rules
     if body.skip_title_gate is not None:
