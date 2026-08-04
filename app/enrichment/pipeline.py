@@ -1469,6 +1469,12 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
     # ICP is still recorded for reference, but every verified lead is enriched).
     if lead.icp_decision == "Non-ICP" and not getattr(cfg, "skip_icp", 0):
         lead.status = "skipped"
+        # Clear any previously-written variables so a Non-ICP lead never SHOWS copy
+        # while filtering is on (e.g. it was enriched earlier with ICP filtering off,
+        # or came in as Needs Review). Keep the _facts/_research diagnostics.
+        if isinstance(lead.result, dict):
+            lead.result = {k: v for k, v in lead.result.items() if str(k).startswith("_")}
+        lead.updated_at = datetime.utcnow()
         db.commit()
         return lead.status
 
