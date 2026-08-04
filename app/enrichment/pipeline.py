@@ -1261,42 +1261,46 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
 
     vars_out, candidate_count = _select_candidates(out, formats, assign, facts, reading, site_text)
     vars_out = {k: _tidy_variable(v) for k, v in vars_out.items()}
-    # Regenerate failed variables — up to TWO focused repair passes (banned filler and
-    # weak anchors often clear on a second, more explicit attempt) before quarantining.
-    for _attempt in range(2):
-        fails = _qc_failures(vars_out, assign, facts, formats, reading, site_text)
-        if not fails:
-            break
-        fix_plan = [p for p in plan if p["name"] in fails]
-        # Keep the SAME cached system prefix (full defs) so caching still hits; append
-        # the repair instruction after it.
-        fix_system = (_writer_system(cfg, rules, level_line, format_defs) +
-                      "\nREPAIR: the previous candidates failed the checks below. Correct EVERY stated "
-                      "problem while preserving the assigned claim and concrete quote details. If a check "
-                      "names a banned phrase, rewrite that idea in plain words (e.g. 'managing outreach and "
-                      "post-meeting follow-up'), never reuse the banned wording. Keep every sentence under "
-                      "30 words.\nFAILURES:\n" +
-                      "\n".join(f"- {n}: {r}" for n, r in fails.items()))
-        # Repairs are format fixes — the assigned evidence is already in the plan,
-        # so a short excerpt is enough. Don't re-send the full site text every retry.
-        fix_user = _writer_user(lead, facts, fix_plan, site_excerpt[:1200])
-        try:
-            prompt_chars += len(fix_system) + len(fix_user)
-            fixed = ai._call_openai(fix_system, fix_user, model=model)
-            calls += 1
-            repaired, repair_candidates = _select_candidates(
-                fixed, [f for f in formats if f["name"] in fails], assign, facts, reading, site_text)
-            candidate_count += repair_candidates
-            vars_out.update({k: _tidy_variable(v) for k, v in repaired.items()})
-        except Exception:
-            break
+
+    # QUALITY-REVIEW WITHHOLDING IS OFF BY DEFAULT. We never blank/"Hold" a variable —
+    # a present, specific line always beats an empty one, and blanking was wasting
+    # leads. Candidate selection above still picks the better of the two generations,
+    # so quality stays high without quarantining anything. Set QC_WITHHOLD=1 to
+    # restore the old repair-then-quarantine gate if ever needed.
+    qc_withhold = os.getenv("QC_WITHHOLD", "0") == "1"
+    if qc_withhold:
+        for _attempt in range(2):
+            fails = _qc_failures(vars_out, assign, facts, formats, reading, site_text)
+            if not fails:
+                break
+            fix_plan = [p for p in plan if p["name"] in fails]
+            fix_system = (_writer_system(cfg, rules, level_line, format_defs) +
+                          "\nREPAIR: the previous candidates failed the checks below. Correct EVERY stated "
+                          "problem while preserving the assigned claim and concrete quote details. If a check "
+                          "names a banned phrase, rewrite that idea in plain words, never reuse the banned "
+                          "wording. Keep every sentence under 30 words.\nFAILURES:\n" +
+                          "\n".join(f"- {n}: {r}" for n, r in fails.items()))
+            fix_user = _writer_user(lead, facts, fix_plan, site_excerpt[:1200])
+            try:
+                prompt_chars += len(fix_system) + len(fix_user)
+                fixed = ai._call_openai(fix_system, fix_user, model=model)
+                calls += 1
+                repaired, repair_candidates = _select_candidates(
+                    fixed, [f for f in formats if f["name"] in fails], assign, facts, reading, site_text)
+                candidate_count += repair_candidates
+                vars_out.update({k: _tidy_variable(v) for k, v in repaired.items()})
+            except Exception:
+                break
+
     # optional humanizer: make the copy sound human while preserving specific facts.
     # Opt-in (one extra call/lead) so it never surprises the cost. In-prompt human
     # voice already applies to every generation regardless of this flag.
     if os.getenv("HUMANIZE_PASS", "0") == "1" or getattr(cfg, "humanize", False):
         vars_out, hcalls = _humanize_pass(cfg, vars_out, facts, assign, formats, reading, site_text, model)
         calls += hcalls
-    final_fails = _qc_failures(vars_out, assign, facts, formats, reading, site_text)
+
+    # Only quarantine when withholding is explicitly re-enabled; otherwise keep every line.
+    final_fails = _qc_failures(vars_out, assign, facts, formats, reading, site_text) if qc_withhold else {}
     for name in final_fails:
         vars_out[name] = ""
     return {"vars": vars_out, "source": "openai", "assignments": assign,
