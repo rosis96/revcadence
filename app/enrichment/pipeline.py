@@ -967,6 +967,16 @@ def _format_defs(formats: list) -> list:
             # --- existing fields ---
             "guidance": f.get("guidance"), "template": f.get("template"),
             "min_words": f.get("min_words"), "max_words": f.get("max_words"),
+            # --- template placeholders: each {{token}} has its own instruction, word
+            # range, and examples. Passing these lets the writer fill each slot per its
+            # spec (and know which slots are OUR client vs the prospect) instead of
+            # free-writing the whole line and ignoring the structure. ---
+            "placeholders": [{
+                "token": p.get("token") or p.get("name"),
+                "how_to_write": str(p.get("instruction") or p.get("how") or p.get("guidance") or "")[:600],
+                "min_words": p.get("min_words"), "max_words": p.get("max_words"),
+                "examples": [str(x)[:160] for x in (p.get("examples") or [])[:4]],
+            } for p in (f.get("placeholders") or []) if (p.get("token") or p.get("name"))],
             "rules": [str(x)[:300] for x in (f.get("rules") or [])[:12]],
             "examples": [str(x)[:450] for x in (f.get("examples") or [])[-5:]],
             "avoid_examples": [{
@@ -1101,6 +1111,20 @@ def _writer_system(cfg, rules, level_line, format_defs=None) -> str:
             "appears in this lead's assigned evidence (a named product/framework beats a generic trait). "
             "When it lists instructions, follow every one. The per-variable spec overrides the generic bar "
             "below wherever they differ.\n"
+            "WHO IS WHO (critical — do not mix these up): OUR CLIENT is the company described in CLIENT "
+            "PROFILE / OUR OFFER below — that is 'we/us/our'. THE PROSPECT is the company in the PROSPECT "
+            "TAXONOMY and PROSPECT SITE TEXT — that is 'you/your'. A value proposition means WE (our client) "
+            "offer OUR service TO the prospect; describe OUR client's service and mechanism from the CLIENT "
+            "PROFILE, and only reference the prospect's world to show relevance. NEVER pitch the prospect's "
+            "OWN offering back to them, and never describe the prospect's service as if it were ours.\n"
+            "TEMPLATES & PLACEHOLDERS: if a variable has a `template`, produce the final text by filling each "
+            "{{token}} and keeping the template's wording/connectors. Fill each placeholder using its own "
+            "how_to_write and STAY WITHIN its min/max words (count them). A placeholder about OUR client / "
+            "our mechanism / our solution (often named after the client) is written from the CLIENT PROFILE; "
+            "a placeholder about the company/prospect is written from the prospect's evidence. Respect the "
+            "whole-variable min/max words too.\n"
+            "WORD COUNTS ARE HARD LIMITS: obey every min_words/max_words — for the whole variable AND for "
+            "each placeholder. Count before returning; trim or expand to fit the range.\n"
             "SOUND HUMAN, NOT LIKE AI (critical): write like one sharp person emailing another, the way a "
             "founder types a quick note, not marketing copy. Vary sentence length and rhythm; a short "
             "fragment is fine. Contractions are natural (you're, we've, it's). Use plain words a person "
