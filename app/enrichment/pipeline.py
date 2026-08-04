@@ -1400,7 +1400,20 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
         return lead.status or "esp"
 
     if lead.status in TERMINAL_STATUSES:
-        return lead.status  # resume semantics — never re-charge finished work
+        # Resume: never re-charge finished work. But STILL honor the ICP filter — a
+        # lead enriched earlier while "Skip ICP filtering" was ON keeps a Non-ICP label
+        # and its variables. If filtering is now ON, strip those variables and mark it
+        # skipped, using the STORED decision (no re-crawl, no Reoon charge). This is why
+        # Non-ICP leads looked like they were "still being enriched" on re-run.
+        if lead.icp_decision == "Non-ICP" and not getattr(cfg, "skip_icp", 0):
+            had_vars = isinstance(lead.result, dict) and any(not str(k).startswith("_") for k in lead.result)
+            if had_vars or lead.status != "skipped":
+                if isinstance(lead.result, dict):
+                    lead.result = {k: v for k, v in lead.result.items() if str(k).startswith("_")}
+                lead.status = "skipped"
+                lead.updated_at = datetime.utcnow()
+                db.commit()
+        return lead.status  # otherwise never re-charge finished work
 
     # 1. FREE verify ($0) + ESP detection (byproduct of the MX lookup)
     if not lead.free_status:
