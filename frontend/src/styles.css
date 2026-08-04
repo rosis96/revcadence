@@ -43,7 +43,10 @@
   --header-h: 64px;
 }
 * { box-sizing: border-box; margin: 0; }
-body { font-family: "Inter", -apple-system, "Segoe UI", Arial, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; -webkit-font-smoothing: antialiased; }
+/* Render the whole app at ~80% density by default — this is the layout that reads
+   best (more of the system visible, cleaner structure). Adjust --app-zoom to taste. */
+:root { --app-zoom: 0.8; }
+body { font-family: "Inter", -apple-system, "Segoe UI", Arial, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; -webkit-font-smoothing: antialiased; zoom: var(--app-zoom); }
 a { color: var(--accent); text-decoration: none; }
 button { font: inherit; cursor: pointer; }
 input, select, textarea { font: inherit; padding: 9px 11px; border: 1px solid var(--border); border-radius: 9px; background: #fff; outline: none; color: var(--text); transition: border-color .15s, box-shadow .15s; }
