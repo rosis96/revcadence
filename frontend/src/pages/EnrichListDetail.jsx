@@ -84,7 +84,7 @@ export default function EnrichListDetail() {
   const [dedupePreview, setDedupePreview] = useState(null);
   const [dedupeBusy, setDedupeBusy] = useState(false);
   const espParam = espSel.join(",");
-  const { data, error, loading, reload } = useApi(`/api/enrich-lists/${id}/leads`,
+  const { data, error, loading, reload, refresh } = useApi(`/api/enrich-lists/${id}/leads`,
     { view, page, q, page_size: 50, esp: espParam });
   const { data: reoon } = useApi(data
     ? `/api/enrich-lists/reoon/balance?workspace_id=${data.list.workspace_id}` : null);
@@ -99,7 +99,8 @@ export default function EnrichListDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.list?.id]);
 
-  // live job progress poll
+  // live job progress poll — refresh the rows/counts in place (quiet, no spinner)
+  // each tick so you SEE enrichment happening, then a final reload when it finishes.
   useEffect(() => {
     if (!job) return;
     const t = setInterval(async () => {
@@ -107,10 +108,11 @@ export default function EnrichListDetail() {
         const s = await api(`/api/jobs/${job}/status`);
         setJobStatus(s);
         if (["done", "failed", "cancelled"].includes(s.status)) { clearInterval(t); setJob(null); reload(); }
+        else refresh();   // live: update the table + counts while the job runs, no loading flash
       } catch { clearInterval(t); setJob(null); }
     }, 2500);
     return () => clearInterval(t);
-  }, [job, reload]);
+  }, [job, reload, refresh]);
 
   const selectedCount = allInView ? (data?.total_in_view || 0) : selIds.length;
 

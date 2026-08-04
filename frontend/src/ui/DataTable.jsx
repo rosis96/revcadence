@@ -250,7 +250,8 @@ export function DataTable({
         </table>
       </div>
 
-      {manual && !loading && (
+      {manual && manual.total != null && (
+        /* stays visible during reloads/live refresh so paging never disappears */
         <div className="pager">
           <span>{(manual.total ?? 0).toLocaleString()} rows</span>
           <div className="pr">
