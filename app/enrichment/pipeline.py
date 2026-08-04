@@ -487,6 +487,15 @@ _BANNED_PHRASES = [
     "client satisfaction", "customer satisfaction", "our integrated approach",
     "your work exceeded expectations", "leveraging this", "revenue ecosystem",
     "opportunity progression", "differentiated capability", "utilize this",
+    # AI / robotic tells + tired outbound openers
+    "i hope this email finds you well", "i hope this finds you well", "i hope you're doing well",
+    "in today's fast-paced", "in today's competitive", "in the ever-evolving", "ever-evolving",
+    "i came across your", "i couldn't help but notice", "i wanted to reach out", "reaching out because",
+    "game-changer", "game changer", "seamless", "seamlessly", "elevate your", "unlock the",
+    "take your business to the next level", "supercharge", "revolutionize", "empower your",
+    "synergy", "synergies", "robust solution", "holistic approach", "at the end of the day",
+    "needless to say", "it goes without saying", "delve into", "tapestry", "testament to",
+    "resonate", "resonates with", "spearhead", "navigate the", "in the realm of",
 ]
 # Generic value-nouns that must NOT stand in for a concrete website detail.
 _GENERIC_NOUNS = {"quality", "innovation", "expertise", "commitment", "creativity",
@@ -922,18 +931,43 @@ def _format_defs(formats: list) -> list:
     """The STATIC per-variable definition (how to write each). Identical across every
     lead in a workspace, so it belongs in the CACHED system prompt — not re-billed
     per lead. Examples/rules kept short (they teach structure, not content)."""
+    def _trim_priority(order):
+        # research_priority_order can be large (nested examples). Keep the ranking +
+        # a couple of examples per tier so the model knows WHAT to personalize on.
+        out = []
+        for it in (order or [])[:6]:
+            if isinstance(it, dict):
+                out.append({
+                    "priority": it.get("priority"),
+                    "type": str(it.get("type") or "")[:120],
+                    "why": str(it.get("why") or "")[:160],
+                    "examples": [str(x)[:80] for x in (it.get("examples") or [])[:3]],
+                })
+            else:
+                out.append(str(it)[:120])
+        return out
+
     defs = []
     for f in formats:
         d = {
             "name": f.get("name"), "label": f.get("label"),
+            # --- the "soul": rich per-variable spec, restored (was being dropped) ---
+            "purpose": str(f.get("purpose") or "")[:600] or None,
+            "type": f.get("type"),
+            "allowed_values": f.get("allowed_values"),
+            "core_formula": f.get("core_formula"),               # {primary, examples}
+            "research_priority_order": _trim_priority(f.get("research_priority_order")),
+            "ideal_length": f.get("ideal_length"),
+            "instructions": [str(x)[:400] for x in (f.get("instructions") or [])[:14]],
+            # --- existing fields ---
             "guidance": f.get("guidance"), "template": f.get("template"),
             "min_words": f.get("min_words"), "max_words": f.get("max_words"),
-            "rules": [str(x)[:300] for x in (f.get("rules") or [])[:10]],
-            "examples": [str(x)[:450] for x in (f.get("examples") or [])[-2:]],
+            "rules": [str(x)[:300] for x in (f.get("rules") or [])[:12]],
+            "examples": [str(x)[:450] for x in (f.get("examples") or [])[-5:]],
             "avoid_examples": [{
                 "text": str(x.get("text") or "")[:300],
                 "reason": str(x.get("reason") or "")[:200],
-            } for x in (f.get("rejected_examples") or [])[-2:] if isinstance(x, dict)],
+            } for x in (f.get("rejected_examples") or [])[-3:] if isinstance(x, dict)],
         }
         defs.append({k: v for k, v in d.items() if v not in (None, "", [], {})})
     return defs
@@ -1055,6 +1089,20 @@ def _writer_system(cfg, rules, level_line, format_defs=None) -> str:
             "evidence assignment and a distinct job. Write TWO meaningfully different candidates per "
             "variable, both fully compliant. Ground prospect claims only in that variable's assigned claim "
             "and quote; never invent or generalize.\n"
+            "FOLLOW EACH VARIABLE'S OWN SPEC (authoritative): every VARIABLE DEFINITION may include its own "
+            "purpose, core_formula, research_priority_order, ideal_length, instructions and examples. Obey "
+            "THAT variable's spec exactly. When it gives a core_formula, build the line on that shape. When "
+            "it gives a research_priority_order, personalize on the HIGHEST-priority asset that actually "
+            "appears in this lead's assigned evidence (a named product/framework beats a generic trait). "
+            "When it lists instructions, follow every one. The per-variable spec overrides the generic bar "
+            "below wherever they differ.\n"
+            "SOUND HUMAN, NOT LIKE AI (critical): write like one sharp person emailing another, the way a "
+            "founder types a quick note, not marketing copy. Vary sentence length and rhythm; a short "
+            "fragment is fine. Contractions are natural (you're, we've, it's). Use plain words a person "
+            "says out loud, not polished jargon. Be specific AND casual at once: name the real "
+            "product/project/number, then react to it like a human would. It should read like a smart human "
+            "wrote it in 60 seconds — never templated, never AI-smooth, never a wall of adjectives. Do NOT "
+            "open with 'I' + a feeling ('I noticed', 'I love', 'I was impressed'); lead with THEM.\n"
             "QUALITY BAR:\n"
             "- Preserve the names, numbers, mechanisms, regulatory facts, and outcomes that make the "
             "assigned evidence valuable. A project name followed by a generic adjective is a failure.\n"
@@ -1113,6 +1161,52 @@ def _writer_user(lead: EnrichLead, facts: dict, formats: list, site_excerpt: str
         "\nVARIABLE PLAN for THIS lead (each item's _use_this_evidence + _job; follow the matching "
         "definition from the system prompt by name):\n" + json.dumps(formats)
     )
+
+
+def _humanize_pass(cfg, vars_out: dict, facts: dict, assign: dict, formats: list,
+                   reading: str, site_text: str, model: str) -> tuple[dict, int]:
+    """Optional final pass: rewrite the copy so it reads like a human wrote it fast,
+    while PRESERVING every specific fact (company/product/project names, numbers,
+    quotes). One call for the whole lead (cost-optimized — not per variable). Any
+    rewrite that fails the same QC is discarded in favour of the original, so this
+    can only make copy more human, never less specific or non-compliant.
+    Gated by HUMANIZE_PASS=1 (or cfg.humanize) so cost is opt-in."""
+    # never humanize classification / fixed-format variables (ICPReview etc.)
+    skip = {f.get("name") for f in formats
+            if f.get("type") == "classification" or f.get("format_lock") or f.get("allowed_values")}
+    live = {k: v for k, v in vars_out.items() if v and str(v).strip() and k not in skip}
+    if not live:
+        return vars_out, 0
+    system = (
+        "You are an editor making cold-email copy sound like a sharp human wrote it quickly — natural "
+        "rhythm, varied sentence length, contractions welcome, plain spoken words, zero AI smoothness or "
+        "corporate jargon. HARD RULES: preserve every specific fact EXACTLY — company names, "
+        "product/framework/project names, numbers, and quoted phrases stay verbatim. Do not add claims, "
+        "generalize, or change meaning. Keep each variable's length category and every sentence under 30 "
+        "words. Never begin with 'And', 'But', 'So', or 'I noticed / I love / I was impressed' — lead with "
+        "THEM. Return only JSON: {\"<variable name>\": \"<rewritten>\"}.\n"
+        "BANNED PHRASES (never use): " + "; ".join(_BANNED_PHRASES))
+    user = "Rewrite each of these so it sounds human, keeping all specific facts verbatim:\n" + json.dumps(live)
+    try:
+        out = ai._call_openai(system, user, model=model)
+    except Exception:  # noqa: BLE001
+        return vars_out, 0
+    cand = out.get("candidates") if isinstance(out, dict) and isinstance(out.get("candidates"), dict) else out
+    if not isinstance(cand, dict):
+        return vars_out, 1
+    fmt_by = {f.get("name"): f for f in formats}
+    for name, txt in cand.items():
+        if name not in live:
+            continue
+        new = _tidy_variable(str(txt or ""))
+        if not new:
+            continue
+        # keep the humanized version only if it still passes QC for that variable
+        fail = _qc_failures({name: new}, {name: assign.get(name, {})}, facts,
+                            [fmt_by.get(name, {})], reading, site_text)
+        if not fail:
+            vars_out[name] = new
+    return vars_out, 1
 
 
 def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None) -> dict:
@@ -1191,6 +1285,12 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
             vars_out.update({k: _tidy_variable(v) for k, v in repaired.items()})
         except Exception:
             break
+    # optional humanizer: make the copy sound human while preserving specific facts.
+    # Opt-in (one extra call/lead) so it never surprises the cost. In-prompt human
+    # voice already applies to every generation regardless of this flag.
+    if os.getenv("HUMANIZE_PASS", "0") == "1" or getattr(cfg, "humanize", False):
+        vars_out, hcalls = _humanize_pass(cfg, vars_out, facts, assign, formats, reading, site_text, model)
+        calls += hcalls
     final_fails = _qc_failures(vars_out, assign, facts, formats, reading, site_text)
     for name in final_fails:
         vars_out[name] = ""
