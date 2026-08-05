@@ -8,7 +8,7 @@ the writer produces. Keeping the definitions here (not in per-workspace DB rows)
 is what makes them global and consistent.
 
 value_proposition and any other client-specific variables are intentionally NOT
-here — those are decided per client/workspace.
+here; those are decided per client/workspace.
 """
 
 DEFAULT_GLOBAL_RULES = ["Write in polished, articulate professional English (C1) — an expert copywriter's register. Never "
@@ -20,21 +20,23 @@ DEFAULT_GLOBAL_RULES = ["Write in polished, articulate professional English (C1)
  'reply. Never a generic sales pitch, never robotic.',
  "Be specific and clearly researched: name the prospect's real product, project, client, or result "
  'from their site. Never generic praise, never invented facts.',
- 'Do not reference our own service by name in the first line or compliments; those are about THE '
- 'PROSPECT.',
- 'In the value proposition, WE (Revcadence) offer OUR service TO the prospect. Never pitch the '
- "prospect's own service back to them.",
  "In lists, use '&' rather than 'and' (e.g. 'buying, selling, & financing').",
- 'Personalized first line = a NEUTRAL, factual observation of what their site/business centers on. '
- "No flattery, no 'impressed', no 'showcasing', no 'turned heads', no pitch. It should read like "
- 'you actually looked at their site.',
- 'The two product complimentary variables must each notice a DIFFERENT thing from a DIFFERENT '
- 'angle. Never repeat the same feature, the same observation, or the same question across the two.',
- "Product complimentary = notice ONE specific thing and pay a SUBTLE compliment (observe, don't "
- "gush), then ask a genuine, curious question. Never 'incredibly impressive'. Do not just list a "
- 'service.',
- "Target customers must ALWAYS be exactly three, in the format 'target1, target2, & target3'. "
- 'Three distinct segments, never two, never four.']
+ 'Personalized first line is NEVER above 20 words. It is a neutral, factual observation of what '
+ 'the company actually does or sells, grounded in a real named product, client, project, or '
+ 'segment from their site. Never personalize off a blog-post title, an article headline, or a '
+ 'generic tagline.',
+ 'The two product complimentary variables must each notice a DIFFERENT, specifically NAMED thing '
+ 'from a DIFFERENT angle (one a named product/feature/service; the other a named '
+ 'project/client/recent work). Never repeat the same subject, observation, or question across the '
+ 'two.',
+ "Every product complimentary is at most 20 words, pays a SUBTLE compliment (observe, don't gush; "
+ "never 'incredibly impressive'), and ALWAYS ends with a genuine, curious question. Reference "
+ 'something the owner is clearly proud of, so they want to reply.',
+ "Target customers is ALWAYS exactly three distinct segments in the format 'target1, target2, & "
+ "target3'. Never two, never four.",
+ 'Do not reference our own service by name in the first line or the compliments; those are about '
+ 'THE PROSPECT. In the value proposition, WE offer OUR service TO the prospect, never pitch the '
+ "prospect's own service back to them."]
 
 DEFAULT_VARIABLE_ORDER = ['personalized_first_line',
  'product_complimentary_1',
@@ -45,120 +47,126 @@ DEFAULT_VARIABLE_ORDER = ['personalized_first_line',
 
 DEFAULT_FORMATS = [{'label': 'Personalized First Line',
   'name': 'personalized_first_line',
-  'purpose': "A neutral, factual observation of what the prospect's site or business centers on. "
-             'Reads like you actually looked at their site. No flattery, no pitch, no '
-             'embellishment.',
-  'guidance': 'State, factually and specifically, what their site or business centers on — the 2-3 '
-              'main things they do, sell, or focus on, with real named specifics pulled from the '
-              "site (projects, products, segments, models, numbers). Start with 'Your site centers "
-              "on...', 'Your homepage...', 'Your [specific thing]...', or '[Company] shows...'. "
-              "Use '&' in lists. Do NOT praise, do NOT say 'impressed' / 'showcasing' / 'turned "
-              "heads', do NOT pitch. Just show you read their site.",
-  'min_words': 10,
-  'max_words': 22,
-  'rules': ["Start with 'Your' or the company name.",
-            'Neutral factual observation, NOT praise or embellishment.',
-            'Name real specifics from the site (projects, products, segments, numbers).',
-            "Use '&' not 'and' in lists.",
-            'No pitch, no question. One sentence. No em dash.'],
+  'purpose': 'A tight, neutral, factual observation of what the company actually does or sells. '
+             'Proves we looked at their site. No flattery, no pitch, no filler. Maximum 20 words.',
+  'guidance': 'In one short sentence, state factually what their business or site centers on: the '
+              'core thing they do, sell, or are known for, anchored to a REAL named specific from '
+              "the site (a product, client, project, segment, or number). Start with 'Your'. Use "
+              "'&' in lists. Ground it in what the COMPANY does, never in a blog-post title or "
+              "article headline. No praise words ('impressed', 'showcasing', 'turned heads'), no "
+              "question, no pitch. Hard cap 20 words. Cut every filler word ('providing a "
+              "comprehensive overview of', 'across various industries', etc.).",
+  'min_words': 8,
+  'max_words': 20,
+  'rules': ['NEVER above 20 words. Count before returning.',
+            "Start with 'Your' or the company name.",
+            'Neutral factual observation of what they actually do or sell, not praise.',
+            'Anchor to a real named product, client, project, segment, or number.',
+            'Never personalize off a blog/article title or generic tagline.',
+            "No filler ('comprehensive overview', 'various industries'). No question. No pitch. No "
+            'em dash.',
+            "Use '&' not 'and' in lists."],
   'examples': ['Your site centers on pre-owned heavy equipment, with buying, selling, & financing '
                'all in one place.',
-               'Your site centers on commercial, residential, & assisted housing projects like 78 '
-               'Fort Pl and 60-62 Van Duzer St.',
-               'Delta Tech Industries shows over 500 auxiliary light, headlight, & light bar '
-               'models across automotive, military, & commercial truck segments.',
-               'Your homepage splits clearly between cash offers on houses & off-market investment '
+               'Your homepage splits cleanly between cash offers on houses & off-market investment '
                'property deals.',
-               'Your site centers mental fitness training, leadership EQ, & emotional resilience '
-               'workshops for organizations.',
-               'Your site centers grant writing, capital campaigns, & transition management for '
-               'culture & community-building organizations.'],
+               'Delta Tech shows over 500 auxiliary light, headlight, & light bar models across '
+               'automotive & truck segments.',
+               'Your platform builds and red-teams AI models, with LangTest & AgentTalk as the '
+               'core tools.',
+               'Your work centers on commercial & residential projects like 78 Fort Pl & 60-62 Van '
+               'Duzer St.',
+               'Your studio focuses on UX & service design for education and cultural clients like '
+               'Southbank Centre.'],
   'enabled': True},
  {'label': 'Product Complimentary 1',
   'name': 'product_complimentary_1',
-  'purpose': 'First angle: notice ONE core offering, product, or service setup on their site, pay '
-             'a SUBTLE compliment, then ask a genuine question. Feels like real research, not '
-             'gushing.',
-  'guidance': "Pick the prospect's CORE offering or how their main service/product setup is "
-              'organized (e.g. their mix of services, their main product line, how their process '
-              "is structured). Add a SUBTLE positive observation ('keeps the process in one "
-              "place', 'is practical', 'stands out'), never gush. Then ask ONE genuine, curious "
-              "question. Start with 'Your'. Use '&' in lists. This must focus on a DIFFERENT thing "
-              'than Product Complimentary 2.',
-  'angle': 'core offering / main service or product setup / how the process is organized',
-  'min_words': 12,
-  'max_words': 26,
-  'rules': ["Start with 'Your'.",
-            'Focus on the CORE offering or main service/product setup.',
-            "Compliment SUBTLY — observe, do not gush; never 'incredibly impressive'.",
-            'Do NOT just list a service; the subtle observation IS the compliment.',
-            'End with a genuine, curious question.',
-            'Must notice a DIFFERENT thing than Product Complimentary 2.',
-            "Use '&' in lists. No em dash."],
-  'examples': ['Your mix of equipment buying, sales, & financing keeps the process in one place. '
-               'Is that the main reason customers come back?',
-               'Your dealer login, dealer locator, & part search setup is practical. Is the dealer '
-               'locator a core part of the site?',
-               'Your homepage keeps the cash offer path & the investment property path separate. '
-               'Is that the main way people use it?',
-               'Your System Safety Program Plan (SSPP) Development looks like a core compliance '
-               'service. Is that one of the main offerings?'],
+  'purpose': 'First angle: a specifically NAMED product, feature, or service the company is '
+             'clearly proud of. Subtle compliment, ends with a question. Maximum 20 words.',
+  'guidance': 'Find the most distinctive NAMED product, feature, tool, or core service on their '
+              'site (something with a name, something they would call by name). Pay a SUBTLE, '
+              'specific compliment about it (what makes it practical, sharp, distinctive), never '
+              "gush, never 'incredibly impressive'. Then ask ONE genuine question that a proud "
+              "owner would want to answer. Start with 'Your'. Use '&' in lists. Must be a "
+              'DIFFERENT subject than Product Complimentary 2. Hard cap 20 words.',
+  'angle': 'a specifically named product / feature / tool / core service they are proud of',
+  'min_words': 10,
+  'max_words': 20,
+  'rules': ['At most 20 words. Count before returning.',
+            'Name ONE specific product/feature/tool/core service (something with a name).',
+            "Compliment SUBTLY; never 'incredibly impressive', never gush.",
+            'ALWAYS end with a genuine, curious question a proud owner would answer.',
+            'Must be a DIFFERENT subject than Product Complimentary 2.',
+            "Start with 'Your'. Use '&' in lists. No em dash."],
+  'examples': ['Your LangTest framework for evaluating & red-teaming models is a sharp focus. Is '
+               'that your flagship tool?',
+               'Your dealer locator & part search setup looks genuinely practical. Is that a core '
+               'part of the site?',
+               'Your self-erecting cranes look built for tight sites. Are those your most '
+               'requested models?',
+               'Your real-time market intelligence in TheListingHub stands out. Is that the core '
+               'of the platform?',
+               'Your System Safety Program Plan development looks like a core compliance service. '
+               'Is that a main offering?'],
   'enabled': True},
  {'label': 'Product Complimentary 2',
   'name': 'product_complimentary_2',
-  'purpose': 'Second angle: notice a DIFFERENT specific element — a named project, featured tool, '
-             'client result, or standout page — pay a SUBTLE compliment, then ask a genuine '
-             'question.',
-  'guidance': 'Pick a DIFFERENT, more specific element than Product Complimentary 1: a named '
-              'project, a featured case study or client, a specific tool or page, a standout '
-              "detail. Add a SUBTLE positive observation ('keeps the work front & center', 'stands "
-              "out', 'is very specific'), never gush. Then ask ONE genuine, curious question, "
-              "different from the first. Start with 'Your'. Use '&' in lists.",
-  'angle': 'a specific named project / featured tool / client result / standout page or detail',
-  'min_words': 12,
-  'max_words': 26,
-  'rules': ["Start with 'Your'.",
-            'Focus on a SPECIFIC named element (project, tool, client, page), not the core service '
-            'already used in #1.',
-            "Compliment SUBTLY — observe, do not gush; never 'incredibly impressive'.",
-            'End with a genuine, curious question, different from the #1 question.',
-            'Must notice a DIFFERENT thing than Product Complimentary 1.',
-            "Use '&' in lists. No em dash."],
-  'examples': ['Your featured projects section keeps the work front & center. Is 78 Fort Pl your '
-               'main spotlight project?',
-               'Your real-time shared market intelligence stands out. Is that a core part of '
-               'TheListingHub™?',
-               "Your case study on Pharmstrong's revenue jump is specific. Was that rebuild built "
-               'fully in-house?',
-               'Your resource library with the SSPP templates is a nice touch. Do prospects find '
-               'you through those?'],
+  'purpose': 'Second angle: a specifically NAMED project, client, case study, or recent work, '
+             'different from #1. Subtle compliment, ends with a question. Maximum 20 words.',
+  'guidance': 'Point to a NAMED piece of work: a project, a featured client, a case study, or a '
+              'recent build, DIFFERENT from whatever Product Complimentary 1 used. Pay a SUBTLE, '
+              'specific compliment (it stands out, it is a niche focus, it was a real win), never '
+              "gush. Then ask ONE genuine question, different from #1's, that the owner would be "
+              "proud to answer. Start with 'Your'. Use '&' in lists. Hard cap 20 words.",
+  'angle': 'a specifically named project / featured client / case study / recent work (not the '
+           'subject used in #1)',
+  'min_words': 10,
+  'max_words': 20,
+  'rules': ['At most 20 words. Count before returning.',
+            'Name a specific PROJECT / CLIENT / case study / recent work, not the subject from #1.',
+            'Compliment SUBTLY; never gush.',
+            "ALWAYS end with a genuine, curious question, different from #1's.",
+            'Must be a DIFFERENT subject than Product Complimentary 1.',
+            "Start with 'Your'. Use '&' in lists. No em dash."],
+  'examples': ['Your AgentTalk work on secure agent-to-agent communication is a specific niche. '
+               'Was that built in-house?',
+               'Your 78 Fort Pl project stands out in the portfolio. Is that your main spotlight '
+               'build?',
+               'Your Klaviyo rebuild for Pharmstrong that revived daily revenue is real work. Was '
+               'that a big win?',
+               'Your Steve McQueen Year 3 project caught my eye. Is that one of your proudest '
+               'collaborations?',
+               "Your work scaling Spotify's ad business across 80+ markets is serious range. Was "
+               'that a landmark account?'],
   'enabled': True},
  {'label': 'Ideal Customers',
   'name': 'ideal_customers',
-  'purpose': 'The kind of customers the prospect itself serves or wants more of — used to make the '
-             'value proposition feel researched.',
+  'purpose': 'The kind of customers the prospect itself serves or wants more of. Kept as-is. Used '
+             'to make the value proposition feel researched.',
   'guidance': 'Name the specific type of customers THIS prospect serves or would want more of, '
               'based on their site (industries, buyer types, segments). Specific, not generic.',
   'min_words': 3,
   'max_words': 8,
-  'rules': ['Specific buyer/segment types the prospect serves.', 'No em dash.'],
+  'rules': ['Specific buyer/segment types the prospect serves.', 'No generic labels. No em dash.'],
   'examples': ['DTC brands struggling with retention',
-               'public-sector organizations and higher-ed institutions',
+               'public-sector organizations & higher-ed institutions',
                'VC-backed startups needing fast MVPs'],
   'enabled': True},
  {'label': 'Target Customers',
   'name': 'target_customers',
-  'purpose': 'Exactly three specific industries or buyer targets the prospect sells to, written as '
-             'a clean list for use mid-sentence in the value proposition.',
-  'guidance': "Give exactly THREE distinct industries or buyer targets, in the format 'target1, "
+  'purpose': 'Exactly three specific industries or buyer targets the prospect sells to, as a clean '
+             'list. Slots straight into an email mid-sentence.',
+  'guidance': "Give exactly THREE distinct industries or buyer targets in the format 'target1, "
               "target2, & target3'. Source them in this priority order: (1) if the site EXPLICITLY "
-              'names the industries or buyers it serves, use those; (2) if not explicit, infer '
-              'from their case studies, featured clients, or portfolio; (3) if neither, infer from '
-              'the kind of service or product they provide. Always three, always distinct, always '
-              "specific buyer/industry types (not generic like 'businesses' or 'clients').",
+              'names the industries or buyers it serves, use those; (2) if not explicit, use the '
+              'industries of their named clients or case studies (the type of big clients they '
+              'have worked with before); (3) if neither, infer from the kind of service or product '
+              'they provide. Always three, always distinct, always specific buyer or industry '
+              "types, never generic ('businesses', 'clients', 'companies').",
   'format': '{{target1}}, {{target2}} & {{target3}}',
   'sourcing_priority_order': ['Explicitly named on the site (industries served / who it is for)',
-                              'Inferred from case studies, featured clients, or portfolio',
+                              'The industries of their named clients or case studies (who they '
+                              'have worked with)',
                               'Inferred from the kind of service or product they provide'],
   'min_words': 4,
   'max_words': 12,
@@ -166,14 +174,15 @@ DEFAULT_FORMATS = [{'label': 'Personalized First Line',
             "Format: 'target1, target2, & target3' — comma between the first two, '&' before the "
             'last.',
             'Three DISTINCT segments, each a specific industry or buyer type.',
-            "No generic labels like 'businesses', 'clients', 'companies'.",
-            'Follow the sourcing priority: explicit first, then case studies, then service type.',
+            "No generic labels ('businesses', 'clients', 'companies').",
+            "Follow the sourcing priority: explicit first, then their clients' industries, then "
+            'service type.',
             'No em dash.'],
   'examples': ['Construction owners, heavy truck operators, & equipment buyers',
                'Manufactured housing investors, institutional capital partners, & portfolio '
                'decision makers',
-               'eCommerce founders, retention marketers, & DTC operators',
-               'Transit agencies, safety compliance officers, & municipal transportation planners'],
+               'AI product teams, ML platform engineers, & enterprise data leaders',
+               'Education boards, cultural institutions, & nonprofit leaders'],
   'enabled': True},
  {'label': 'Company Category',
   'name': 'company_category',
@@ -184,10 +193,10 @@ DEFAULT_FORMATS = [{'label': 'Personalized First Line',
               "'service providers', 'B2B companies', 'professional services'.",
   'min_words': 2,
   'max_words': 5,
-  'rules': ['Specific, self-descriptive category.', 'No generic labels.', 'No em dash.'],
+  'rules': ['Specific, self-descriptive category.', 'No generic labels. No em dash.'],
   'examples': ['eCommerce marketing agencies',
                'custom home builders',
-               'leak detection and repair companies'],
+               'leak detection & repair companies'],
   'enabled': True}]
 
 
