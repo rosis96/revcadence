@@ -340,7 +340,8 @@ export default function EnrichConfigPage({ tab }) {
                 <label>Reading level</label>
                 <select style={{ width: "100%" }} value={cfg.reading_level || "b2 business"}
                         onChange={(e) => setCfg({ ...cfg, reading_level: e.target.value })}>
-                  <option value="b2 business">Clear B2 business English — recommended</option>
+                  <option value="professional">Polished professional (C1) — expert copywriter, recommended</option>
+                  <option value="b2 business">Clear B2 business English — simpler</option>
                   <option value="">Natural (legacy)</option>
                   <option value="5th grade">5th grade — very simple</option>
                   <option value="6th grade">6th grade</option>

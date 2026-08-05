@@ -1153,9 +1153,11 @@ def _writer_system(cfg, rules, level_line, format_defs=None) -> str:
             "- Reference: name and continue the value proposition's proof in complete grammatical sentences.\n"
             "- Pitch: separate the prospect's company category, target customer companies, decision-maker "
             "titles, and the revenue problems we solve. Titles are not customer categories.\n"
-            "- LENGTH & FORM (strict): obey each variable's min_words/max_words exactly; keep EVERY sentence "
-            "under 30 words; never begin a variable with 'And', 'But', or 'So'. These are hard limits — a "
-            "candidate that breaks them will be rejected, so self-check length before returning.\n"
+            "- LENGTH & FORM: obey each variable's min_words/max_words (count before returning). Prefer "
+            "clear sentences and avoid run-ons, but a longer, well-structured sentence is fine when it "
+            "reads smoothly (a polished 30-40 word sentence is acceptable). Never begin a VARIABLE with "
+            "'And', 'But', or 'So' (a mid-variable 'And, I have seen…' connector is allowed if the "
+            "variable's own template uses it).\n"
             "- Approved examples teach style and structure only. Never copy their company names, projects, "
             "numbers, or claims into a different prospect's output.\n"
             "- avoid_examples are rejected anti-examples. Do not copy their wording or repeat the problem "
@@ -1174,6 +1176,17 @@ def _writer_system(cfg, rules, level_line, format_defs=None) -> str:
 
 def _reading_instruction(level: str) -> str:
     level = (level or "b2 business").strip().lower()
+    if level in ("professional", "polished professional", "c1 professional", "c1", "polished"):
+        return (
+            "\nREADING LEVEL: write in polished, articulate professional English — the register of a "
+            "senior copywriter (about C1). Confident, natural, and specific. You MAY use precise, "
+            "industry-appropriate vocabulary and richer phrasing when it genuinely fits the prospect's "
+            "world (e.g. 'leverage', 'full-funnel', 'transformative', 'mission-driven'), as long as it "
+            "reads smoothly and never turns academic, flowery, or adjective-stuffed. Vary sentence length "
+            "for rhythm; a longer, well-structured sentence is fine when it flows. Grammar must be "
+            "flawless. It should read like an expert wrote it for ONE person — engaging enough to earn a "
+            "reply, never generic, never robotic. Do not dumb the language down."
+        )
     if level == "b2 business":
         return (
             "\nREADING LEVEL: write in clear, natural B2-level business English. Use simple vocabulary "
