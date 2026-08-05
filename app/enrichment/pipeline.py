@@ -735,6 +735,40 @@ def _assign_evidence(facts: dict, formats: list) -> dict:
             "selection_score": role_signal_score(role, sig) if sig else 0,
             "reuse_ok": role == "reference",
         }
+    # GUARANTEE DISTINCT PRIMARY EVIDENCE across variables. Without this, the first
+    # line and a product compliment can both land on the single flashiest fact (the
+    # big impressions number), so mini writes the same thing twice. Reference may
+    # intentionally reuse the value-proposition proof; pitch has no single anchor.
+    seen_keys = {}
+    for f in formats:
+        name = f.get("name")
+        a = assign.get(name, {})
+        if a.get("role") in ("reference", "pitch") or a.get("reuse_ok"):
+            continue
+        key = a.get("evidence_key", "")
+        if not key:
+            continue
+        if key in seen_keys:
+            taken = {assign[n].get("evidence_key") for n in assign}
+            alt = [s for s in signals if s["key"] not in taken]
+            if alt:
+                chosen = max(alt, key=lambda s: role_signal_score(a["role"], s))
+                a.update({
+                    "evidence": chosen.get("text", ""),
+                    "evidence_type": chosen.get("type", ""),
+                    "evidence_key": chosen.get("key", ""),
+                    "evidence_id": chosen.get("evidence_id", ""),
+                    "source_url": chosen.get("source_url", ""),
+                    "supporting_quote": chosen.get("supporting_quote", ""),
+                    "source_kind": chosen.get("source_kind", ""),
+                    "confidence": chosen.get("confidence", 0),
+                    "signal_quality": chosen.get("quality_score", 0),
+                    "selection_score": role_signal_score(a["role"], chosen),
+                })
+                key = chosen["key"]
+        if key:
+            seen_keys[key] = name
+
     # pitch audience packet
     aud = {
         "target_industries": facts.get("target_industries") or [],
@@ -840,12 +874,42 @@ def _split_long_sentences(text: str, limit: int = 38) -> str:
     return " ".join(out)
 
 
+# Big raw numbers read like a machine wrote them ("114,387,383 cumulative
+# impressions"). Round anything >= 10,000 to a short magnitude form (114M+, 70K+)
+# so copy stays human. Smaller numbers (years, "500 models", "2.8x", "40%",
+# street numbers) are left alone. Numbers already in words ("$1.3 billion") don't
+# match. This runs on every variable, in every workspace.
+_BIGNUM_RE = re.compile(r"(?<![\w.])(\$?)(\d{1,3}(?:,\d{3})+|\d{5,})(?![\d.])(?!\s*%)")
+
+
+def _simplify_numbers(text: str) -> str:
+    def _repl(m):
+        prefix = m.group(1) or ""
+        raw = m.group(2).replace(",", "")
+        try:
+            val = int(raw)
+        except ValueError:
+            return m.group(0)
+        if val < 10000:
+            return m.group(0)
+        if val >= 1_000_000_000:
+            short = f"{val // 1_000_000_000}B+"
+        elif val >= 1_000_000:
+            short = f"{val // 1_000_000}M+"
+        else:
+            short = f"{val // 1000}K+"
+        return prefix + short
+    return _BIGNUM_RE.sub(_repl, text or "")
+
+
 def _tidy_variable(text: str) -> str:
     """Deterministic cleanup so grounded copy isn't withheld for trivial slips:
-    strip a leading conjunction ('And,'/'But'/'So'), collapse whitespace, and break
-    any run-on sentence into clean B2 sentences. Meaning is fully preserved."""
+    strip a leading conjunction ('And,'/'But'/'So'), collapse whitespace, shorten
+    big raw numbers to a human magnitude, and break any run-on sentence into clean
+    B2 sentences. Meaning is fully preserved."""
     t = re.sub(r"\s+", " ", (text or "").strip())
     t = re.sub(r"^(and|but|so|also|plus)\b[\s,;:—-]*", "", t, flags=re.I)
+    t = _simplify_numbers(t)
     t = (t[:1].upper() + t[1:]) if t else t
     return _split_long_sentences(t, 38)
 
@@ -896,7 +960,9 @@ def _qc_failures(vars_out: dict, assign: dict, facts: dict, formats: list | None
         # Numbers are high-risk claims. Every number in generated copy must occur in
         # the assigned evidence OR verbatim in the crawled site text (never invented).
         assignment = assign.get(name, {})
-        nums = set(re.findall(r"\d+(?:[.,]\d+)?%?", t))
+        # Ignore our deterministic short-magnitude forms (114M+, 70K+) — they are a
+        # rounding of a grounded figure, not an invented one.
+        nums = set(re.findall(r"\d+(?:[.,]\d+)?%?(?![KMB]\+)", t))
         grounding = " ".join([
             str(assignment.get("evidence", "")),
             str(assignment.get("supporting_quote", "")),
@@ -1169,6 +1235,13 @@ def _writer_system(cfg, rules, level_line, format_defs=None) -> str:
             "numbers, or claims into a different prospect's output.\n"
             "- avoid_examples are rejected anti-examples. Do not copy their wording or repeat the problem "
             "stated in their reason.\n"
+            "- NEVER REPEAT A SUBJECT ACROSS VARIABLES. Each variable must talk about a DIFFERENT fact, "
+            "client, project, product, or number. If the first line uses a company/result, no compliment or "
+            "value proposition may reuse that same one. The two product compliments must be about two "
+            "different things. Look at what the other variables used and pick something else.\n"
+            "- NUMBERS: use them rarely, only when the number itself is the point; if a number does not "
+            "matter, leave it out. When you do use a big number, round and shorten it: write 114,387,383 as "
+            "'114M+' and 70,910 as '70K+' (or 'over 100 million'). Never write out a long exact figure.\n"
             "- First line, value proposition, and compliment use different primary evidence; reference may "
             "reuse value-proposition evidence. Avoid vague praise and branded labels.\n"
             "- BANNED PHRASES: " + "; ".join(_BANNED_PHRASES) + ".\n"

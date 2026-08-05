@@ -20,6 +20,13 @@ DEFAULT_GLOBAL_RULES = ["Write in polished, articulate professional English (C1)
  'reply. Never a generic sales pitch, never robotic.',
  "Be specific and clearly researched: name the prospect's real product, project, client, or result "
  'from their site. Never generic praise, never invented facts.',
+ 'NEVER repeat the same fact, subject, client, project, or number across variables. Each variable '
+ '(first line, both compliments, value proposition) must talk about a DIFFERENT thing. If the '
+ 'first line uses a company or result, no compliment or value proposition may reuse it, and the '
+ 'two compliments must be about two different things.',
+ 'Use numbers RARELY, only when the number itself is the point. If a number does not matter, leave '
+ 'it out entirely. When you do use a large number, round and shorten it: write 114,387,383 as '
+ "'114M+' (or 'over 100 million') and 70,910 as '70K+'. Never write out a long exact figure.",
  "In lists, use '&' rather than 'and' (e.g. 'buying, selling, & financing').",
  'Personalized first line is NEVER above 20 words. It is a neutral, factual observation of what '
  'the company actually does or sells, grounded in a real named product, client, project, or '
