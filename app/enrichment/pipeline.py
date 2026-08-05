@@ -305,6 +305,12 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
         raw_icp = (cfg.icp_definition or "").strip()
         icp_block = raw_icp or "B2B companies selling high-value services to other businesses."
         recognized = {"procedure", "icp_categories", "hard_non_icp", "default"}
+        # Does the operator's definition say "default to Non-ICP when unsure"? If so we
+        # must NOT soften a Non-ICP into Needs Review below — strict filtering is intended.
+        _low_icp = raw_icp.lower()
+        icp_defaults_nonicp = ('"default": "non' in _low_icp or "default to non-icp" in _low_icp
+                               or "default non-icp" in _low_icp or "default: non-icp" in _low_icp
+                               or "when unsure, return: non" in _low_icp)
         try:
             icp = json.loads(raw_icp) if raw_icp else None
             if isinstance(icp, dict) and (set(icp) & recognized):
@@ -339,11 +345,15 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
                   "'family-owned manufacturers', 'SaaS scale-ups'), named methodologies, and locations. "
                   "Populate services, named_services, and target_industries fully from what the site says — "
                   "these are checkable specifics too. Only leave a field empty if the site truly omits it. A "
-                  "missing private metric (revenue, LTV, employee count, "
-                  "demand, sales-cycle complexity) is UNKNOWN, never negative evidence. Return Non-ICP only "
-                  "when a positive fact matches a hard exclusion; otherwise use Needs Review when evidence "
-                  "is incomplete.\n"
-                  "ICP definition (single source of truth):\n"
+                  "missing private metric (revenue, LTV, employee count, demand, sales-cycle complexity) is "
+                  "UNKNOWN, never negative evidence.\n"
+                  "DECISION — the ICP DEFINITION below is AUTHORITATIVE. Apply ITS categories, hard "
+                  "exclusions, procedure, and — critically — ITS default rule EXACTLY. If the definition "
+                  "says default to Non-ICP when unsure, return Non-ICP (do NOT soften it to Needs Review); "
+                  "if it says default to Needs Review or ICP, follow that. Judge fit from what the site DOES "
+                  "state against the definition. Do not substitute your own leniency for the definition's "
+                  "rules. Use Needs Review ONLY if the definition itself calls for it.\n"
+                  "ICP DEFINITION (authoritative — obey exactly):\n"
                   + icp_block
                   + '\nReturn JSON: {"icp_decision": "ICP"|"Non-ICP"|"Needs Review", "icp_score": 0-100, '
                     '"icp_reason": str, "industry": str, "facts": {'
@@ -430,7 +440,7 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
                 "does not provide", "no information", "no indication", "not stated",
                 "not available", "could not find", "unclear from", "not disclosed",
             ))
-            if out.get("icp_decision") == "Non-ICP" and absence_only:
+            if out.get("icp_decision") == "Non-ICP" and absence_only and not icp_defaults_nonicp:
                 out["icp_decision"] = "Needs Review"
                 out["icp_score"] = max(int(out.get("icp_score") or 0), 40)
                 out["icp_reason"] = (
@@ -1157,7 +1167,8 @@ def _writer_system(cfg, rules, level_line, format_defs=None) -> str:
             'Return only JSON: {"candidates": {"<variable name>": ["candidate 1", "candidate 2"]}}.\n'
             + level_line +
             "\nCLIENT PROFILE / OUR OFFER:\n" + json.dumps(_compact_profile(cfg.profile or {})) +
-            "\nGLOBAL RULES (obey every line):\n" + "\n".join(rules)
+            (("\nMASTER WRITING INSTRUCTIONS (HIGHEST PRIORITY — obey every line exactly; these override "
+              "any generic guidance above wherever they conflict):\n" + "\n".join(rules)) if rules else "")
             + defs_block)
 
 
