@@ -137,7 +137,7 @@ export default function EnrichListDetail() {
         ? "Saved. This list now filters by its own ICP. Re-run or clear results to re-apply to existing leads."
         : "Cleared. This list falls back to the workspace ICP.");
       setIcpOpen(false);
-    } catch (e) { toast(String(e.message || e), "error"); }
+    } catch (e) { toast(e.message, "bad"); }
     finally { setIcpBusy(false); }
   };
 
