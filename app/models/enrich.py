@@ -25,6 +25,11 @@ class EnrichList(Base):
     id = Column(Integer, primary_key=True)
     workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False, index=True)
     name = Column(String(255), nullable=False)
+    # Per-list ICP override. Blank = inherit the workspace ICP. Set = this list
+    # filters by its own definition, so different lists can target different
+    # industries in the same workspace. The hard non-profit/church/donation
+    # exclusion is always applied on top, regardless of this value.
+    icp_definition = Column(Text, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

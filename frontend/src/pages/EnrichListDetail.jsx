@@ -8,7 +8,7 @@ import { useParams } from "react-router-dom";
 import {
   AlertTriangle, AtSign, CheckCircle2, Download, ExternalLink, Eye,
   FileSearch, Globe2, Image as ImageIcon, Play, Quote, ShieldCheck,
-  Sparkles, Square, Upload, Users,
+  Sparkles, Square, Target, Upload, Users,
 } from "lucide-react";
 import { api, getToken } from "../api";
 import {
@@ -83,6 +83,10 @@ export default function EnrichListDetail() {
   const [dedupeTarget, setDedupeTarget] = useState("this");
   const [dedupePreview, setDedupePreview] = useState(null);
   const [dedupeBusy, setDedupeBusy] = useState(false);
+  const [icpOpen, setIcpOpen] = useState(false);
+  const [icpInfo, setIcpInfo] = useState(null);   // {icp_definition, workspace_icp, uses_list_icp}
+  const [icpText, setIcpText] = useState("");
+  const [icpBusy, setIcpBusy] = useState(false);
   const espParam = espSel.join(",");
   const { data, error, loading, reload, refresh } = useApi(`/api/enrich-lists/${id}/leads`,
     { view, page, q, page_size: 50, esp: espParam });
@@ -115,6 +119,27 @@ export default function EnrichListDetail() {
   }, [job, reload, refresh]);
 
   const selectedCount = allInView ? (data?.total_in_view || 0) : selIds.length;
+
+  const openIcp = async () => {
+    setIcpOpen(true);
+    setIcpInfo(null);
+    try {
+      const r = await api(`/api/enrich-lists/${id}/icp`);
+      setIcpInfo(r);
+      setIcpText(r.icp_definition || "");
+    } catch { setIcpInfo({ icp_definition: "", workspace_icp: "", uses_list_icp: false }); }
+  };
+  const saveIcp = async () => {
+    setIcpBusy(true);
+    try {
+      await api(`/api/enrich-lists/${id}/icp`, { method: "PUT", body: { icp_definition: icpText } });
+      toast(icpText.trim()
+        ? "Saved. This list now filters by its own ICP. Re-run or clear results to re-apply to existing leads."
+        : "Cleared. This list falls back to the workspace ICP.");
+      setIcpOpen(false);
+    } catch (e) { toast(String(e.message || e), "error"); }
+    finally { setIcpBusy(false); }
+  };
 
   const run = async (steps, opts = {}) => {
     const explicit = allInView || selIds.length > 0;
@@ -344,6 +369,7 @@ export default function EnrichListDetail() {
                 Test first <input type="number" min="0" value={limit} onChange={(e) => setLimit(e.target.value)} style={{ width: 64 }} />
               </span>
             )}
+            <Button variant="secondary" icon={Target} onClick={openIcp}>ICP filter</Button>
             <Button variant="secondary" icon={AtSign} disabled={!!job} onClick={() => run("esp", { fullView: true })}>Check ESP</Button>
             <Button variant="secondary" icon={ShieldCheck} disabled={!!job} onClick={() => run("verify")}>Verify</Button>
             <Button icon={Play} disabled={!!job} onClick={() => run("pipeline")}>Verify → Enrich</Button>
@@ -604,6 +630,43 @@ export default function EnrichListDetail() {
             </details>
           )}
         </Drawer>
+      )}
+
+      {icpOpen && (
+        <Modal title="ICP filter for this list" onClose={() => setIcpOpen(false)}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 520, maxWidth: 620 }}>
+            <div style={{ fontSize: 13, color: "var(--muted)" }}>
+              This ICP applies only to <b>{data.list.name}</b>, so each list can target a different
+              segment. Leave it blank to fall back to the workspace ICP. Describe <b>who the companies
+              are</b> (the kind of business you want), not who they serve.
+            </div>
+            <textarea
+              value={icpText}
+              onChange={(e) => setIcpText(e.target.value)}
+              placeholder={"e.g. B2B SaaS and digital agencies, 10-200 employees, selling paid services to other businesses. Plain prose or ICP JSON both work."}
+              style={{ width: "100%", minHeight: 190, fontSize: 13, lineHeight: 1.5, fontFamily: "inherit", padding: 10 }}
+            />
+            <div className="card" style={{ padding: "10px 12px", background: "#f0fdf4", border: "1px solid #bbf7d0", fontSize: 12.5, color: "#166534" }}>
+              Always on for every list: non-profits, charities, churches, and donation
+              organizations are kept as Non-ICP automatically (based on who they are, not who they serve).
+            </div>
+            {icpInfo && !((icpInfo.icp_definition || "").trim()) && (icpInfo.workspace_icp || "").trim() && (
+              <details style={{ fontSize: 12.5 }}>
+                <summary style={{ cursor: "pointer", color: "var(--muted)" }}>Workspace ICP (used when this is blank)</summary>
+                <div style={{ whiteSpace: "pre-wrap", marginTop: 6, padding: 10, background: "#f8fafc", borderRadius: 6 }}>
+                  {icpInfo.workspace_icp}
+                </div>
+              </details>
+            )}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
+              {icpText.trim() && (
+                <Button variant="secondary" disabled={icpBusy} onClick={() => setIcpText("")}>Clear</Button>
+              )}
+              <Button icon={Target} disabled={icpBusy || !icpInfo} onClick={saveIcp}>
+                {icpBusy ? "Saving…" : "Save ICP for this list"}</Button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {dedupeOpen && (

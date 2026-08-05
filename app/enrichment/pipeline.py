@@ -286,8 +286,48 @@ def _validate_text_evidence(crawl: dict, items: list) -> list:
     return out
 
 
-def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
-    """One scrape + one extraction; returns ctx reused by the writer."""
+# Applied on TOP of every ICP definition, in every workspace and every list. This
+# is about WHO THE COMPANY IS, not who it serves: a non-profit / church / donation
+# organization is never a fit for a paid revenue engine. A for-profit that merely
+# SELLS TO or SERVES non-profits is NOT excluded by this.
+_ALWAYS_NON_ICP_RULE = (
+    "HARD NON-ICP (ALWAYS ON, overrides everything above): If the COMPANY ITSELF is a "
+    "non-profit, not-for-profit, charity, charitable organization, foundation, NGO, "
+    "church, ministry, parish, diocese, congregation, temple, mosque, synagogue, other "
+    "religious organization, or any donation / tithe / fundraising-driven organization, "
+    "classify it Non-ICP no matter what else fits. Judge WHO THEY ARE (their own nature: "
+    "501(c)(3), 'donate', 'give', 'tithe', 'ministry', 'nonprofit', 'registered charity', "
+    "'.org' fundraising), NOT who they serve. A FOR-PROFIT company that merely sells to or "
+    "serves non-profits is NOT excluded by this rule."
+)
+
+# Deterministic backstop for the always-rule: whole-word signals in the fields that
+# describe WHO THE COMPANY IS (category / industry). Kept conservative to avoid
+# catching for-profits that merely serve these sectors (e.g. no bare 'foundation'
+# or 'temple', which collide with software/education names).
+_NONPROFIT_SELF_TERMS = (
+    "nonprofit", "non-profit", "not-for-profit", "not for profit", "charity",
+    "charitable", "church", "ministry", "ministries", "diocese", "parish",
+    "congregation", "mosque", "synagogue", "ngo", "501(c)(3)", "501c3",
+)
+
+
+def _is_nonprofit_self(facts: dict) -> bool:
+    """True when the company's OWN category/industry marks it as a non-profit,
+    religious, or donation organization. Only reads who-they-are fields."""
+    blob = " ".join([
+        str((facts or {}).get("category") or ""),
+        str((facts or {}).get("industry") or ""),
+    ]).lower()
+    return any(re.search(r"(?<![\w-])" + re.escape(t) + r"(?![\w-])", blob)
+               for t in _NONPROFIT_SELF_TERMS)
+
+
+def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig, list_icp: str = "") -> dict:
+    """One scrape + one extraction; returns ctx reused by the writer.
+
+    list_icp (the per-list ICP override) takes precedence over the workspace ICP
+    when set, so each list can target a different segment."""
     deep = getattr(cfg, "research_depth", "") == "deep"
     # Research the PROSPECT the way a human would: read MULTIPLE pages (follow_all
     # reaches the /work, /case-study, /about pages where the real proof lives) and
@@ -303,7 +343,9 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
     if ai.has_ai():
         # Structured ICP brain (legacy ICP_JSON): procedure steps, allowed
         # categories, hard_non_icp auto-rejects, default-when-unsure.
-        raw_icp = (cfg.icp_definition or "").strip()
+        # Per-list ICP overrides the workspace ICP so each list can target its own
+        # segment; blank list ICP inherits the workspace definition.
+        raw_icp = ((list_icp or "").strip() or (cfg.icp_definition or "").strip())
         icp_block = raw_icp or "B2B companies selling high-value services to other businesses."
         recognized = {"procedure", "icp_categories", "hard_non_icp", "default"}
         # Does the operator's definition say "default to Non-ICP when unsure"? If so we
@@ -335,6 +377,9 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
             # (icp_block already holds raw_icp.)
         except Exception:
             pass  # plain-text ICP definition — use as-is (icp_block = raw_icp)
+        # The non-profit/church/donation exclusion is always appended last so it
+        # applies on top of whatever this workspace or list defines.
+        icp_block = icp_block.rstrip() + "\n\n" + _ALWAYS_NON_ICP_RULE + "\n"
         system = ("You are an ICP classifier and EVIDENCE extractor. Read the source-labelled website pages and build an "
                   "EVIDENCE BANK of concrete, company-specific signals — NOT themes. Ground everything ONLY "
                   "in the provided pages: copy names/numbers verbatim, and LEAVE A FIELD EMPTY when the "
@@ -447,6 +492,16 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig) -> dict:
                 out["icp_reason"] = (
                     "Needs review: the site does not disclose enough information to confirm fit; "
                     "missing private metrics are not treated as evidence of non-fit."
+                )
+            # Deterministic backstop for the always-on rule: if the company's OWN
+            # category/industry marks it as a non-profit/church/donation org, force
+            # Non-ICP even if the model (or the softening above) said otherwise.
+            if _is_nonprofit_self(facts):
+                out["icp_decision"] = "Non-ICP"
+                out["icp_score"] = min(int(out.get("icp_score") or 0), 10)
+                out["icp_reason"] = (
+                    "Non-ICP: the company itself is a non-profit / religious / donation "
+                    "organization (who they are, not who they serve)."
                 )
             crawl["diagnostics"]["evidence_validated"] = len(evidence)
             crawl["diagnostics"]["visual_evidence"] = len(visual)
@@ -1604,7 +1659,14 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
         db.commit()
         return lead.status
 
-    icp = _icp_and_facts(lead, cfg)
+    # Per-list ICP override: if this lead's list carries its own ICP definition,
+    # use it instead of the workspace ICP so each list filters its own segment.
+    list_icp = ""
+    if getattr(lead, "list_id", None):
+        from ..models.enrich import EnrichList
+        _lst = db.query(EnrichList).filter(EnrichList.id == lead.list_id).first()
+        list_icp = (getattr(_lst, "icp_definition", "") or "") if _lst else ""
+    icp = _icp_and_facts(lead, cfg, list_icp=list_icp)
     diagnostics = (icp.get("crawl", {}) or {}).get("diagnostics", {})
     if icp.get("error"):
         # Research FAILED at the fetch/render stage — record diagnostics and STOP.

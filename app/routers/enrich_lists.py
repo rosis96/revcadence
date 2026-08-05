@@ -114,7 +114,55 @@ def lists(workspace_id: int | None = None, ctx: AuthContext = Depends(get_ctx)):
             .filter(EnrichList.workspace_id.in_(ws_ids))
             .group_by(EnrichList.id).order_by(EnrichList.id.desc()).all())
     return [{"id": l.id, "workspace_id": l.workspace_id, "name": l.name, "leads": n,
+             "has_list_icp": bool((getattr(l, "icp_definition", "") or "").strip()),
              "created_at": l.created_at.isoformat()} for l, n in rows]
+
+
+# ---------------------------------------------------------------- per-list ICP
+class ListIcpIn(BaseModel):
+    icp_definition: str = ""
+
+
+class CopyIcpIn(BaseModel):
+    target_list_ids: list[int]
+
+
+@router.get("/{list_id}/icp")
+def get_list_icp(list_id: int, ctx: AuthContext = Depends(get_ctx)):
+    """This list's ICP override plus the workspace ICP it falls back to."""
+    lst = _get_list(ctx, list_id)
+    from ..enrichment.pipeline import _config
+    cfg = _config(ctx.db, lst.workspace_id)
+    ctx.db.commit()
+    return {"list_id": lst.id, "name": lst.name,
+            "icp_definition": getattr(lst, "icp_definition", "") or "",
+            "uses_list_icp": bool((getattr(lst, "icp_definition", "") or "").strip()),
+            "workspace_icp": cfg.icp_definition or ""}
+
+
+@router.put("/{list_id}/icp")
+def set_list_icp(list_id: int, body: ListIcpIn, ctx: AuthContext = Depends(get_ctx)):
+    """Set (or clear, with blank) this list's own ICP. Existing leads keep their
+    stored decision until the list is re-run or results are cleared."""
+    lst = _get_list(ctx, list_id)
+    lst.icp_definition = (body.icp_definition or "").strip()
+    ctx.db.commit()
+    return {"ok": True, "uses_list_icp": bool(lst.icp_definition)}
+
+
+@router.post("/{list_id}/icp/copy")
+def copy_list_icp(list_id: int, body: CopyIcpIn, ctx: AuthContext = Depends(get_ctx)):
+    """Duplicate this list's ICP into one or more other lists in the workspace."""
+    src = _get_list(ctx, list_id)
+    copied = 0
+    for tid in body.target_list_ids:
+        if tid == src.id:
+            continue
+        tgt = _get_list(ctx, tid)
+        tgt.icp_definition = getattr(src, "icp_definition", "") or ""
+        copied += 1
+    ctx.db.commit()
+    return {"ok": True, "copied_to": copied}
 
 
 @router.post("")
