@@ -17,6 +17,7 @@ from datetime import datetime
 
 from ..models.enrich import TERMINAL_STATUSES, EnrichConfig, EnrichLead
 from . import ai
+from .defaults import default_rule_lines, effective_formats
 from .crawler import crawl_site
 from .engine import SENIOR_TITLES
 from .reoon import verify_one
@@ -976,6 +977,12 @@ def _format_defs(formats: list) -> list:
             "instructions": [str(x)[:400] for x in (f.get("instructions") or [])[:14]],
             # --- existing fields ---
             "guidance": f.get("guidance"), "template": f.get("template"),
+            # angle: keeps the two product-complimentary variables on distinct
+            # subjects. format/sourcing: the fixed shape + evidence priority for
+            # list variables like target_customers.
+            "angle": f.get("angle"),
+            "format": f.get("format"),
+            "sourcing_priority_order": [str(x)[:160] for x in (f.get("sourcing_priority_order") or [])[:6]],
             "min_words": f.get("min_words"), "max_words": f.get("max_words"),
             # --- template placeholders: each {{token}} has its own instruction, word
             # range, and examples. Passing these lets the writer fill each slot per its
@@ -1297,17 +1304,22 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
     """Research → evidence bank → signal scoring → per-variable evidence assignment
     → generation → QC/regeneration. `enrichments`: selected output variable names —
     empty/None = all configured."""
-    formats = [f for f in (cfg.formats or []) if f.get("enabled", True)]
+    # effective_formats always yields the six system-default variables (in
+    # canonical order) merged over this workspace's saved formats, so every
+    # workspace writes the same baseline with no profile/prompt required.
+    formats = [f for f in effective_formats(cfg.formats) if f.get("enabled", True)]
     if enrichments:
         sel = [f for f in formats if f.get("name") in enrichments]
         if sel:
             formats = sel
-    if not formats:
+    if not formats:  # safety net; effective_formats is never empty
         formats = [{"label": "Personalized First Line", "name": "personalized_first_line",
                     "guidance": "One specific sentence proving we researched THIS company, "
                                 "grounded in a real fact from their site. No generic flattery.",
                     "min_words": 12, "max_words": 25}]
-    rules = [ln.strip() for ln in (cfg.rules or "").splitlines() if ln.strip()]
+    # The global output rules are system-wide law; they lead the workspace's own
+    # rules so every workspace inherits them without pasting anything.
+    rules = default_rule_lines() + [ln.strip() for ln in (cfg.rules or "").splitlines() if ln.strip()]
     facts = ctx.get("facts", {}) or {}
 
     if not ai.has_ai():
@@ -1580,7 +1592,7 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
     # The "Write this" toggle is authoritative: a variable turned OFF must never
     # appear in the output, even if an earlier run wrote a value for it. Prune any
     # disabled variable's stale value so the selection actually takes effect.
-    disabled = {f.get("name") for f in (cfg.formats or [])
+    disabled = {f.get("name") for f in effective_formats(cfg.formats)
                 if f.get("name") and f.get("enabled", True) is False}
     for _k in disabled:
         lead.result.pop(_k, None)

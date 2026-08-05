@@ -1013,11 +1013,18 @@ def get_config(workspace_id: int, ctx: AuthContext = Depends(get_ctx)):
     import os
 
     from ..enrichment import ai
+    from ..enrichment.defaults import (
+        DEFAULT_GLOBAL_RULES, DEFAULT_VARIABLE_ORDER, effective_formats)
     from ..enrichment.pipeline import _config
     cfg = _config(ctx.db, workspace_id)
     ctx.db.commit()
     return {"profile": cfg.profile or {}, "icp_definition": cfg.icp_definition or "",
-            "formats": cfg.formats or [], "rules": cfg.rules or "",
+            # The six system-default variables are always present, in canonical
+            # order, merged over anything this workspace saved — so a fresh
+            # workspace shows them with no prompt or profile build.
+            "formats": effective_formats(cfg.formats), "rules": cfg.rules or "",
+            "default_variable_names": list(DEFAULT_VARIABLE_ORDER),
+            "global_output_rules": list(DEFAULT_GLOBAL_RULES),
             "skip_title_gate": bool(cfg.skip_title_gate), "skip_icp": bool(cfg.skip_icp),
             "only_safe": bool(cfg.only_safe),
             "require_research_gate": bool(getattr(cfg, "require_research_gate", 0)),
