@@ -8,7 +8,7 @@ import { useParams } from "react-router-dom";
 import {
   AlertTriangle, AtSign, CheckCircle2, Download, ExternalLink, Eye,
   FileSearch, Globe2, Image as ImageIcon, Play, Quote, ShieldCheck,
-  Sparkles, Square, Target, Upload, Users,
+  Sparkles, Square, Target, Trash2, Upload, Users,
 } from "lucide-react";
 import { api, getToken } from "../api";
 import {
@@ -220,7 +220,9 @@ export default function EnrichListDetail() {
     const body = allInView || (!rows?.length && selIds.length === 0) ? { view, esp: espSel }
       : { lead_ids: rows?.length ? rows.map((r) => r.id) : selIds };
     const n = body.lead_ids?.length || selectedCount || data.chips[view] || 0;
-    if (!await confirmDialog(`Delete ${n.toLocaleString()} lead(s)? This cannot be undone.`)) return;
+    const scopeNote = body.lead_ids ? ""
+      : `\n\nThis deletes EVERY lead in the current view (${pretty(view)}${espSel.length ? " + ESP filter" : ""}), across all pages.`;
+    if (!await confirmDialog(`Delete ${n.toLocaleString()} lead(s)? This cannot be undone.${scopeNote}`)) return;
     try {
       const r = await api(`/api/enrich-lists/${id}/delete-leads`, { method: "POST", body });
       toast(`Deleted ${r.deleted} lead(s).`); setSelIds([]); setAllInView(false); reload();
@@ -403,14 +405,19 @@ export default function EnrichListDetail() {
           onClear={() => { setView("all"); setEspSel([]); setOutputs(null); }} />
 
         <div className="rail-main">
-          {(selectedCount > 0 || (data.total_in_view > data.leads.length)) && (
-            <div className="chips" style={{ marginBottom: 10 }}>
+          {(selectedCount > 0 || data.total_in_view > 0) && (
+            <div className="chips" style={{ marginBottom: 10, alignItems: "center" }}>
               {selectedCount > 0 && <Badge tone="indigo">{selectedCount.toLocaleString()} selected</Badge>}
-              {!allInView && data.total_in_view > data.leads.length && (
+              {!allInView && data.total_in_view > 0 && (
                 <Button size="sm" variant="ghost" onClick={() => setAllInView(true)}>
                   Select all {data.total_in_view.toLocaleString()} in view</Button>
               )}
               {allInView && <Button size="sm" variant="ghost" onClick={() => setAllInView(false)}>Clear selection</Button>}
+              {selectedCount > 0 && (
+                <Button size="sm" variant="danger" icon={Trash2} disabled={!!job}
+                  onClick={() => deleteSelected()}>
+                  Delete {selectedCount.toLocaleString()}</Button>
+              )}
             </div>
           )}
           <DataTable
