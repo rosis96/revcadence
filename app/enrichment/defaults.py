@@ -25,13 +25,13 @@ DEFAULT_GLOBAL_RULES = ["Write in polished, articulate professional English (C1)
  'the company actually does or sells, grounded in a real named product, client, project, or '
  'segment from their site. Never personalize off a blog-post title, an article headline, or a '
  'generic tagline.',
- 'The two product complimentary variables must each notice a DIFFERENT, specifically NAMED thing '
- 'from a DIFFERENT angle (one a named product/feature/service; the other a named '
- 'project/client/recent work). Never repeat the same subject, observation, or question across the '
- 'two.',
- "Every product complimentary is at most 20 words, pays a SUBTLE compliment (observe, don't gush; "
- "never 'incredibly impressive'), and ALWAYS ends with a genuine, curious question. Reference "
- 'something the owner is clearly proud of, so they want to reply.',
+ 'Both product complimentary variables use the SAME format: a subtle observation about ONE '
+ 'specific thing, then a yes/no question. They differ ONLY in content, never in structure.',
+ 'Every product complimentary MUST end with a question that can be answered yes or no. Start the '
+ "question with 'Is that', 'Is this', or 'Are these'. NEVER ask an open-ended question ('What is', "
+ "'How has', 'Why do', 'How does').",
+ 'The two product complimentary variables must each pick a DIFFERENT specific thing from the site. '
+ 'Same format, different subject and different question.',
  "Target customers is ALWAYS exactly three distinct segments in the format 'target1, target2, & "
  "target3'. Never two, never four.",
  'Do not reference our own service by name in the first line or the compliments; those are about '
@@ -81,63 +81,87 @@ DEFAULT_FORMATS = [{'label': 'Personalized First Line',
   'enabled': True},
  {'label': 'Product Complimentary 1',
   'name': 'product_complimentary_1',
-  'purpose': 'First angle: a specifically NAMED product, feature, or service the company is '
-             'clearly proud of. Subtle compliment, ends with a question. Maximum 20 words.',
-  'guidance': 'Find the most distinctive NAMED product, feature, tool, or core service on their '
-              'site (something with a name, something they would call by name). Pay a SUBTLE, '
-              'specific compliment about it (what makes it practical, sharp, distinctive), never '
-              "gush, never 'incredibly impressive'. Then ask ONE genuine question that a proud "
-              "owner would want to answer. Start with 'Your'. Use '&' in lists. Must be a "
-              'DIFFERENT subject than Product Complimentary 2. Hard cap 20 words.',
-  'angle': 'a specifically named product / feature / tool / core service they are proud of',
-  'min_words': 10,
-  'max_words': 20,
-  'rules': ['At most 20 words. Count before returning.',
-            'Name ONE specific product/feature/tool/core service (something with a name).',
-            "Compliment SUBTLY; never 'incredibly impressive', never gush.",
-            'ALWAYS end with a genuine, curious question a proud owner would answer.',
-            'Must be a DIFFERENT subject than Product Complimentary 2.',
-            "Start with 'Your'. Use '&' in lists. No em dash."],
-  'examples': ['Your LangTest framework for evaluating & red-teaming models is a sharp focus. Is '
-               'that your flagship tool?',
-               'Your dealer locator & part search setup looks genuinely practical. Is that a core '
-               'part of the site?',
-               'Your self-erecting cranes look built for tight sites. Are those your most '
-               'requested models?',
-               'Your real-time market intelligence in TheListingHub stands out. Is that the core '
-               'of the platform?',
-               'Your System Safety Program Plan development looks like a core compliance service. '
-               'Is that a main offering?'],
+  'purpose': 'Notice ONE specific thing on their site, pay a subtle observation-as-compliment, '
+             'then ask a yes/no question. Feels researched, not gushing. Same format as Product '
+             'Complimentary 2; only the content differs.',
+  'guidance': 'Point to ONE specific, named thing on their site (a product, feature, service, '
+              'section, project, or setup). Make a SUBTLE observation about it that reads as a '
+              "quiet compliment ('keeps the process in one place', 'is practical', 'stands out', "
+              "'is very specific', 'keeps the work front & center'). Never gush, never 'incredibly "
+              "impressive'. Then ask ONE yes/no question, starting with 'Is that', 'Is this', or "
+              "'Are these'. Start the line with 'Your'. Use '&' in lists. Pick a DIFFERENT subject "
+              'than Product Complimentary 2.',
+  'min_words': 12,
+  'max_words': 22,
+  'rules': ["Start with 'Your'.",
+            'Subtle observation about ONE specific named thing; the observation IS the compliment. '
+            'Never gush.',
+            "End with a YES/NO question starting 'Is that', 'Is this', or 'Are these'.",
+            "Never an open-ended question ('What', 'How', 'Why').",
+            'Pick a DIFFERENT subject than Product Complimentary 2 (same format, different '
+            'content).',
+            "Use '&' in lists. No em dash. At most 22 words."],
+  'examples': ['Your mix of equipment buying, sales, & financing keeps the process in one place. '
+               'Is that the main reason customers come back?',
+               'Your featured projects section keeps the work front & center. Is 78 Fort Pl your '
+               'main spotlight project?',
+               'Your dealer login, dealer locator, & part search setup is practical. Is the dealer '
+               'locator a core part of the site?',
+               'Your homepage keeps the cash offer path & the investment property path separate. '
+               'Is that the main way people use it?',
+               'Your mental fitness training and leadership EQ work is clearly organized. Is the '
+               'custom proposal part of every engagement?',
+               'Your site keeps the focus on grant writing, capital campaigns, & transition '
+               'management. Is that the main mix you want people to notice?',
+               'Your System Safety Program Plan (SSPP) Development looks like a core compliance '
+               'service. Is that one of the main offerings?',
+               'Your Classic Shift is a very specific product. Is that the main item people start '
+               'with?',
+               'Your real-time shared market intelligence stands out. Is that a core part of '
+               'TheListingHub™?',
+               'Your property matching for solo buyers is interesting. Is that part of the main '
+               'ownership flow?'],
   'enabled': True},
  {'label': 'Product Complimentary 2',
   'name': 'product_complimentary_2',
-  'purpose': 'Second angle: a specifically NAMED project, client, case study, or recent work, '
-             'different from #1. Subtle compliment, ends with a question. Maximum 20 words.',
-  'guidance': 'Point to a NAMED piece of work: a project, a featured client, a case study, or a '
-              'recent build, DIFFERENT from whatever Product Complimentary 1 used. Pay a SUBTLE, '
-              'specific compliment (it stands out, it is a niche focus, it was a real win), never '
-              "gush. Then ask ONE genuine question, different from #1's, that the owner would be "
-              "proud to answer. Start with 'Your'. Use '&' in lists. Hard cap 20 words.",
-  'angle': 'a specifically named project / featured client / case study / recent work (not the '
-           'subject used in #1)',
-  'min_words': 10,
-  'max_words': 20,
-  'rules': ['At most 20 words. Count before returning.',
-            'Name a specific PROJECT / CLIENT / case study / recent work, not the subject from #1.',
-            'Compliment SUBTLY; never gush.',
-            "ALWAYS end with a genuine, curious question, different from #1's.",
-            'Must be a DIFFERENT subject than Product Complimentary 1.',
-            "Start with 'Your'. Use '&' in lists. No em dash."],
-  'examples': ['Your AgentTalk work on secure agent-to-agent communication is a specific niche. '
-               'Was that built in-house?',
-               'Your 78 Fort Pl project stands out in the portfolio. Is that your main spotlight '
-               'build?',
-               'Your Klaviyo rebuild for Pharmstrong that revived daily revenue is real work. Was '
-               'that a big win?',
-               'Your Steve McQueen Year 3 project caught my eye. Is that one of your proudest '
-               'collaborations?',
-               "Your work scaling Spotify's ad business across 80+ markets is serious range. Was "
-               'that a landmark account?'],
+  'purpose': 'Identical format to Product Complimentary 1: notice ONE specific thing, subtle '
+             'observation-as-compliment, then a yes/no question. Only the subject and question '
+             'differ from Complimentary 1.',
+  'guidance': 'Same format as Product Complimentary 1. Point to a DIFFERENT specific, named thing '
+              'on their site (a different product, feature, service, section, project, or setup '
+              'than Complimentary 1 used). Make a SUBTLE observation that reads as a quiet '
+              "compliment, never gush, never 'incredibly impressive'. Then ask ONE yes/no "
+              "question, starting with 'Is that', 'Is this', or 'Are these'. Start the line with "
+              "'Your'. Use '&' in lists.",
+  'min_words': 12,
+  'max_words': 22,
+  'rules': ["Start with 'Your'.",
+            'Same format as Product Complimentary 1; only the subject and question differ.',
+            'Subtle observation about ONE specific named thing; never gush.',
+            "End with a YES/NO question starting 'Is that', 'Is this', or 'Are these'.",
+            "Never an open-ended question ('What', 'How', 'Why').",
+            'Pick a DIFFERENT subject than Product Complimentary 1.',
+            "Use '&' in lists. No em dash. At most 22 words."],
+  'examples': ['Your mix of equipment buying, sales, & financing keeps the process in one place. '
+               'Is that the main reason customers come back?',
+               'Your featured projects section keeps the work front & center. Is 78 Fort Pl your '
+               'main spotlight project?',
+               'Your dealer login, dealer locator, & part search setup is practical. Is the dealer '
+               'locator a core part of the site?',
+               'Your homepage keeps the cash offer path & the investment property path separate. '
+               'Is that the main way people use it?',
+               'Your mental fitness training and leadership EQ work is clearly organized. Is the '
+               'custom proposal part of every engagement?',
+               'Your site keeps the focus on grant writing, capital campaigns, & transition '
+               'management. Is that the main mix you want people to notice?',
+               'Your System Safety Program Plan (SSPP) Development looks like a core compliance '
+               'service. Is that one of the main offerings?',
+               'Your Classic Shift is a very specific product. Is that the main item people start '
+               'with?',
+               'Your real-time shared market intelligence stands out. Is that a core part of '
+               'TheListingHub™?',
+               'Your property matching for solo buyers is interesting. Is that part of the main '
+               'ownership flow?'],
   'enabled': True},
  {'label': 'Ideal Customers',
   'name': 'ideal_customers',
