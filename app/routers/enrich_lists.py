@@ -366,9 +366,28 @@ def reoon_balance(workspace_id: int | None = None, ctx: AuthContext = Depends(ge
         return {"demo": False, "error": str(e)[:200]}
 
 
+def _active_list_jobs(db, lst, kinds=("run_enrich_list",)):
+    """Pending/running jobs for THIS list (payload.list_id match). Used to avoid
+    duplicate parallel runs and to stop every run of a list at once."""
+    jobs = (db.query(Job)
+            .filter(Job.kind.in_(list(kinds)),
+                    Job.status.in_(["pending", "running"]),
+                    Job.workspace_id == lst.workspace_id)
+            .order_by(Job.id.desc()).all())
+    return [j for j in jobs if int((j.payload or {}).get("list_id", 0)) == lst.id]
+
+
 @router.post("/{list_id}/run")
 def run(list_id: int, body: RunIn, ctx: AuthContext = Depends(get_ctx)):
     lst = _get_list(ctx, list_id)
+    # Guard against duplicate parallel runs of the SAME list: if one is already
+    # active, reconnect to it instead of spawning a second (which would keep
+    # enriching after Stop cancels only the one the UI tracked).
+    already = _active_list_jobs(ctx.db, lst)
+    if already:
+        j = already[0]
+        return {"job_id": j.id, "already_running": True,
+                "selected": len(j.payload.get("lead_ids") or []), "workers": j.payload.get("workers")}
     lead_ids = body.lead_ids
     if not lead_ids:
         base = ctx.db.query(EnrichLead.id).filter(EnrichLead.list_id == lst.id)
@@ -382,6 +401,20 @@ def run(list_id: int, body: RunIn, ctx: AuthContext = Depends(get_ctx)):
     ctx.db.add(j)
     ctx.db.commit()
     return {"job_id": j.id, "selected": len(lead_ids), "capped_at": body.limit or None, "workers": workers}
+
+
+@router.post("/{list_id}/stop")
+def stop_list(list_id: int, ctx: AuthContext = Depends(get_ctx)):
+    """Cancel EVERY active run/competitor/grammar job for this list, so pressing
+    Stop truly halts the list even if more than one job was queued. In-flight
+    leads finish; nothing new is picked up."""
+    lst = _get_list(ctx, list_id)
+    jobs = _active_list_jobs(ctx.db, lst,
+                             kinds=("run_enrich_list", "find_competitors", "fix_grammar_list"))
+    for j in jobs:
+        j.status = "cancelled"
+    ctx.db.commit()
+    return {"cancelled": len(jobs)}
 
 
 # ---------------------------------------------------------------- grammar fix

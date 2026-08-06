@@ -96,12 +96,19 @@ export default function EnrichListDetail() {
 
   useEffect(() => { setPage(1); }, [q, view, espParam]);
 
-  // reconnect to a run already in progress
+  // Reconnect to a run already in progress — on load AND on a light poll while
+  // no job is tracked, so a run started elsewhere (another tab, or still going
+  // after a reload) always surfaces the live bar + Stop button.
   useEffect(() => {
     if (!data || job) return;
-    api(`/api/enrich-lists/${id}/active-job`).then((r) => { if (r.job_id) setJob(r.job_id); }).catch(() => {});
+    let alive = true;
+    const check = () => api(`/api/enrich-lists/${id}/active-job`)
+      .then((r) => { if (alive && r.job_id) setJob(r.job_id); }).catch(() => {});
+    check();
+    const t = setInterval(check, 5000);
+    return () => { alive = false; clearInterval(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data?.list?.id]);
+  }, [data?.list?.id, job]);
 
   // live job progress poll — refresh the rows/counts in place (quiet, no spinner)
   // each tick so you SEE enrichment happening, then a final reload when it finishes.
@@ -160,7 +167,16 @@ export default function EnrichListDetail() {
       setJob(r.job_id); setSelIds([]); setAllInView(false);
     } catch (e) { toast(e.message, "bad"); }
   };
-  const stop = async () => { if (job) { try { await api(`/api/jobs/${job}/cancel`, { method: "POST" }); } catch (e) { toast(e.message, "bad"); } } };
+  const stop = async () => {
+    try {
+      // Cancel EVERY active job for this list, not just the tracked one, so a
+      // second/duplicate run can't keep enriching in the background after Stop.
+      const r = await api(`/api/enrich-lists/${id}/stop`, { method: "POST" });
+      setJob(null); setJobStatus(null);
+      toast(r.cancelled ? `Stopped. In-flight leads will finish.` : "Nothing running.");
+      reload();
+    } catch (e) { toast(e.message, "bad"); }
+  };
   const diagnoseDns = async () => {
     try {
       const [r, le] = await Promise.all([
