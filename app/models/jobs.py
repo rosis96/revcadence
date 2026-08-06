@@ -36,4 +36,8 @@ class Job(Base):
     error = Column(Text, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
     started_at = Column(DateTime)
+    # Bumped every time a handler reports progress. Lets the worker tell a live
+    # run (progress advancing) from an orphaned "running" job (a worker died or
+    # redeployed mid-run) so the latter can be requeued instead of spinning forever.
+    progressed_at = Column(DateTime)
     finished_at = Column(DateTime)

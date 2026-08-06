@@ -162,6 +162,7 @@ def run_enrich_list(db, job):
     so with workers>1 we fan leads out across a thread pool — each thread gets
     its OWN DB session (Sessions aren't thread-safe). The main thread's session
     only tracks job progress/cancellation."""
+    from datetime import datetime
     from ..models.enrich import TERMINAL_STATUSES, EnrichLead, EnrichList
     from ..models.jobs import Job as JobModel
     from ..enrichment.pipeline import _config, process_lead
@@ -191,6 +192,7 @@ def run_enrich_list(db, job):
         counts[status] = counts.get(status, 0) + 1
         job.progress = int((i / max(total, 1)) * 100)
         job.progress_note = f"{i}/{total} · {note}"[:250]
+        job.progressed_at = datetime.utcnow()   # proves the run is alive (anti-stuck)
         db.commit()
 
     # Sequential path (workers=1) — unchanged behaviour, shared session.

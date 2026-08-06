@@ -395,8 +395,16 @@ export default function EnrichListDetail() {
       {job && jobStatus && (
         <div className="card jobbar">
           <div className="spinner" style={{ width: 16, height: 16 }} />
-          <div className="progressbar" style={{ width: 220 }}><div style={{ width: `${jobStatus.progress || 0}%` }} /></div>
-          <span style={{ fontSize: 12.5, color: "var(--muted)" }}>{jobStatus.progress || 0}% · {jobStatus.progress_note}</span>
+          {jobStatus.status === "pending" ? (
+            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
+              Queued, waiting for a free worker{jobStatus.progress_note ? ` · ${jobStatus.progress_note}` : "…"}
+            </span>
+          ) : (
+            <>
+              <div className="progressbar" style={{ width: 220 }}><div style={{ width: `${jobStatus.progress || 0}%` }} /></div>
+              <span style={{ fontSize: 12.5, color: "var(--muted)" }}>{jobStatus.progress || 0}% · {jobStatus.progress_note}</span>
+            </>
+          )}
         </div>
       )}
 

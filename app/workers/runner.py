@@ -37,9 +37,33 @@ def _claim(db):
     if job:
         job.status = "running"
         job.started_at = datetime.utcnow()
+        job.progressed_at = datetime.utcnow()
         job.attempts += 1
         db.commit()
     return job
+
+
+# A "running" job whose progress has not advanced for this long is treated as
+# orphaned (its worker died or the service redeployed mid-run) and requeued.
+_STUCK_MINUTES = int(os.getenv("JOB_STUCK_MINUTES", "15"))
+
+
+def recover_stuck_jobs(db, *, on_startup: bool = False) -> int:
+    """Requeue jobs wedged in 'running'. On startup, every running job is orphaned
+    (this worker just booted). During the loop, only ones with no progress for
+    _STUCK_MINUTES. Cancelled jobs are left alone. Returns how many were recovered."""
+    q = db.query(Job).filter(Job.status == "running")
+    if not on_startup:
+        cutoff = datetime.utcnow() - timedelta(minutes=_STUCK_MINUTES)
+        q = q.filter((Job.progressed_at == None) | (Job.progressed_at < cutoff))  # noqa: E711
+    stuck = q.all()
+    for j in stuck:
+        j.status = "pending"
+        j.run_at = datetime.utcnow()
+        j.progress_note = "requeued after interruption"
+    if stuck:
+        db.commit()
+    return len(stuck)
 
 
 def run_one(db, job) -> None:
@@ -117,6 +141,17 @@ def send_daily_digests(db):
 def main():
     init_db()
     print(f"[worker] started · db={engine.dialect.name} · handlers={sorted(HANDLERS)}")
+    # Any job still 'running' at boot was orphaned by the previous process
+    # (redeploy/crash). Requeue so it resumes instead of showing a stuck loader.
+    _rdb = SessionLocal()
+    try:
+        n = recover_stuck_jobs(_rdb, on_startup=True)
+        if n:
+            print(f"[worker] recovered {n} orphaned running job(s) on startup")
+    except Exception as e:  # noqa: BLE001
+        print(f"[worker] startup recovery error: {e}")
+    finally:
+        _rdb.close()
     if engine.dialect.name == "sqlite":
         print("[worker] *** WARNING: running on SQLITE — on Railway this means "
               "DATABASE_URL is NOT set on this service, and the worker is polling "
@@ -129,6 +164,7 @@ def main():
         db = SessionLocal()
         try:
             beat(db)
+            recover_stuck_jobs(db)   # requeue any run that stalled mid-flight
             if time.time() - last_mailbox_poll >= _MAILBOX_POLL_SECONDS:
                 poll_mailboxes(db)
                 last_mailbox_poll = time.time()
