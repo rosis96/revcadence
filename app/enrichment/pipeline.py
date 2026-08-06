@@ -1012,10 +1012,65 @@ def _render_template(template: str, fills: dict) -> str:
         return norm.get(_norm_token(m.group(1)), "")   # drop unfilled tokens, keep the shape
     out = _TOKEN_RE.sub(_sub, template or "")
     out = re.sub(r"\(\s*\)", "", out)                  # empty parens from a dropped slot
-    out = re.sub(r"\s+([,.;:!?])", r"\1", out)         # no space before punctuation
+    # a dropped slot can leave a dangling connector right before punctuation
+    # ("searching for )", "like by", "resulting in .") — remove it so the sentence
+    # still reads cleanly.
+    out = re.sub(r"\b(?:for|like|by|to|with|of|in|on|into)\s+(?=[,.;:)])", "", out)
+    out = re.sub(r"\s+([,.;:!?)])", r"\1", out)        # no space before punctuation
     out = re.sub(r"([,;:])(?:\s*[,;:])+", r"\1", out)  # collapse doubled connectors
     out = re.sub(r"\s{2,}", " ", out).strip()
     return re.sub(r"^[\s,;:]+", "", out)               # no leading punctuation
+
+
+def _extract_template_fills(cfg, fmt: dict, facts: dict, siblings: dict, model: str) -> dict:
+    """One focused, reliable call that returns the VALUE for every {{token}} in a
+    template. Client-side blanks (our service, outcome, challenge we solve, method,
+    result) come from the CLIENT PROFILE and are the same for every prospect;
+    prospect-side blanks (category, customers, service) come from the facts. This is
+    the consistency fix: we no longer depend on the main writer to volunteer the
+    fills, which it does unreliably."""
+    tmpl = fmt.get("template") or ""
+    tokens = _TOKEN_RE.findall(tmpl)
+    if not tokens:
+        return {}
+    ph = {}
+    for p in (fmt.get("placeholders") or []):
+        key = _norm_token(p.get("token") or p.get("name"))
+        if key:
+            ph[key] = p
+    spec = []
+    for t in tokens:
+        p = ph.get(_norm_token(t), {})
+        spec.append({
+            "token": t,
+            "about": (p.get("source") or p.get("from") or ""),  # 'client' or 'prospect' if set
+            "how_to_write": str(p.get("instruction") or p.get("how") or p.get("guidance")
+                                or p.get("description") or "")[:400],
+            "min_words": p.get("min_words"), "max_words": p.get("max_words"),
+            "examples": [str(x)[:120] for x in (p.get("examples") or [])[:3]],
+        })
+    system = (
+        "You fill the BLANK values for ONE fixed sentence template. Return ONLY a JSON object mapping each "
+        "token (use the token names given) to a short value. Rules: fill EVERY token and never leave one "
+        "blank; give the VALUE ONLY (no quotes, no trailing punctuation, do not repeat words already in the "
+        "template); never rewrite the template or add sentences; no em dashes. A token whose meaning is about "
+        "OUR OWN service, outcome, the challenge WE solve, our method, or our result is written from the "
+        "CLIENT PROFILE (our offer) and is the SAME for every prospect. A token about the prospect's category, "
+        "customers, or service is written from the PROSPECT facts. If a token is marked about 'client', use "
+        "the client profile even when prospect data is thin. Never fill an 'our challenge' blank with the "
+        "prospect's own operational problems."
+    )
+    user = json.dumps({
+        "template": tmpl,
+        "tokens": spec,
+        "client_profile": _compact_profile(cfg.profile or {}),
+        "prospect_facts": {k: facts.get(k) for k in (
+            "category", "description", "services", "named_services", "target_industries",
+            "decision_makers", "commercial_challenges", "named_clients") if facts.get(k)},
+        "already_written_variables": {k: v for k, v in (siblings or {}).items() if str(v or "").strip()},
+    }, default=str)[:12000]
+    out = ai._call_openai(system, user, model=(model or ai.extract_model()))
+    return out if isinstance(out, dict) else {}
 
 
 def _tidy_variable(text: str) -> str:
@@ -1589,11 +1644,31 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
     for k, v in vars_out.items():
         fmt = tpl_by.get(k)
         if fmt:
-            fills = _fills_for(k)
-            if fills:                        # model supplied values → LOCK the template
-                rendered[k] = _render_template(fmt["template"], fills)
+            tokens = {_norm_token(t) for t in _TOKEN_RE.findall(fmt.get("template") or "")}
+            fills = {x: y for x, y in _fills_for(k).items() if str(y).strip()}
+            have = {_norm_token(x) for x in fills}
+            # The main writer volunteers fills unreliably. Whenever the template is
+            # not fully filled, run one focused call that fills every blank (client
+            # side from the profile, prospect side from the facts) so the template
+            # is ALWAYS locked and consistent, never rewritten or left with gaps.
+            if tokens and not tokens.issubset(have):
+                siblings = {n: (rendered.get(n) or vars_out.get(n)) for n in vars_out if n != k}
+                try:
+                    extra = _extract_template_fills(cfg, fmt, facts, siblings, model)
+                except Exception:
+                    extra = {}
+                merged = {**{x: y for x, y in extra.items() if str(y).strip()}, **fills}
+                fills = merged
+                have = {_norm_token(x) for x in fills if str(fills[x]).strip()}
+            if tokens and have:
+                # ship the locked template if at least half the blanks are grounded;
+                # otherwise a present, honest gap is worse than showing nothing.
+                if len(have & tokens) * 2 >= len(tokens):
+                    rendered[k] = _render_template(fmt["template"], fills)
+                else:
+                    rendered[k] = ""
                 continue
-        rendered[k] = _tidy_variable(v)      # non-template, or the model gave no fills
+        rendered[k] = _tidy_variable(v)      # non-template, or no template tokens
     vars_out = rendered
 
     # QUALITY-REVIEW WITHHOLDING IS OFF BY DEFAULT. We never blank/"Hold" a variable —
