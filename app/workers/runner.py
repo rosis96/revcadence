@@ -1,11 +1,12 @@
 """Job worker loop. Run as a second Railway service with the same DATABASE_URL:
     python -m app.workers.runner
-Claims one due job at a time (SELECT ... FOR UPDATE SKIP LOCKED on Postgres),
-runs its handler, retries failures up to max_attempts."""
+Claims due jobs (SELECT ... FOR UPDATE SKIP LOCKED on Postgres) and runs up to
+JOB_CONCURRENCY of them at once, retrying failures up to max_attempts."""
 import os
 import socket
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
 from sqlalchemy import text
@@ -48,11 +49,15 @@ def _claim(db):
 _STUCK_MINUTES = int(os.getenv("JOB_STUCK_MINUTES", "15"))
 
 
-def recover_stuck_jobs(db, *, on_startup: bool = False) -> int:
+def recover_stuck_jobs(db, *, on_startup: bool = False, exclude_ids=None) -> int:
     """Requeue jobs wedged in 'running'. On startup, every running job is orphaned
     (this worker just booted). During the loop, only ones with no progress for
-    _STUCK_MINUTES. Cancelled jobs are left alone. Returns how many were recovered."""
+    _STUCK_MINUTES and NOT currently running in this process (exclude_ids), so a
+    long live job is never yanked out from under itself. Returns how many were
+    recovered."""
     q = db.query(Job).filter(Job.status == "running")
+    if exclude_ids:
+        q = q.filter(Job.id.notin_(list(exclude_ids)))
     if not on_startup:
         cutoff = datetime.utcnow() - timedelta(minutes=_STUCK_MINUTES)
         q = q.filter((Job.progressed_at == None) | (Job.progressed_at < cutoff))  # noqa: E711
@@ -64,6 +69,27 @@ def recover_stuck_jobs(db, *, on_startup: bool = False) -> int:
     if stuck:
         db.commit()
     return len(stuck)
+
+
+# How many jobs the worker runs at once. This is what lets two workspaces enrich
+# simultaneously instead of one queuing behind the other. Peak DB sessions ≈
+# JOB_CONCURRENCY × per-job workers, so keep it under the pool (see app/db.py).
+JOB_CONCURRENCY = max(1, int(os.getenv("JOB_CONCURRENCY", "3")))
+
+
+def _run_claimed(job_id: int) -> None:
+    """Run one already-claimed job in its OWN session/thread (Sessions are not
+    thread-safe, so each concurrent job gets its own)."""
+    db = SessionLocal()
+    try:
+        job = db.get(Job, job_id)
+        if job is not None:
+            run_one(db, job)
+            print(f"[worker] job {job_id} → {job.status}")
+    except Exception as e:  # noqa: BLE001
+        print(f"[worker] job {job_id} crashed: {e}")
+    finally:
+        db.close()
 
 
 def run_one(db, job) -> None:
@@ -157,14 +183,18 @@ def main():
               "DATABASE_URL is NOT set on this service, and the worker is polling "
               "a private throwaway DB instead of the shared Postgres. Jobs queued "
               "by the web service will NEVER be seen. Fix the service variables. ***")
+    print(f"[worker] job concurrency = {JOB_CONCURRENCY}")
     last_mailbox_poll = 0.0
     last_followup_tick = 0.0
     last_digest_date = None
+    executor = ThreadPoolExecutor(max_workers=JOB_CONCURRENCY, thread_name_prefix="job")
+    active: dict = {}   # Future -> job_id, the jobs running right now
     while True:
         db = SessionLocal()
         try:
             beat(db)
-            recover_stuck_jobs(db)   # requeue any run that stalled mid-flight
+            # requeue stalled runs, but never the ones this process is running now
+            recover_stuck_jobs(db, exclude_ids=set(active.values()))
             if time.time() - last_mailbox_poll >= _MAILBOX_POLL_SECONDS:
                 poll_mailboxes(db)
                 last_mailbox_poll = time.time()
@@ -175,12 +205,18 @@ def main():
             if _now.hour >= _DIGEST_HOUR_UTC and last_digest_date != _now.date():
                 send_daily_digests(db)
                 last_digest_date = _now.date()
-            job = _claim(db)
-            if job:
-                print(f"[worker] running job {job.id} kind={job.kind} attempt={job.attempts}")
-                run_one(db, job)
-                print(f"[worker] job {job.id} → {job.status}")
-                continue  # look for the next job immediately
+            # reap finished jobs, then fill every free slot — this is what lets
+            # multiple workspaces run at the same time.
+            for fut in [f for f in active if f.done()]:
+                active.pop(fut, None)
+            while len(active) < JOB_CONCURRENCY:
+                job = _claim(db)
+                if job is None:
+                    break
+                jid, kind, attempt = job.id, job.kind, job.attempts
+                print(f"[worker] running job {jid} kind={kind} attempt={attempt} "
+                      f"({len(active) + 1}/{JOB_CONCURRENCY} slots)")
+                active[executor.submit(_run_claimed, jid)] = jid
         except Exception as e:
             print(f"[worker] loop error (continuing): {e}")
         finally:

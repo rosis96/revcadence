@@ -17,9 +17,11 @@ _is_sqlite = config.DATABASE_URL.startswith("sqlite")
 engine = create_engine(
     config.DATABASE_URL,
     pool_pre_ping=True,
-    # Headroom for the enrichment worker pool: a run with N concurrent workers
-    # opens N sessions at once. Postgres only — SQLite uses a single connection.
-    **({} if _is_sqlite else {"pool_size": 30, "max_overflow": 20}),
+    # Headroom for the enrichment worker pool: the runner can process several
+    # jobs at once (JOB_CONCURRENCY), and each job fans leads across N worker
+    # threads — so peak sessions ≈ JOB_CONCURRENCY × per-job workers. Keep this
+    # comfortably above that. Postgres only — SQLite uses a single connection.
+    **({} if _is_sqlite else {"pool_size": 30, "max_overflow": 40}),
     # timeout: let concurrent workers wait for the write lock (dev/SQLite) rather
     # than erroring "database is locked". Postgres handles concurrency natively.
     connect_args={"check_same_thread": False, "timeout": 30} if _is_sqlite else {},
