@@ -1,17 +1,21 @@
 """System-wide DEFAULT enrichment variables.
 
-These six output variables are baked into the product: every workspace gets them
-by default, in this exact order, with the SAME definitions, without any profile
-build or prompt paste. A workspace may toggle a variable off ("enabled": False)
-or override/append its own variables, but if it never customizes, these are what
-the writer produces. Keeping the definitions here (not in per-workspace DB rows)
-is what makes them global and consistent.
+These output variables are baked into the product: every workspace gets them by
+default, in this exact order, with the SAME definitions, without any profile build
+or prompt paste. A workspace may toggle a variable off ("enabled": False) or
+override/append its own variables, but if it never customizes, these are what the
+writer produces. Keeping the definitions here (not in per-workspace DB rows) is
+what makes them global and consistent.
 
 value_proposition and any other client-specific variables are intentionally NOT
 here; those are decided per client/workspace.
 """
 
-DEFAULT_GLOBAL_RULES = ["Write in polished, articulate professional English (C1) — an expert copywriter's register. Never "
+DEFAULT_GLOBAL_RULES = ["Subject line: a short Title Case label (2 to 6 words) naming the prospect's niche, market, or "
+ "focus, joined with '&' (e.g. 'Hospitality & Tourism Brands', 'Industrial Brands & Developers'). "
+ 'It should feel relevant to them and hint what the email is about. No company name, no full '
+ 'sentence, no ending punctuation, no salesy/spam words, no em dash.',
+ "Write in polished, articulate professional English (C1) — an expert copywriter's register. Never "
  'dumb the language down.',
  'Perfect grammar and spelling in every variable. Read it back before finishing.',
  'NEVER use an em dash (—) anywhere, in any variable. This is crucial. Use a comma, period, or '
@@ -28,16 +32,17 @@ DEFAULT_GLOBAL_RULES = ["Write in polished, articulate professional English (C1)
  'it out entirely. When you do use a large number, round and shorten it: write 114,387,383 as '
  "'114M+' (or 'over 100 million') and 70,910 as '70K+'. Never write out a long exact figure.",
  "In lists, use '&' rather than 'and' (e.g. 'buying, selling, & financing').",
- 'Personalized first line is NEVER above 20 words. It names one real, specific, researched thing '
- 'about them (an achievement, focus, product, or setup) AND frames it with a light, subtle '
- 'compliment, so it reads warm and human, not a flat data statement. Keep it understated: no '
- "gushing words ('impressive', 'incredible', 'world-class', 'blown away'), no 'showcasing'/'turned "
- "heads', no question, no pitch. Never personalize off a blog-post title.",
+ 'Personalized first line is NEVER above 20 words. Open warm, like a founder who actually looked: '
+ "start with 'Loved how...', 'Your...', or 'Noticed your...', name ONE specific real thing about "
+ 'their work/approach, and pay it a genuine compliment (words like elite, sharp, rare, memorable, '
+ 'purpose-driven are fine). It can be two short clauses. Stay grounded and specific, never gush '
+ "('impressive', 'incredible', 'world-class', 'blown away'), no question, no pitch, never a "
+ 'blog-title.',
  'Both product complimentary variables use the SAME format: a subtle observation about ONE '
  'specific thing, then a yes/no question. They differ ONLY in content, never in structure.',
- 'Every product complimentary MUST end with a question that can be answered yes or no. Start the '
- "question with 'Is that', 'Is this', or 'Are these'. NEVER ask an open-ended question ('What is', "
- "'How has', 'Why do', 'How does').",
+ 'Every product complimentary MUST end with a question that can be answered yes or no. Start it '
+ "with 'Is that', 'Is this', 'Is it', or 'Are these'. NEVER an open-ended question ('What', 'How', "
+ "'Why', 'Do you').",
  'The two product complimentary variables must each pick a DIFFERENT specific thing from the site. '
  'Same format, different subject and different question.',
  "Target customers is ALWAYS exactly three distinct segments in the format 'target1, target2, & "
@@ -46,50 +51,71 @@ DEFAULT_GLOBAL_RULES = ["Write in polished, articulate professional English (C1)
  'THE PROSPECT. In the value proposition, WE offer OUR service TO the prospect, never pitch the '
  "prospect's own service back to them."]
 
-DEFAULT_VARIABLE_ORDER = ['personalized_first_line',
+DEFAULT_VARIABLE_ORDER = ['subject_line',
+ 'personalized_first_line',
  'product_complimentary_1',
  'product_complimentary_2',
  'ideal_customers',
  'target_customers',
  'company_category']
 
-DEFAULT_FORMATS = [{'label': 'Personalized First Line',
+DEFAULT_FORMATS = [{'label': 'Subject Line',
+  'name': 'subject_line',
+  'purpose': "A short Title Case subject that names the prospect's niche/market/focus, so it feels "
+             'relevant to them and hints what the email is about.',
+  'guidance': "Write a short Title Case subject (2 to 6 words) naming the prospect's category, "
+              'target market, or focus area, grounded in what they actually do. Join two facets '
+              "with '&' (e.g. 'Hospitality & Tourism Brands', 'Industrial Brands & Developers', "
+              "'Golf Brands & Tournament Series', 'Education & Community Groups'). It should tell "
+              'the reader the email is about their space. No company name, no full sentence, no '
+              'ending punctuation, no salesy words (free, offer, quick question), no em dash.',
+  'min_words': 2,
+  'max_words': 6,
+  'rules': ['Title Case, 2 to 6 words.',
+            "Name the prospect's niche / market / focus, grounded in their site.",
+            "Join two facets with '&'.",
+            'No company name, no full sentence, no ending punctuation.',
+            'No salesy/spam words (free, offer, quick question, guaranteed). No em dash.'],
+  'examples': ['Hospitality & Tourism Brands',
+               'Industrial Brands & Developers',
+               'Golf Brands & Tournament Series',
+               'Education & Community Groups',
+               'eCommerce & Retention Brands',
+               'Heavy Equipment & Dealers'],
+  'enabled': True},
+ {'label': 'Personalized First Line',
   'name': 'personalized_first_line',
-  'purpose': 'A specific, researched opener that names one real thing about the prospect AND gives '
-             'it a light, subtle compliment, so it feels like a warm human note, not a flat '
-             'statement. Maximum 20 words.',
-  'guidance': 'Name ONE real, specific thing about them, an achievement, a focus, a product, or '
-              'how their site/business is set up, pulled from the site (a named award/rank, '
-              'product, client, project, segment). Then frame it with a LIGHT, understated '
-              "compliment so it reads warm, e.g. 'is no small feat', 'is a genuinely practical "
-              "setup', 'is a sharp focus', 'says a lot about your momentum', 'is a clean, "
-              "deliberate approach'. It should sound like one founder acknowledging another, not a "
-              "data readout and not gushing. Start with 'Your', the company name, or the specific "
-              "thing. Use '&' in lists. Hard cap 20 words. No gushing words ('impressive', "
-              "'incredible', 'world-class'), no question, no pitch, no em dash. Ground it in what "
-              'they ACTUALLY do or achieved, never a blog-post or article title.',
+  'purpose': 'A warm, specific opener that names one real thing about the prospect and pays it a '
+             'genuine compliment, like a founder who actually looked at their site. Maximum 20 '
+             'words.',
+  'guidance': "Open warm and human. Start with 'Loved how...', 'Your...', or 'Noticed your...'. "
+              'Name ONE specific, real thing about their work, approach, product, or a named '
+              'client/project from the site, and pay it a genuine compliment (elite, sharp, rare, '
+              'memorable, purpose-driven, clever all work). It can be two short clauses, e.g. '
+              "'Loved how X, your Y feels Z'. Keep it grounded and specific, never gush "
+              "('impressive', 'incredible', 'world-class', 'blown away'). Use '&' in lists. Hard "
+              'cap 20 words. No question, no pitch, no em dash, never a blog/article title.',
   'min_words': 8,
   'max_words': 20,
   'rules': ['NEVER above 20 words. Count before returning.',
-            'Name one real, specific thing (achievement, focus, product, client, project, '
-            'segment).',
-            'Add a LIGHT, subtle compliment so it reads warm, not a flat statement.',
-            "Understated only: no gushing ('impressive', 'incredible', 'world-class', 'blown "
-            "away'), no 'showcasing'/'turned heads'.",
-            "Start with 'Your', the company name, or the specific thing. Use '&' not 'and' in "
-            'lists.',
+            "Start with 'Loved how', 'Your', or 'Noticed your'.",
+            'Name one specific real thing (approach, product, named client/project) and pay it a '
+            'genuine compliment.',
+            "Warm but not gushing: no 'impressive', 'incredible', 'world-class', 'blown away'.",
+            "Two short clauses are fine. Use '&' not 'and' in lists.",
             'No question, no pitch, no em dash. Never personalize off a blog/article title.'],
-  'examples': ["Ranking #53 on Inc.'s 2024 Northeast Fastest-Growing list is no small feat.",
-               'Your one-stop setup for buying, selling, & financing heavy equipment is a '
-               'genuinely practical approach.',
-               'Splitting your homepage between cash offers & off-market deals is a clean, '
-               'deliberate way to guide buyers.',
-               'Building & red-teaming AI models with LangTest & AgentTalk is a sharp, focused '
-               'lineup.',
-               'Your run of projects like 78 Fort Pl & 60-62 Van Duzer St shows real, steady '
-               'range.',
-               'Centering mental fitness & leadership EQ work for organizations is a thoughtful, '
-               'specific niche.'],
+  'examples': ['Loved how Lure blends data, strategy & storytelling into a MarTech stack built to '
+               'drive bookings.',
+               'Your bold industrial creative gives construction brands a fearless edge, '
+               "RavenBuilt's rebrand was seriously memorable.",
+               'Your full-scale launches for golf brands like SuperStroke are elite, mixing niche '
+               'culture & polish rarely seen.',
+               'Noticed your public health campaigns lean hard on community, your Cleveland '
+               'schools work felt genuinely purpose-driven.',
+               'Loved how your studio turns dense research into clean UX, the Creativity Exchange '
+               'project really stood out.',
+               'Your one-stop setup for buying, selling & financing heavy equipment is a genuinely '
+               'smart, practical build.'],
   'enabled': True},
  {'label': 'Product Complimentary 1',
   'name': 'product_complimentary_1',
@@ -100,15 +126,15 @@ DEFAULT_FORMATS = [{'label': 'Personalized First Line',
               'section, project, or setup). Make a SUBTLE observation about it that reads as a '
               "quiet compliment ('keeps the process in one place', 'is practical', 'stands out', "
               "'is very specific', 'keeps the work front & center'). Never gush, never 'incredibly "
-              "impressive'. Then ask ONE yes/no question, starting with 'Is that', 'Is this', or "
-              "'Are these'. Start the line with 'Your'. Use '&' in lists. Pick a DIFFERENT subject "
-              'than Product Complimentary 2.',
+              "impressive'. Then ask ONE yes/no question, starting with 'Is that', 'Is this', 'Is "
+              "it', or 'Are these'. Start the line with 'Your'. Use '&' in lists. Pick a DIFFERENT "
+              'subject than Product Complimentary 2.',
   'min_words': 12,
   'max_words': 22,
   'rules': ["Start with 'Your'.",
             'Subtle observation about ONE specific named thing; the observation IS the compliment. '
             'Never gush.',
-            "End with a YES/NO question starting 'Is that', 'Is this', or 'Are these'.",
+            "End with a YES/NO question starting 'Is that', 'Is this', 'Is it', or 'Are these'.",
             "Never an open-ended question ('What', 'How', 'Why').",
             'Pick a DIFFERENT subject than Product Complimentary 2 (same format, different '
             'content).',
@@ -143,14 +169,14 @@ DEFAULT_FORMATS = [{'label': 'Personalized First Line',
               'on their site (a different product, feature, service, section, project, or setup '
               'than Complimentary 1 used). Make a SUBTLE observation that reads as a quiet '
               "compliment, never gush, never 'incredibly impressive'. Then ask ONE yes/no "
-              "question, starting with 'Is that', 'Is this', or 'Are these'. Start the line with "
-              "'Your'. Use '&' in lists.",
+              "question, starting with 'Is that', 'Is this', 'Is it', or 'Are these'. Start the "
+              "line with 'Your'. Use '&' in lists.",
   'min_words': 12,
   'max_words': 22,
   'rules': ["Start with 'Your'.",
             'Same format as Product Complimentary 1; only the subject and question differ.',
             'Subtle observation about ONE specific named thing; never gush.',
-            "End with a YES/NO question starting 'Is that', 'Is this', or 'Are these'.",
+            "End with a YES/NO question starting 'Is that', 'Is this', 'Is it', or 'Are these'.",
             "Never an open-ended question ('What', 'How', 'Why').",
             'Pick a DIFFERENT subject than Product Complimentary 1.',
             "Use '&' in lists. No em dash. At most 22 words."],
@@ -239,11 +265,11 @@ DEFAULT_FORMATS = [{'label': 'Personalized First Line',
 def effective_formats(custom):
     """Merge a workspace's saved formats over the system defaults.
 
-    Guarantees the six default variables are ALWAYS present and in canonical
-    order. A workspace entry with a matching name overrides the default's fields
-    (e.g. toggling enabled, tweaking guidance); the code default is the base so
-    newly-added keys are inherited. Any extra custom variables (value_proposition,
-    etc.) are appended after, preserving their saved order.
+    Guarantees the default variables are ALWAYS present and in canonical order. A
+    workspace entry with a matching name overrides the default's fields (e.g.
+    toggling enabled, tweaking guidance); the code default is the base so newly
+    added keys are inherited. Any extra custom variables (value_proposition, etc.)
+    are appended after, preserving their saved order.
     """
     custom = [f for f in (custom or []) if isinstance(f, dict) and f.get("name")]
     by_name = {f["name"]: f for f in custom}
