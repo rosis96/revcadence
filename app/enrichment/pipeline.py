@@ -974,6 +974,34 @@ def _normalize_dashes(text: str) -> str:
     return t
 
 
+_TOKEN_RE = re.compile(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}")
+
+
+def _sanitize_fill(v: str) -> str:
+    """Clean ONE placeholder value before it goes into a fixed template: strip
+    wrapping quotes, normalize dashes/numbers, and remove trailing punctuation so
+    the template (not the model) owns every comma and period."""
+    s = re.sub(r"\s+", " ", str(v or "").strip())
+    s = s.strip('"“”‘’ ').strip()
+    s = _normalize_dashes(s)
+    s = _simplify_numbers(s)
+    s = s.rstrip(" .,;:")
+    return s
+
+
+def _render_template(template: str, fills: dict) -> str:
+    """Deterministically fill a fixed template: replace each {{token}} with the
+    model's value and leave EVERY other character exactly as written. This is what
+    guarantees the model cannot rewrite wording, punctuation, or split sentences —
+    it never emits the sentence, only the blank values."""
+    fills = {str(k): _sanitize_fill(v) for k, v in (fills or {}).items()}
+
+    def _sub(m):
+        return fills.get(m.group(1), m.group(0))  # leave unknown tokens as-is (flags a miss)
+    out = _TOKEN_RE.sub(_sub, template or "")
+    return re.sub(r"\s+", " ", out).strip()
+
+
 def _tidy_variable(text: str) -> str:
     """Deterministic cleanup so grounded copy isn't withheld for trivial slips:
     strip a leading conjunction ('And,'/'But'/'So'), collapse whitespace, remove
@@ -1130,6 +1158,10 @@ def _format_defs(formats: list) -> list:
             "placeholders": [{
                 "token": p.get("token") or p.get("name"),
                 "how_to_write": str(p.get("instruction") or p.get("how") or p.get("guidance") or "")[:600],
+                # "client" = fill from CLIENT PROFILE (our offer); "prospect" = from
+                # the prospect's evidence. Lets an operator hard-mark an "our problem"
+                # blank so it never grabs the prospect's own challenges.
+                "source": p.get("source") or p.get("from"),
                 "min_words": p.get("min_words"), "max_words": p.get("max_words"),
                 "examples": [str(x)[:160] for x in (p.get("examples") or [])[:4]],
             } for p in (f.get("placeholders") or []) if (p.get("token") or p.get("name"))],
@@ -1273,12 +1305,21 @@ def _writer_system(cfg, rules, level_line, format_defs=None) -> str:
             "offer OUR service TO the prospect; describe OUR client's service and mechanism from the CLIENT "
             "PROFILE, and only reference the prospect's world to show relevance. NEVER pitch the prospect's "
             "OWN offering back to them, and never describe the prospect's service as if it were ours.\n"
-            "TEMPLATES & PLACEHOLDERS: if a variable has a `template`, produce the final text by filling each "
-            "{{token}} and keeping the template's wording/connectors. Fill each placeholder using its own "
-            "how_to_write and STAY WITHIN its min/max words (count them). A placeholder about OUR client / "
-            "our mechanism / our solution (often named after the client) is written from the CLIENT PROFILE; "
-            "a placeholder about the company/prospect is written from the prospect's evidence. Respect the "
-            "whole-variable min/max words too.\n"
+            "TEMPLATE VARIABLES (CRITICAL — FILL, DO NOT WRITE): if a variable has a `template`, you MUST NOT "
+            "write, paraphrase, re-punctuate, or split the sentence, and you MUST NOT put it in `candidates`. "
+            "Return ONLY its placeholder values in the top-level `fills` object: {\"<variable name>\": "
+            "{\"<token>\": \"<value>\"}}. The system inserts your values into the fixed template verbatim, so "
+            "every word, comma, and period outside the {{blanks}} is locked and only the blanks change. For "
+            "each value: obey that placeholder's how_to_write and min/max words, give the value ONLY (no "
+            "surrounding quotes, no trailing period, no extra words), and do not repeat text that is already "
+            "in the template.\n"
+            "PLACEHOLDER SOURCE (who each blank is about): a placeholder about OUR service — the category WE "
+            "target, OUR outcome, the CHALLENGE WE SOLVE, HOW WE do it, the RESULT WE create — is filled ONLY "
+            "from the CLIENT PROFILE / OUR OFFER (the sender's value proposition). A placeholder marked or "
+            "worded as being about the prospect is filled from the prospect's evidence. NEVER fill an "
+            "'our challenge / problem we solve' blank with the PROSPECT's own operational problems (e.g. "
+            "compliance, engineering efficiency, asset performance, faster design cycles). The challenge is "
+            "the specific pain OUR service removes, described from the client profile.\n"
             "WORD COUNTS ARE HARD LIMITS: obey every min_words/max_words — for the whole variable AND for "
             "each placeholder. Count before returning; trim or expand to fit the range.\n"
             "SOUND HUMAN, NOT LIKE AI (critical): write like one sharp person emailing another, the way a "
@@ -1327,7 +1368,9 @@ def _writer_system(cfg, rules, level_line, format_defs=None) -> str:
             "reuse value-proposition evidence. Avoid vague praise and branded labels.\n"
             "- BANNED PHRASES: " + "; ".join(_BANNED_PHRASES) + ".\n"
             "- If evidence is inadequate, return an empty candidate instead of guessing.\n"
-            'Return only JSON: {"candidates": {"<variable name>": ["candidate 1", "candidate 2"]}}.\n'
+            'Return only JSON: {"candidates": {"<non-template variable name>": ["candidate 1", "candidate 2"]}, '
+            '"fills": {"<template variable name>": {"<token>": "<value>"}}}. Non-template variables go in '
+            '"candidates"; every variable that has a `template` goes in "fills" (values only), NOT in candidates.\n'
             + level_line +
             "\nCLIENT PROFILE / OUR OFFER:\n" + json.dumps(_compact_profile(cfg.profile or {})) +
             (("\nMASTER WRITING INSTRUCTIONS (HIGHEST PRIORITY — obey every line exactly; these override "
@@ -1505,7 +1548,24 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
                 "error": f"Writer failed: {str(exc)[:240]}"}
 
     vars_out, candidate_count = _select_candidates(out, formats, assign, facts, reading, site_text)
-    vars_out = {k: _tidy_variable(v) for k, v in vars_out.items()}
+    # TEMPLATE VARIABLES ARE RENDERED IN CODE, NOT WRITTEN BY THE MODEL. For any
+    # variable with a `template`, the model returns only placeholder VALUES (in
+    # `fills`); we substitute them into the fixed template so its wording and
+    # punctuation are locked and it can never be paraphrased or split. Non-template
+    # variables keep the normal candidate + tidy path.
+    fills_all = out.get("fills") if isinstance(out, dict) else None
+    tpl_by = {f.get("name"): f for f in formats if f.get("template")}
+    rendered = {}
+    for k, v in vars_out.items():
+        fmt = tpl_by.get(k)
+        if fmt:
+            fills = (fills_all or {}).get(k) or {}
+            r = _render_template(fmt["template"], fills)
+            if r and "{{" not in r:          # fully filled → use the locked template
+                rendered[k] = r
+                continue
+        rendered[k] = _tidy_variable(v)      # non-template, or a fill was missing
+    vars_out = rendered
 
     # QUALITY-REVIEW WITHHOLDING IS OFF BY DEFAULT. We never blank/"Hold" a variable —
     # a present, specific line always beats an empty one, and blanking was wasting
