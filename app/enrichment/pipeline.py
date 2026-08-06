@@ -974,7 +974,17 @@ def _normalize_dashes(text: str) -> str:
     return t
 
 
-_TOKEN_RE = re.compile(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}")
+# Tokens may contain spaces, e.g. {{continuity word}} or {{how we do it}} — match
+# anything between the braces, not just word characters (that older, narrower
+# pattern is exactly why spaced tokens were left unfilled and the sentence got
+# rewritten instead of filled).
+_TOKEN_RE = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
+
+
+def _norm_token(t) -> str:
+    """Normalize a token/fill key so 'continuity word', 'continuity_word' and
+    'Continuity Word' all match."""
+    return re.sub(r"[^a-z0-9]+", "_", str(t or "").strip().lower()).strip("_")
 
 
 def _sanitize_fill(v: str) -> str:
@@ -991,15 +1001,21 @@ def _sanitize_fill(v: str) -> str:
 
 def _render_template(template: str, fills: dict) -> str:
     """Deterministically fill a fixed template: replace each {{token}} with the
-    model's value and leave EVERY other character exactly as written. This is what
-    guarantees the model cannot rewrite wording, punctuation, or split sentences —
-    it never emits the sentence, only the blank values."""
-    fills = {str(k): _sanitize_fill(v) for k, v in (fills or {}).items()}
+    model's value and leave EVERY other character exactly as written. Token
+    matching is tolerant of spaces vs underscores and case. Any token the model
+    did not fill is removed cleanly, so the template's wording and punctuation are
+    ALWAYS preserved. The model never rewrites the sentence, it only supplies the
+    blank values."""
+    norm = {_norm_token(k): _sanitize_fill(v) for k, v in (fills or {}).items()}
 
     def _sub(m):
-        return fills.get(m.group(1), m.group(0))  # leave unknown tokens as-is (flags a miss)
+        return norm.get(_norm_token(m.group(1)), "")   # drop unfilled tokens, keep the shape
     out = _TOKEN_RE.sub(_sub, template or "")
-    return re.sub(r"\s+", " ", out).strip()
+    out = re.sub(r"\(\s*\)", "", out)                  # empty parens from a dropped slot
+    out = re.sub(r"\s+([,.;:!?])", r"\1", out)         # no space before punctuation
+    out = re.sub(r"([,;:])(?:\s*[,;:])+", r"\1", out)  # collapse doubled connectors
+    out = re.sub(r"\s{2,}", " ", out).strip()
+    return re.sub(r"^[\s,;:]+", "", out)               # no leading punctuation
 
 
 def _tidy_variable(text: str) -> str:
@@ -1555,16 +1571,29 @@ def _write_copy(lead: EnrichLead, cfg: EnrichConfig, ctx: dict, enrichments=None
     # variables keep the normal candidate + tidy path.
     fills_all = out.get("fills") if isinstance(out, dict) else None
     tpl_by = {f.get("name"): f for f in formats if f.get("template")}
+
+    def _fills_for(name):
+        """Pull this variable's placeholder values whether the model nested them
+        under the variable name or returned a flat token map."""
+        fa = fills_all if isinstance(fills_all, dict) else {}
+        sub = fa.get(name)
+        if isinstance(sub, dict) and sub:
+            return sub
+        # some models flatten: {"fills": {"category": "...", ...}} for a single
+        # template variable — use that if the tokens line up.
+        toks = {_norm_token(m) for m in _TOKEN_RE.findall(tpl_by[name]["template"])}
+        flat = {k: v for k, v in fa.items() if _norm_token(k) in toks}
+        return flat
+
     rendered = {}
     for k, v in vars_out.items():
         fmt = tpl_by.get(k)
         if fmt:
-            fills = (fills_all or {}).get(k) or {}
-            r = _render_template(fmt["template"], fills)
-            if r and "{{" not in r:          # fully filled → use the locked template
-                rendered[k] = r
+            fills = _fills_for(k)
+            if fills:                        # model supplied values → LOCK the template
+                rendered[k] = _render_template(fmt["template"], fills)
                 continue
-        rendered[k] = _tidy_variable(v)      # non-template, or a fill was missing
+        rendered[k] = _tidy_variable(v)      # non-template, or the model gave no fills
     vars_out = rendered
 
     # QUALITY-REVIEW WITHHOLDING IS OFF BY DEFAULT. We never blank/"Hold" a variable —
