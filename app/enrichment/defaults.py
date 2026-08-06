@@ -1,14 +1,10 @@
 """System-wide DEFAULT enrichment variables.
 
-These output variables are baked into the product: every workspace gets them by
-default, in this exact order, with the SAME definitions, without any profile build
-or prompt paste. A workspace may toggle a variable off ("enabled": False) or
-override/append its own variables, but if it never customizes, these are what the
-writer produces. Keeping the definitions here (not in per-workspace DB rows) is
-what makes them global and consistent.
-
-value_proposition and any other client-specific variables are intentionally NOT
-here; those are decided per client/workspace.
+Baked into the product: every workspace gets them by default, in this exact order,
+with the SAME definitions, without any profile build or prompt paste. A workspace
+may toggle one off ("enabled": False) or override/append its own; if it never
+customizes, these are what the writer produces. value_proposition and other
+client-specific variables are intentionally NOT here.
 """
 
 DEFAULT_GLOBAL_RULES = ["Subject line: a short Title Case label (2 to 6 words) naming the prospect's niche, market, or "
@@ -24,6 +20,12 @@ DEFAULT_GLOBAL_RULES = ["Subject line: a short Title Case label (2 to 6 words) n
  'reply. Never a generic sales pitch, never robotic.',
  "Be specific and clearly researched: name the prospect's real product, project, client, or result "
  'from their site. Never generic praise, never invented facts.',
+ 'Subject, first line and both compliments must be about what THIS company itself does, sells, or '
+ 'has built (their product, service, method, named client, or project). NEVER build a line from a '
+ 'general market-size figure, industry trend, catastrophe/loss statistic, or a blog/news article '
+ "the company merely published (e.g. 'the embedded insurance market will surpass $70B', 'Hurricane "
+ "Milton's insured losses'). If the flashiest evidence is a market or news statistic, ignore it "
+ "and use the company's own offering instead.",
  'NEVER repeat the same fact, subject, client, project, or number across variables. Each variable '
  '(first line, both compliments, value proposition) must talk about a DIFFERENT thing. If the '
  'first line uses a company or result, no compliment or value proposition may reuse it, and the '
@@ -263,20 +265,11 @@ DEFAULT_FORMATS = [{'label': 'Subject Line',
 
 
 def effective_formats(custom):
-    """Merge a workspace's saved formats over the system defaults.
-
-    Guarantees the default variables are ALWAYS present and in canonical order. A
-    workspace entry with a matching name overrides the default's fields (e.g.
-    toggling enabled, tweaking guidance); the code default is the base so newly
-    added keys are inherited. Any extra custom variables (value_proposition, etc.)
-    are appended after, preserving their saved order.
-    """
     custom = [f for f in (custom or []) if isinstance(f, dict) and f.get("name")]
     by_name = {f["name"]: f for f in custom}
     out, seen = [], set()
     for d in DEFAULT_FORMATS:
-        name = d["name"]
-        seen.add(name)
+        name = d["name"]; seen.add(name)
         out.append({**d, **by_name[name]} if name in by_name else dict(d))
     for f in custom:
         if f["name"] not in seen:
@@ -285,6 +278,4 @@ def effective_formats(custom):
 
 
 def default_rule_lines():
-    """The global output rules, one per line, to inject into the writer as the
-    highest-priority master instructions in every workspace."""
     return list(DEFAULT_GLOBAL_RULES)

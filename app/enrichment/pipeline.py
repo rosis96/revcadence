@@ -957,13 +957,31 @@ def _simplify_numbers(text: str) -> str:
     return _BIGNUM_RE.sub(_repl, text or "")
 
 
+# Every long dash the model can emit — em (—), en (–), horizontal bar (―), figure
+# dash (‒), and the minus sign (−). The em-dash PROMPT rule kept missing the EN
+# dash in number ranges ("$30 billion – $50 billion"). This removes all of them
+# deterministically: a dash sitting between two numbers/currency becomes "to",
+# every other one becomes a comma. Real hyphens (self-erecting, 60-62) are U+002D
+# and are left alone.
+_DASHES = "—–―‒−"
+_DASH_RANGE_RE = re.compile(r"\s*[" + _DASHES + r"]\s*(?=[\$\d])")
+_DASH_ANY_RE = re.compile(r"\s*[" + _DASHES + r"]\s*")
+
+
+def _normalize_dashes(text: str) -> str:
+    t = _DASH_RANGE_RE.sub(" to ", text or "")   # 30 – 50  ->  30 to 50
+    t = _DASH_ANY_RE.sub(", ", t)                # anything else -> comma
+    return t
+
+
 def _tidy_variable(text: str) -> str:
     """Deterministic cleanup so grounded copy isn't withheld for trivial slips:
-    strip a leading conjunction ('And,'/'But'/'So'), collapse whitespace, shorten
-    big raw numbers to a human magnitude, and break any run-on sentence into clean
-    B2 sentences. Meaning is fully preserved."""
+    strip a leading conjunction ('And,'/'But'/'So'), collapse whitespace, remove
+    every en/em dash, shorten big raw numbers to a human magnitude, and break any
+    run-on sentence into clean B2 sentences. Meaning is fully preserved."""
     t = re.sub(r"\s+", " ", (text or "").strip())
     t = re.sub(r"^(and|but|so|also|plus)\b[\s,;:—-]*", "", t, flags=re.I)
+    t = _normalize_dashes(t)
     t = _simplify_numbers(t)
     t = (t[:1].upper() + t[1:]) if t else t
     return _split_long_sentences(t, 38)
@@ -1290,6 +1308,14 @@ def _writer_system(cfg, rules, level_line, format_defs=None) -> str:
             "numbers, or claims into a different prospect's output.\n"
             "- avoid_examples are rejected anti-examples. Do not copy their wording or repeat the problem "
             "stated in their reason.\n"
+            "- ABOUT THE COMPANY'S OWN WORK, NEVER MARKET STATS OR NEWS. The subject, first line and both "
+            "compliments must be about what THIS company itself does, sells, or has built: their product, "
+            "service, method, named client, or project. NEVER build a line from a general market-size figure, "
+            "industry trend, catastrophe/loss statistic, or a blog/news article the company merely published "
+            "(e.g. 'the embedded insurance market will surpass $70 billion', 'Hurricane Milton's insured "
+            "losses'). If the flashiest evidence is a market/news statistic, ignore it and personalize on the "
+            "company's own offering instead. The first line is NOT a headline or a statistic; it is a warm, "
+            "specific note about THEM.\n"
             "- NEVER REPEAT A SUBJECT ACROSS VARIABLES. Each variable must talk about a DIFFERENT fact, "
             "client, project, product, or number. If the first line uses a company/result, no compliment or "
             "value proposition may reuse that same one. The two product compliments must be about two "
