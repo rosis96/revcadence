@@ -28,10 +28,11 @@ DEFAULT_GLOBAL_RULES = ["Write in polished, articulate professional English (C1)
  'it out entirely. When you do use a large number, round and shorten it: write 114,387,383 as '
  "'114M+' (or 'over 100 million') and 70,910 as '70K+'. Never write out a long exact figure.",
  "In lists, use '&' rather than 'and' (e.g. 'buying, selling, & financing').",
- 'Personalized first line is NEVER above 20 words. It is a neutral, factual observation of what '
- 'the company actually does or sells, grounded in a real named product, client, project, or '
- 'segment from their site. Never personalize off a blog-post title, an article headline, or a '
- 'generic tagline.',
+ 'Personalized first line is NEVER above 20 words. It names one real, specific, researched thing '
+ 'about them (an achievement, focus, product, or setup) AND frames it with a light, subtle '
+ 'compliment, so it reads warm and human, not a flat data statement. Keep it understated: no '
+ "gushing words ('impressive', 'incredible', 'world-class', 'blown away'), no 'showcasing'/'turned "
+ "heads', no question, no pitch. Never personalize off a blog-post title.",
  'Both product complimentary variables use the SAME format: a subtle observation about ONE '
  'specific thing, then a yes/no question. They differ ONLY in content, never in structure.',
  'Every product complimentary MUST end with a question that can be answered yes or no. Start the '
@@ -54,37 +55,41 @@ DEFAULT_VARIABLE_ORDER = ['personalized_first_line',
 
 DEFAULT_FORMATS = [{'label': 'Personalized First Line',
   'name': 'personalized_first_line',
-  'purpose': 'A tight, neutral, factual observation of what the company actually does or sells. '
-             'Proves we looked at their site. No flattery, no pitch, no filler. Maximum 20 words.',
-  'guidance': 'In one short sentence, state factually what their business or site centers on: the '
-              'core thing they do, sell, or are known for, anchored to a REAL named specific from '
-              "the site (a product, client, project, segment, or number). Start with 'Your'. Use "
-              "'&' in lists. Ground it in what the COMPANY does, never in a blog-post title or "
-              "article headline. No praise words ('impressed', 'showcasing', 'turned heads'), no "
-              "question, no pitch. Hard cap 20 words. Cut every filler word ('providing a "
-              "comprehensive overview of', 'across various industries', etc.).",
+  'purpose': 'A specific, researched opener that names one real thing about the prospect AND gives '
+             'it a light, subtle compliment, so it feels like a warm human note, not a flat '
+             'statement. Maximum 20 words.',
+  'guidance': 'Name ONE real, specific thing about them, an achievement, a focus, a product, or '
+              'how their site/business is set up, pulled from the site (a named award/rank, '
+              'product, client, project, segment). Then frame it with a LIGHT, understated '
+              "compliment so it reads warm, e.g. 'is no small feat', 'is a genuinely practical "
+              "setup', 'is a sharp focus', 'says a lot about your momentum', 'is a clean, "
+              "deliberate approach'. It should sound like one founder acknowledging another, not a "
+              "data readout and not gushing. Start with 'Your', the company name, or the specific "
+              "thing. Use '&' in lists. Hard cap 20 words. No gushing words ('impressive', "
+              "'incredible', 'world-class'), no question, no pitch, no em dash. Ground it in what "
+              'they ACTUALLY do or achieved, never a blog-post or article title.',
   'min_words': 8,
   'max_words': 20,
   'rules': ['NEVER above 20 words. Count before returning.',
-            "Start with 'Your' or the company name.",
-            'Neutral factual observation of what they actually do or sell, not praise.',
-            'Anchor to a real named product, client, project, segment, or number.',
-            'Never personalize off a blog/article title or generic tagline.',
-            "No filler ('comprehensive overview', 'various industries'). No question. No pitch. No "
-            'em dash.',
-            "Use '&' not 'and' in lists."],
-  'examples': ['Your site centers on pre-owned heavy equipment, with buying, selling, & financing '
-               'all in one place.',
-               'Your homepage splits cleanly between cash offers on houses & off-market investment '
-               'property deals.',
-               'Delta Tech shows over 500 auxiliary light, headlight, & light bar models across '
-               'automotive & truck segments.',
-               'Your platform builds and red-teams AI models, with LangTest & AgentTalk as the '
-               'core tools.',
-               'Your work centers on commercial & residential projects like 78 Fort Pl & 60-62 Van '
-               'Duzer St.',
-               'Your studio focuses on UX & service design for education and cultural clients like '
-               'Southbank Centre.'],
+            'Name one real, specific thing (achievement, focus, product, client, project, '
+            'segment).',
+            'Add a LIGHT, subtle compliment so it reads warm, not a flat statement.',
+            "Understated only: no gushing ('impressive', 'incredible', 'world-class', 'blown "
+            "away'), no 'showcasing'/'turned heads'.",
+            "Start with 'Your', the company name, or the specific thing. Use '&' not 'and' in "
+            'lists.',
+            'No question, no pitch, no em dash. Never personalize off a blog/article title.'],
+  'examples': ["Ranking #53 on Inc.'s 2024 Northeast Fastest-Growing list is no small feat.",
+               'Your one-stop setup for buying, selling, & financing heavy equipment is a '
+               'genuinely practical approach.',
+               'Splitting your homepage between cash offers & off-market deals is a clean, '
+               'deliberate way to guide buyers.',
+               'Building & red-teaming AI models with LangTest & AgentTalk is a sharp, focused '
+               'lineup.',
+               'Your run of projects like 78 Fort Pl & 60-62 Van Duzer St shows real, steady '
+               'range.',
+               'Centering mental fitness & leadership EQ work for organizations is a thoughtful, '
+               'specific niche.'],
   'enabled': True},
  {'label': 'Product Complimentary 1',
   'name': 'product_complimentary_1',
