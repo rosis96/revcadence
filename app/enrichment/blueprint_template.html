@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Revenue Blueprint · [[CLIENT]] · by Revcadence</title>
+<meta name="description" content="How Revcadence would build and run the revenue system for [[CLIENT]]: fewer, better conversations carried all the way to signed revenue." />
+<!--
+  Revenue Blueprint template. Fixed RevCadence design and positioning; the
+  client-specific parts are double-bracket tokens filled per client at render time.
+  Prepared by Revcadence. Single file, no external libraries. No em dashes.
+  Positioning: a revenue operating partner, not a lead-gen agency. Executive tone,
+  6th to 8th grade English, no buzzwords. Numbers from the call and cdsfunds.com.
+-->
+<style>
+  :root{
+    --ink:#0c1220; --ink-2:#39435a; --muted:#6b7688;
+    --line:#e7eaf0; --line-2:#d6dae4;
+    --bg:#ffffff; --soft:#f7f8fb; --soft-2:#eef1f6; --tint:#f3f7ff;
+    --blue:#2563eb; --blue-ink:#1d4ed8; --blue-soft:#eaf1ff;
+    --green:#15803d; --cds:#6aa84f; --cds-soft:#eef5ea; --cds-ink:#436e31;
+    --sp-7:52px; --sp-8:72px; --sp-9:104px;
+    --r:12px; --r-lg:16px; --r-xl:24px;
+    --sh-sm:0 1px 2px rgba(12,18,32,.05);
+    --sh:0 1px 3px rgba(12,18,32,.06), 0 10px 30px -16px rgba(12,18,32,.18);
+    --maxw:1080px; --nav-h:66px;
+    --font:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;font-family:var(--font);color:var(--ink);background:var(--bg);
+    font-size:16px;line-height:1.62;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  h1,h2,h3,h4{margin:0;line-height:1.14;letter-spacing:-.022em;color:var(--ink);font-weight:800}
+  h1{font-size:clamp(40px,7vw,74px)}
+  h2{font-size:clamp(25px,3.2vw,36px)}
+  h3{font-size:19px}
+  p{margin:0}
+  a{color:var(--blue-ink);text-decoration:none}
+  ul{margin:0;padding:0;list-style:none}
+  section{scroll-margin-top:calc(var(--nav-h) + 14px)}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 26px}
+  .narrow{max-width:760px}
+  .eyebrow{display:inline-block;font-size:12px;font-weight:800;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--blue);margin-bottom:16px}
+  .eyebrow.g{color:var(--cds-ink)}
+  .lead{color:var(--ink-2);font-size:18px;max-width:65ch}
+  .muted{color:var(--muted)}
+  .band{padding:var(--sp-9) 0}
+  .band-soft{background:var(--soft)}
+  .band-tint{background:var(--tint)}
+  .tnum{font-variant-numeric:tabular-nums}
+  b,strong{font-weight:700;color:var(--ink)}
+  .rule{height:1px;background:var(--line);border:0;margin:0}
+
+  /* Revcadence wordmark */
+  .rc{display:inline-flex;align-items:center;gap:10px;font-weight:800;letter-spacing:-.02em;color:var(--ink)}
+  .rc svg{display:block}
+  .rc .wm{font-size:19px}
+  .rc-lg .wm{font-size:26px}
+
+  .btn{display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:15px;
+    padding:12px 22px;border-radius:10px;border:1px solid transparent;cursor:pointer;
+    transition:background .15s,border-color .15s,transform .05s;white-space:nowrap}
+  .btn:active{transform:translateY(1px)}
+  .btn-primary{background:var(--blue);color:#fff}
+  .btn-primary:hover{background:var(--blue-ink)}
+  .btn-ghost{background:#fff;color:var(--ink);border-color:var(--line-2)}
+  .btn-ghost:hover{border-color:var(--muted)}
+  .btn-lg{padding:15px 26px;font-size:16px}
+  .btn-light{background:rgba(255,255,255,.12);color:#fff;border-color:rgba(255,255,255,.25)}
+  .btn-light:hover{background:rgba(255,255,255,.2)}
+
+  /* slim nav, hidden until scrolled past the cover */
+  .nav{position:fixed;top:0;left:0;right:0;z-index:60;height:var(--nav-h);
+    background:rgba(255,255,255,.9);backdrop-filter:saturate(180%) blur(12px);
+    border-bottom:1px solid var(--line);transform:translateY(-104%);opacity:0;
+    transition:transform .32s ease,opacity .32s ease}
+  .nav.show{transform:none;opacity:1}
+  .nav-in{max-width:var(--maxw);margin:0 auto;height:100%;padding:0 26px;display:flex;align-items:center;gap:18px}
+  .nav-links{display:flex;align-items:center;gap:2px;margin-left:auto}
+  .nav-links a{color:var(--ink-2);font-size:14px;font-weight:600;padding:8px 12px;border-radius:8px}
+  .nav-links a:hover{color:var(--ink);background:var(--soft)}
+
+  /* COVER */
+  .cover{min-height:100vh;display:flex;flex-direction:column;
+    background:radial-gradient(1100px 620px at 50% -8%,var(--tint),#fff 62%)}
+  .cover-top{padding:34px 26px 0;display:flex;align-items:center;justify-content:space-between;max-width:var(--maxw);margin:0 auto;width:100%}
+  .cover-for{display:flex;align-items:center;gap:11px;color:var(--muted);font-size:13.5px;font-weight:600}
+  .cover-for img{height:30px;width:30px;border-radius:7px;display:block}
+  .cover-mid{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;
+    max-width:920px;margin:0 auto;padding:40px 26px}
+  .cover .kicker{font-size:12.5px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:var(--blue);margin-bottom:26px}
+  .cover h1{margin:0}
+  .cover .sub{font-size:20px;color:var(--ink-2);font-weight:600;margin-top:22px}
+  .cover .subline{font-size:15px;color:var(--muted);margin-top:8px}
+  .cover .oneliner{font-size:17px;color:var(--ink-2);max-width:60ch;margin:30px auto 0;line-height:1.6}
+  .cover-bottom{padding:0 26px 40px;display:flex;justify-content:center}
+  .cue{display:inline-flex;flex-direction:column;align-items:center;gap:8px;color:var(--muted);
+    font-size:12.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;cursor:pointer}
+  .cue svg{width:26px;height:26px;color:var(--blue);animation:bob 1.7s ease-in-out infinite}
+  @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(6px)}}
+
+  .g-2{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  .g-3{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);padding:26px;box-shadow:var(--sh-sm)}
+  .card h3{margin-bottom:8px}
+  .card p{color:var(--ink-2);font-size:15px}
+  .contrast{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;margin-top:28px}
+  .contrast .c{padding:22px 24px}
+  .contrast .c.them{background:var(--soft);border-right:1px solid var(--line)}
+  .contrast .c .t{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:12px}
+  .contrast .c.us .t{color:var(--blue)}
+  .contrast .row{display:flex;gap:10px;padding:8px 0;color:var(--ink-2);font-size:14.5px;border-top:1px solid var(--line)}
+  .contrast .row:first-of-type{border-top:0}
+
+  .list{margin-top:14px}
+  .list li{display:flex;gap:11px;padding:8px 0;color:var(--ink-2);font-size:15.5px}
+  .list li::before{content:"";flex:0 0 auto;width:18px;height:18px;margin-top:3px;border-radius:50%;
+    background:var(--cds-soft);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23436e31' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");background-size:12px;background-repeat:no-repeat;background-position:center}
+  .steps{counter-reset:s;margin-top:22px}
+  .steps li{position:relative;padding:16px 0 16px 52px;border-top:1px solid var(--line);color:var(--ink-2);font-size:15.5px}
+  .steps li:last-child{border-bottom:1px solid var(--line)}
+  .steps li::before{counter-increment:s;content:counter(s);position:absolute;left:0;top:14px;width:32px;height:32px;
+    border-radius:9px;background:var(--blue-soft);color:var(--blue-ink);font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px}
+  .steps li b{color:var(--ink)}
+
+  .pullquote{font-size:22px;line-height:1.4;font-weight:700;color:var(--ink);letter-spacing:-.01em;
+    border-left:3px solid var(--blue);padding-left:22px;margin:0}
+  .quote{border-left:3px solid var(--cds);padding:6px 0 6px 18px;color:var(--ink-2);font-size:15.5px;margin-top:16px}
+
+  /* timeline */
+  .flow{margin-top:26px}
+  .flow .step{display:grid;grid-template-columns:150px 1fr;gap:22px;padding:22px 0;border-top:1px solid var(--line)}
+  .flow .step:last-child{border-bottom:1px solid var(--line)}
+  .flow .when{font-weight:800;color:var(--blue-ink);font-size:15px}
+  .flow .when span{display:block;color:var(--muted);font-weight:600;font-size:13px;margin-top:2px}
+  .flow .step h3{font-size:17px}
+  .flow .step p{color:var(--ink-2);font-size:15px;margin-top:4px}
+  .flow .tag{font-size:13px;font-weight:700;color:var(--cds-ink);margin-top:9px;background:var(--cds-soft);display:inline-block;padding:3px 11px;border-radius:999px}
+
+  /* calculator */
+  .calc{display:grid;grid-template-columns:1fr 1fr;gap:26px;align-items:stretch}
+  .calc-controls{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);padding:26px;box-shadow:var(--sh-sm)}
+  .fgrp{margin-bottom:22px}.fgrp:last-child{margin-bottom:0}
+  .frow{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+  .frow label{font-weight:700;font-size:14.5px;color:var(--ink)}
+  .frow .out{font-weight:800;color:var(--blue-ink);font-variant-numeric:tabular-nums}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:6px;border-radius:999px;background:var(--soft-2);outline:none;margin:0}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:20px;height:20px;border-radius:50%;
+    background:var(--blue);cursor:pointer;border:3px solid #fff;box-shadow:0 1px 4px rgba(12,18,32,.3)}
+  input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--blue);cursor:pointer;border:3px solid #fff}
+  .calc-out{background:var(--ink);color:#fff;border-radius:var(--r-lg);padding:30px 28px;display:flex;flex-direction:column;justify-content:center;gap:6px}
+  .calc-out .ck{font-size:12.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#93a0b8}
+  .calc-out .cv{font-size:46px;font-weight:800;letter-spacing:-.02em;line-height:1.05;font-variant-numeric:tabular-nums}
+  .calc-out .cv.blue{color:#83abff}
+  .calc-out .csub{font-size:14px;color:#c4cddf;margin-top:2px}
+  .calc-out .cdiv{height:1px;background:rgba(255,255,255,.14);margin:16px 0}
+  .calc-out .crow{display:flex;justify-content:space-between;font-size:14px;color:#d7deec;padding:3px 0}
+  .calc-out .crow b{color:#fff;font-variant-numeric:tabular-nums}
+  .calc-note{font-size:12.5px;color:var(--muted);margin-top:14px;max-width:70ch}
+
+  .vs{display:grid;grid-template-columns:1fr auto 1fr;gap:22px;align-items:stretch;margin-top:24px}
+  .vs-card{border-radius:var(--r-lg);padding:26px;border:1px solid var(--line);background:#fff;box-shadow:var(--sh-sm)}
+  .vs-card .k{font-size:12.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .vs-card .v{font-size:38px;font-weight:800;letter-spacing:-.02em;margin-top:8px;font-variant-numeric:tabular-nums}
+  .vs-card .v.green{color:var(--cds-ink)}
+  .vs-card .s{font-size:14px;color:var(--muted);margin-top:6px}
+  .vs-mid{display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--muted);font-size:19px}
+  .vs-mult{text-align:center;margin-top:20px;font-size:17px;color:var(--ink-2)}
+  .vs-mult b{color:var(--cds-ink);font-size:21px}
+
+  /* terms / pricing */
+  .terms{background:linear-gradient(180deg,#0c1220,#141d31);color:#fff;border-radius:var(--r-xl);padding:46px;display:grid;grid-template-columns:1fr 1fr;gap:38px;align-items:center}
+  .terms .amt{font-size:58px;font-weight:800;letter-spacing:-.03em;line-height:1}
+  .terms .amt span{font-size:21px;color:#93a0b8;font-weight:700}
+  .terms .sub{color:#c4cddf;margin-top:10px;font-size:15px}
+  .terms .chip{display:inline-flex;align-items:center;gap:8px;margin-top:20px;font-size:13px;font-weight:700;
+    padding:6px 13px;border-radius:999px;background:rgba(106,168,79,.18);color:#bfe0ac}
+  .terms .chip .dot{width:7px;height:7px;border-radius:50%;background:#8fce6f}
+  .terms .incl li{display:flex;gap:10px;color:#d7deec;font-size:15px;padding:6px 0}
+  .terms .incl li::before{content:"";flex:0 0 auto;width:18px;height:18px;margin-top:3px;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2383abff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");background-size:14px;background-repeat:no-repeat;background-position:center}
+
+  .cta{text-align:center;padding:var(--sp-9) 0}
+  .cta h2{max-width:22ch;margin:0 auto}
+  .cta .lead{margin:18px auto 0;text-align:center}
+  .cta .row{display:flex;gap:12px;justify-content:center;margin-top:28px;flex-wrap:wrap}
+
+  footer{border-top:1px solid var(--line);padding:32px 0;color:var(--muted);font-size:13.5px}
+  .foot-in{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:center}
+
+  @media (max-width:820px){
+    .nav-links{display:none}
+    .g-2,.g-3,.calc,.terms,.contrast{grid-template-columns:1fr}
+    .vs{grid-template-columns:1fr}.vs-mid{transform:rotate(90deg);padding:6px 0}
+    .flow .step{grid-template-columns:1fr}
+    .contrast .c.them{border-right:0;border-bottom:1px solid var(--line)}
+  }
+</style>
+</head>
+<body>
+
+<!-- SLIM NAV (appears after the cover) -->
+<nav class="nav" id="nav">
+  <div class="nav-in">
+    <span class="rc"><svg class="rc-mark" width="54" height="23" viewBox="80 20 560 235" fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M104 235 L121 235 C134 235 134 204 147 204 C160 204 160 235 173 235 C186 235 186 197 199 197 C212 197 212 235 225 235 C238 235 238 177 251 177 C264 177 264 235 277 235 C290 235 290 154 303 154 C316 154 316 235 329 235 C342 235 342 129 355 129 C368 129 368 235 381 235 C394 235 394 101 407 101 C420 101 420 235 433 235 C446 235 446 72 459 72 C472 72 472 235 485 235 C498 235 498 42 511 42 C524 42 524 235 537 235 L553 235"/></svg><span class="wm">revcadence</span></span>
+    <div class="nav-links">
+      <a href="#difference">The difference</a>
+      <a href="#system">The system</a>
+      <a href="#who">Who we contact</a>
+      <a href="#math">The math</a>
+      <a href="#terms">Terms</a>
+    </div>
+    <a class="btn btn-primary" href="[[BOOK_URL]]" target="_blank" rel="noopener">Book the next call</a>
+  </div>
+</nav>
+
+<!-- COVER -->
+<header class="cover">
+  <div class="cover-top">
+    <span class="rc rc-lg"><svg class="rc-mark" width="74" height="31" viewBox="80 20 560 235" fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M104 235 L121 235 C134 235 134 204 147 204 C160 204 160 235 173 235 C186 235 186 197 199 197 C212 197 212 235 225 235 C238 235 238 177 251 177 C264 177 264 235 277 235 C290 235 290 154 303 154 C316 154 316 235 329 235 C342 235 342 129 355 129 C368 129 368 235 381 235 C394 235 394 101 407 101 C420 101 420 235 433 235 C446 235 446 72 459 72 C472 72 472 235 485 235 C498 235 498 42 511 42 C524 42 524 235 537 235 L553 235"/></svg><span class="wm">revcadence</span></span>
+    <div class="cover-for">
+      <span>Prepared for</span>
+      [[CLIENT_LOGO_IMG]]
+      <span>[[CLIENT]]</span>
+    </div>
+  </div>
+
+  <div class="cover-mid">
+    <div class="kicker">Revenue Operating Partner</div>
+    <h1>Revenue Blueprint</h1>
+    <div class="sub">A working plan for [[CLIENT]]</div>
+    <div class="subline">[[CONTACT_LINE]]</div>
+    <p class="oneliner">[[ONELINER]]</p>
+  </div>
+
+  <div class="cover-bottom">
+    <a class="cue" href="#difference">
+      Read the plan
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </a>
+  </div>
+</header>
+
+<!-- 1. THE DIFFERENCE -->
+<section class="band" id="difference">
+  <div class="wrap narrow">
+    <span class="eyebrow">Start here</span>
+    <h2>We are not a lead generation agency.</h2>
+    <p class="lead" style="margin-top:16px">Most firms you are talking to sell you the same thing in different wrapping: a list of names, or a batch of meetings, and then they are finished. We do something different. We build and run the revenue system for your firm. Our work starts before the first email and does not stop until every real opportunity has been carried as far as it can go. You win the campaign. We own everything around it that moves a board member from never having heard of you to sitting down to talk.</p>
+    <div class="contrast">
+      <div class="c them">
+        <div class="t">A lead agency</div>
+        <div class="row">Hands you names and meetings</div>
+        <div class="row">Counts emails sent and calls booked</div>
+        <div class="row">Stops the moment a meeting is on the calendar</div>
+        <div class="row">Leaves the follow-up, and the outcome, to you</div>
+      </div>
+      <div class="c us">
+        <div class="t">Revcadence</div>
+        <div class="row">Builds and runs one revenue system for you</div>
+        <div class="row">Counts qualified opportunities, and revenue moved forward</div>
+        <div class="row">Owns the conversation before and long after the meeting</div>
+        <div class="row">Stays on every opportunity until it closes or ends cleanly</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 2. ONE SYSTEM -->
+<section class="band band-soft" id="system">
+  <div class="wrap narrow">
+    <span class="eyebrow">The gap we close</span>
+    <h2>One system, so marketing and sales stop blaming each other.</h2>
+    <p class="lead" style="margin-top:16px">In most companies, marketing and sales are two teams that point fingers. Sales says the leads were bad. Marketing says the follow-up was weak. Nobody owns the middle, and that middle is where the money is lost.</p>
+    <p class="lead" style="margin-top:16px">We remove that gap by running both inside one operating system. The same people who start the conversation also carry it through the follow-up. We manage the handoff closely, so the prospect experiences one clear and consistent conversation from outreach through your meeting and follow-up. When something stalls, it is one team's job to fix it: ours.</p>
+    <p class="pullquote" style="margin-top:28px">We do not measure our work by emails sent or meetings booked. We measure it by qualified opportunities created, and opportunities moved toward revenue.</p>
+  </div>
+</section>
+
+<!-- 3. FEWER, BETTER -->
+<section class="band" id="quality">
+  <div class="wrap narrow">
+    <span class="eyebrow">On purpose</span>
+    <h2>Fewer, better conversations. Not a flood.</h2>
+    <p class="lead" style="margin-top:16px">You sell [[HIGH_TICKET_DESC]] with a long sales cycle. For a firm like that, volume is the wrong goal. One right conversation is worth more than fifty wrong ones, and a calendar full of the wrong people wastes the one thing you value most, your time.</p>
+    <p class="lead" style="margin-top:16px">So we aim small on purpose. Every message is researched and written for that one organization and that one person. We would rather send fewer emails and earn a handful of genuinely interested replies than blast thousands and hand you a pile of meetings that go nowhere. Quality is not a slogan here. It is the whole design.</p>
+  </div>
+</section>
+
+<!-- 4. WHO WE CONTACT (client-specific ICP + geography) -->
+<section class="band band-soft" id="who">
+  <div class="wrap narrow">
+    <span class="eyebrow g">Built around your standard</span>
+    <h2>[[WHO_H2]]</h2>
+    <p class="lead" style="margin-top:16px">[[WHO_INTRO]]</p>
+    <ul class="list">
+[[WHO_LIST]]
+    </ul>
+    <p class="lead" style="margin-top:20px">[[GEO_LINE]]</p>
+  </div>
+</section>
+
+<!-- 5. WHAT A QUALIFIED MEETING MEANS -->
+<section class="band" id="qualified">
+  <div class="wrap narrow">
+    <span class="eyebrow">A clear definition</span>
+    <h2>What a qualified meeting means, exactly.</h2>
+    <p class="lead" style="margin-top:16px">You have seen firms call anything a lead. We do not. A qualified meeting has one meaning here:</p>
+    <div class="card" style="margin-top:20px;border-left:3px solid var(--blue)">
+      <p style="font-size:17px;color:var(--ink)"><b>[[QUALIFIED_DEF]]</b></p>
+    </div>
+    <ul class="list" style="margin-top:20px">
+      <li>It is not a form-fill, and it is not a name we found on a list</li>
+      <li>It is not someone who clicked a link or glanced at a page for a few seconds</li>
+      <li>If it will not turn into a real conversation, it does not go on your calendar, and it does not count toward what we owe you</li>
+    </ul>
+  </div>
+</section>
+
+<!-- 6. AFTER THE MEETING -->
+<section class="band band-soft" id="after">
+  <div class="wrap narrow">
+    <span class="eyebrow g">The part most firms skip</span>
+    <h2>The meeting is the beginning, not the end.</h2>
+    <p class="lead" style="margin-top:16px">Nobody signs [[HIGH_TICKET_DESC]] after one call and one follow-up. A decision that size takes time and patience, and most opportunities are lost for one simple reason: nobody stayed with them. So we stay with them. Here is what happens after every meeting.</p>
+    <ul class="steps">
+      <li><b>We read what was said.</b> Our system takes in the conversation and the proposal you sent, so the next step fits what actually happened, not a generic template.</li>
+      <li><b>We draft the right next move.</b> It is timed to the discussion and waits for your one-click approval. Nothing goes out in your name without you.</li>
+      <li><b>We follow up on a respectful schedule.</b> Two days, then a week, then longer. If the person is traveling, it waits. Each message makes a real point and is never just checking in.</li>
+      <li><b>We keep quiet opportunities warm.</b> If their board is not ready now, we stay in touch so that when they are ready in five or six months, they come back to you, not a competitor.</li>
+    </ul>
+    <p class="lead" style="margin-top:22px"><b>Why this matters for a business like yours.</b> High-value opportunities often require several thoughtful touches over a long sales cycle. Our role is to make sure those conversations are not forgotten or reduced to generic "checking in" emails.</p>
+  </div>
+</section>
+
+<!-- 7. ONE JOURNEY -->
+<section class="band" id="journey">
+  <div class="wrap narrow">
+    <span class="eyebrow">One experience, start to finish</span>
+    <h2>The prospect only ever meets one company: yours.</h2>
+    <p class="lead" style="margin-top:16px">From the first email, to the meeting, to the last follow-up, it all sounds like the same firm, because it is written to. The outreach goes out in your name and your voice. The follow-up carries the same tone. Nobody ever feels handed off to a call center or passed between vendors.</p>
+    <p class="lead" style="margin-top:16px">That is the difference between hiring an agency and gaining a partner. We are not a service bolted onto the side of your firm. We become the part of your team that owns the pipeline, so you are free to do the one thing only you can do, which is win the campaign.</p>
+[[JOURNEY_QUOTE_BLOCK]]
+  </div>
+</section>
+
+[[ECON_BLOCK]]
+
+<!-- TIMELINE -->
+<section class="band" id="timeline">
+  <div class="wrap">
+    <span class="eyebrow">The timeline, with figures</span>
+    <h2>From zero to a full pipeline in about eight weeks.</h2>
+    <div class="flow">
+      <div class="step"><div class="when">Weeks 1 to 3<span>Build and setup</span></div><div><h3>We build the whole system first</h3><p>This is the foundation, and we do all of it before a single email goes out. Sending accounts set up and warmed, a targeted list of qualifying organizations and their leaders built, your pipeline and follow-up system stood up, and every message written and matched to how you talk to a client. Nothing sends until you approve the list and the language.</p><span class="tag">Meetings: none yet, we are building</span></div></div>
+      <div class="step"><div class="when">Week 4 onward<span>Campaigns launch</span></div><div><h3>Outreach starts, the first conversations land</h3><p>With the system built and warmed, campaigns begin. Personalized outreach goes out, and because the message is about them, replies come in warm. The first interested replies become booked 45 minute meetings on your calendar.</p><span class="tag">Meetings: first few, ramping</span></div></div>
+      <div class="step"><div class="when">Month 2<span>Steady state</span></div><div><h3>The target kicks in</h3><p>Volume settles into a predictable rhythm: a target of at least [[MEETINGS]] qualified, attended meetings a month, every one a person who asked to talk.</p><span class="tag">Meetings: target of [[MEETINGS]] or more</span></div></div>
+      <div class="step"><div class="when">Months 3 to 4<span>Pipeline compounds</span></div><div><h3>The follow-up starts closing</h3><p>Now the tail matters. Every meeting is carried by a patient, human follow-up that keeps opportunities warm for months. Your warm ones begin to sign, and there are more of them each month.</p><span class="tag">Meetings: 8 to 15, plus follow-up closing</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- TERMS -->
+<section class="band band-soft" id="terms">
+  <div class="wrap">
+    <span class="eyebrow">The partnership</span>
+    <h2>One number. One clear target. You own everything.</h2>
+    <div class="terms" style="margin-top:24px">
+      <div>
+        <div class="amt">[[PRICE]]<span> / month</span></div>
+        <div class="sub">Flat. No charge per lead, no commission per close, no surprise add-ons. The platform is included, so [[CLIENT]] will not need to buy a separate outbound, reply-management or pipeline system for this engagement.</div>
+        <div class="chip"><span class="dot"></span>Target: at least [[MEETINGS]] qualified, attended meetings per full campaign month</div>
+      </div>
+      <ul class="incl">
+        <li>Researched, personalized outreach in your name and voice</li>
+        <li>A target of at least [[MEETINGS]] qualified, attended meetings per full campaign month, beginning after the setup and launch period. Any meeting that fails the agreed qualification criteria does not count</li>
+        <li>The full follow-up system that carries every opportunity forward</li>
+        <li>Pipeline, reply management, and inbound routing in one place</li>
+        <li>List and message approval before anything sends</li>
+        <li>Full export whenever you want. The data and relationships are always yours, no lock-in</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- CLOSE -->
+<section class="cta">
+  <div class="wrap">
+    <span class="eyebrow">The decision</span>
+    <h2>[[CTA_HEADING]]</h2>
+    <p class="lead">[[CTA_BODY]]</p>
+    <div class="row">
+      <a class="btn btn-primary btn-lg" href="[[BOOK_URL]]" target="_blank" rel="noopener">Book the next call</a>
+      <a class="btn btn-ghost btn-lg" href="mailto:rosis_s@ascendly.one">Email Rosis directly</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot-in">
+    <span class="rc"><svg class="rc-mark" width="44" height="18" viewBox="80 20 560 235" fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M104 235 L121 235 C134 235 134 204 147 204 C160 204 160 235 173 235 C186 235 186 197 199 197 C212 197 212 235 225 235 C238 235 238 177 251 177 C264 177 264 235 277 235 C290 235 290 154 303 154 C316 154 316 235 329 235 C342 235 342 129 355 129 C368 129 368 235 381 235 C394 235 394 101 407 101 C420 101 420 235 433 235 C446 235 446 72 459 72 C472 72 472 235 485 235 C498 235 498 42 511 42 C524 42 524 235 537 235 L553 235"/></svg><span class="wm" style="font-size:15px">revcadence</span></span>
+    <div>Prepared for [[CLIENT]]. Figures are based on information shared during our call. Forecasts are illustrative and depend on qualification, response, attendance and sales conversion. rosis_s@ascendly.one</div>
+  </div>
+</footer>
+
+<script>
+  // reveal the slim nav once the cover is mostly scrolled past
+  var nav = document.getElementById("nav");
+  function onScroll(){
+    if (window.scrollY > window.innerHeight * 0.72) nav.classList.add("show");
+    else nav.classList.remove("show");
+  }
+  window.addEventListener("scroll", onScroll, {passive:true}); onScroll();
+
+[[CALC_JS]]
+
+</script>
+</body>
+</html>

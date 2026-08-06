@@ -59,17 +59,30 @@ BLUEPRINT_SECTIONS = {
 
 # Richer schema extracted from a real discovery-call (Fathom) transcript.
 BLUEPRINT_TRANSCRIPT_SCHEMA = {
-    "hero_subtitle": "one punchy sentence for the top of the page, specific to them",
-    "industry": "their industry in a few words",
-    "exec_summary": "3-4 sentences: where they are and the opportunity, grounded in the call",
-    "what_we_see": "one honest, specific admiration paragraph about their business (from the call)",
-    "bottlenecks": "list of 2-4 concrete revenue bottlenecks they described, each one sentence",
-    "what_we_build": "list of 4-6 concrete things we will build/run for them (their words where possible)",
-    "roadmap": "list of 3-5 phases, each 'Phase name: what happens' from onboarding to steady state",
-    "their_words": "list of up to 4 short verbatim pull-quotes from the prospect in the transcript",
-    "commercial": "pricing/scope EXACTLY as discussed on the call (retainer, performance, setup) — empty string if no price was mentioned; NEVER invent a number",
-    "target_outcome": "the concrete result they want, one sentence",
-    "notes_for_ascendly": "internal note: anything to double-check or any mismatch between what they want and what we offer (never shown to the client)",
+    "client_name": "the client's company name (the business we would run outreach FOR)",
+    "client_logo_url": "a direct URL to the client's logo or favicon if evident, else empty string",
+    "contact_line": "the people on the call, e.g. 'For David Phillips and Tom Swanciger'; empty if unknown",
+    "cover_oneliner": "1 to 2 plain sentences for the cover: what we would build and run for THIS client, grounded in the call",
+    "high_ticket_desc": "how to describe what THEY sell in a few words, e.g. 'a $30,000 a month engagement' or 'a high-value service' (from the call)",
+    "who_h2": "a short headline for who we would target for them, e.g. 'We do not contact everyone. We find the ones that can fund a campaign.'",
+    "who_intro": "2 to 3 plain sentences on how we pick who to contact for them (quality over volume), grounded in the call",
+    "who_list": "list of 2 to 4 specific target types or qualification signals for THIS client (industries, buyer titles, size, capacity)",
+    "geography_line": "one sentence on geographic priority if discussed (e.g. Southeast first, then Northeast); empty if not discussed",
+    "qualified_definition": "one sentence defining a qualified meeting for them, naming the buyer roles they sell to (e.g. 'A board member, executive director, or development officer who replied interested and booked 45 minutes to see if there is a fit.')",
+    "journey_quote": "one short line reinforcing the single consistent experience, tailored to them; empty if nothing fits",
+    "cta_heading": "a short closing headline tailored to them and their timeline",
+    "cta_body": "2 to 3 plain sentences to close: reference their decision timeline and the setup then launch flow; never invent dates they did not say",
+    "economics": {
+        "price_monthly": "our monthly price to THIS client in whole dollars IF stated on the call (e.g. 2000); empty if not stated",
+        "meetings_target": "the monthly qualified-meeting target IF stated (e.g. 8); empty if not stated",
+        "deal_value_low": "the LOW end of what ONE closed client is worth to them, whole dollars, computed ONLY from figures they stated (e.g. their monthly fee times the shortest engagement length). Empty if they never stated their pricing or deal length",
+        "deal_value_high": "the HIGH end likewise; empty if unknown",
+        "close_rate_expected": "the close rate THEY expect on qualified meetings, as a percent (e.g. 25 or 37), IF they said one; empty otherwise",
+        "unit_word": "what one closed deal is called in their world: 'campaign', 'client', 'engagement', 'deal', or 'project'",
+        "deal_basis": "one plain sentence showing the deal-value math, e.g. '$30,000 a month across a 12 to 18 month engagement, which is roughly $360,000 to $540,000 in contract revenue'; empty if no figures were stated",
+    },
+    "their_words": "list of up to 3 short verbatim quotes from the client in the transcript",
+    "notes_for_ascendly": "internal note: anything to double-check or any mismatch (never shown to the client)",
 }
 
 
@@ -279,21 +292,33 @@ def generate_blueprint_content(company: dict, contact: dict, enrichment: dict) -
     }
 
 
-def blueprint_from_transcript(company: dict, contact: dict, transcript: str) -> dict:
+def blueprint_from_transcript(company: dict, contact: dict, transcript: str,
+                              instructions: str = "") -> dict:
     """Turn a discovery-call (Fathom) transcript into a full, personalized
     blueprint. Grounds every section in what was actually said; pricing comes
-    ONLY from the call. AI-required — returns a clearly-marked template draft when
+    ONLY from the call. instructions: optional operator steering (emphasis,
+    angle, corrections). AI-required, returns a clearly-marked template draft when
     no key is set so the flow still works."""
     transcript = (transcript or "").strip()
     if has_ai() and transcript:
         system = (
-            "You are Ascendly/RevCadence's blueprint writer. From a real discovery-call transcript, "
-            "produce a personalized Growth Blueprint for THIS prospect. Ground every section in what "
-            "was actually said — do not invent facts, numbers, or pricing. If a price/scope was quoted "
-            "on the call, capture it verbatim in 'commercial'; if none was, leave 'commercial' empty. "
-            "No buzzwords (never: leverage, robust, seamless, unlock, elevate, world-class). "
-            "Write like a sharp human. Return JSON with keys: " + json.dumps(BLUEPRINT_TRANSCRIPT_SCHEMA))
+            "You are RevCadence's blueprint writer. From a real discovery-call transcript, fill the "
+            "client-specific parts of a fixed executive proposal for THIS client. RevCadence is a revenue "
+            "operating partner, NOT a lead-generation agency: we build and run the client's revenue system, "
+            "before the first conversation and long after the meeting. Write for a CEO comparing vendors. "
+            "Keep language simple (6th to 8th grade), executive, and plain. NO buzzwords (never: leverage, "
+            "robust, seamless, unlock, elevate, world-class, cutting-edge, hyper-personalized). NEVER use an "
+            "em dash or en dash anywhere; use commas, periods, or 'to'. Ground every field in what was "
+            "actually said, and NEVER invent facts, dates, prices, or numbers.\n"
+            "NUMBERS ARE STRICT: fill an economics number ONLY if it was actually stated on the call. If the "
+            "client's own pricing or deal length was not stated, leave deal_value_low, deal_value_high, "
+            "close_rate_expected, and deal_basis EMPTY. Never call contract revenue a 'return' or 'profit'. "
+            "If a close rate was given as the client's belief, treat it as their expectation, not proven data.\n"
+            "If operator_instructions are provided, follow them (emphasis, angle, corrections) as long as they "
+            "do not require inventing facts or numbers.\n"
+            "Return JSON with exactly these keys: " + json.dumps(BLUEPRINT_TRANSCRIPT_SCHEMA))
         user = json.dumps({"company": company, "contact": contact,
+                           "operator_instructions": (instructions or "").strip()[:2000],
                            "transcript": transcript[:24000]})
         try:
             data = _call_openai(system, user)
@@ -311,22 +336,23 @@ def blueprint_from_transcript(company: dict, contact: dict, transcript: str) -> 
 def _blueprint_transcript_fallback(company: dict, contact: dict) -> dict:
     name = company.get("name", "your company")
     return {
-        "hero_subtitle": f"A managed revenue engine built for {name}.",
-        "industry": company.get("industry", ""),
-        "exec_summary": f"This is a draft blueprint for {name}. Add a call transcript and regenerate to "
-                        "personalize every section from what was actually discussed.",
-        "what_we_see": f"{name} has a real business and a clear reason prospects reach out — the opportunity "
-                       "is to make that pipeline consistent and instrumented.",
-        "bottlenecks": ["Lead follow-up is manual, so speed and consistency drop as volume grows.",
-                        "There's no single instrumented pipeline, so deals stall without a clear next step."],
-        "what_we_build": ["Managed outbound + inbound reply handling", "CRM automation and pipeline instrumentation",
-                          "Meeting scheduling with real open times", "Proposal and follow-up recovery"],
-        "roadmap": ["Onboarding: connect systems, set ICP and messaging.",
-                    "Build: infrastructure, copy, and CRM workflows.",
-                    "Launch & manage: go live, handle replies, book meetings.",
-                    "Optimize: report, refine, and scale what works."],
+        "client_name": name,
+        "client_logo_url": "",
+        "contact_line": (f"For {contact.get('name')}" if contact.get("name") else ""),
+        "cover_oneliner": "This is a draft. Add the call transcript and regenerate to personalize every "
+                          "section from what was actually discussed.",
+        "high_ticket_desc": "a high-value engagement",
+        "who_h2": "We do not contact everyone. We find the ones that fit.",
+        "who_intro": "We build the list around organizations that fit your standard, not everyone with an inbox.",
+        "who_list": ["Organizations that match your ideal profile and can act on what you offer"],
+        "geography_line": "",
+        "qualified_definition": "A real decision-maker who replied that they are interested and booked time "
+                                "to see if there is a fit.",
+        "journey_quote": "",
+        "cta_heading": "Let us build this together.",
+        "cta_body": "When you are ready, we spend the first three weeks building and preparing, then launch in "
+                    "week four, with the first conversations landing shortly after.",
+        "economics": {},
         "their_words": [],
-        "commercial": "",
-        "target_outcome": "A predictable flow of qualified meetings without added headcount.",
-        "notes_for_ascendly": "Draft generated without a transcript — regenerate with the call for a real blueprint.",
+        "notes_for_ascendly": "Draft generated without a transcript. Regenerate with the call for a real blueprint.",
     }

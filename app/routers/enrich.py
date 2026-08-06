@@ -308,6 +308,7 @@ class TranscriptIn(BaseModel):
     contact_id: int | None = None
     deal_id: int | None = None
     transcript: str
+    prompt: str = ""               # optional operator steering (emphasis, angle, corrections)
     doc_id: int | None = None      # regenerate an existing blueprint in place
 
 
@@ -331,7 +332,7 @@ def blueprint_from_transcript(body: TranscriptIn, ctx: AuthContext = Depends(get
     contact = ctx.db.get(Contact, body.contact_id or (doc.contact_id if doc else 0))
     out = generate_from_transcript(ctx.db, wsid, company, contact, body.transcript,
                                    deal_id=body.deal_id or (doc.deal_id if doc else None),
-                                   doc_id=doc.id if doc else None)
+                                   doc_id=doc.id if doc else None, instructions=body.prompt)
     return _doc_out(out)
 
 
