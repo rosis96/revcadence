@@ -16,14 +16,51 @@ from reportlab.lib.enums import TA_RIGHT
 from reportlab.lib.pagesizes import LETTER
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
-from reportlab.platypus import (BaseDocTemplate, Frame, PageTemplate, Paragraph,
-                                Spacer, Table, TableStyle)
+from reportlab.platypus import (BaseDocTemplate, Frame, HRFlowable, PageTemplate,
+                                Paragraph, Spacer, Table, TableStyle)
 
 ACCENT = colors.HexColor("#635BFF")
 INK = colors.HexColor("#12131a")
 MUTED = colors.HexColor("#5b6472")
 LINE = colors.HexColor("#e2e4ea")
 BRAND = "RevCadence"
+
+# Who the invoice is FROM, and how to pay it. Env-overridable so they can change
+# without a code deploy. INVOICE_PAYMENT_DETAILS is a JSON array of [label, value].
+INVOICE_ISSUER = os.getenv("INVOICE_ISSUER") or (
+    "Email Frost ltd\n85 Great Portland Street\nLondon\nW1W 7LT\nUnited Kingdom")
+INVOICE_PAYMENT_TITLE = os.getenv(
+    "INVOICE_PAYMENT_TITLE",
+    "PAYMENT DETAILS (US Domestic Bank Transfer via ACH / Wire)")
+
+
+def _payment_details() -> list:
+    raw = os.getenv("INVOICE_PAYMENT_DETAILS")
+    if raw:
+        try:
+            import json as _j
+            rows = _j.loads(raw)
+            return [(str(a), str(b)) for a, b in rows]
+        except Exception:
+            pass
+    return [
+        ("Bank Name", "Citibank"),
+        ("Bank Address", "111 Wall Street, New York, NY 10043, USA"),
+        ("Routing (ABA) Number", "031100209"),
+        ("Account Number", "70581260000915865"),
+        ("Account Type", "CHECKING"),
+        ("Beneficiary / Account Holder", "Rosis Sitoula (or Email Frost)"),
+    ]
+
+
+def _fmt_date(iso) -> str:
+    """ISO date string -> 'July 8, 2026'. Leaves anything else as-is."""
+    from datetime import datetime as _dt
+    try:
+        d = _dt.strptime(str(iso)[:10], "%Y-%m-%d")
+        return f"{d.strftime('%B')} {d.day}, {d.year}"
+    except Exception:
+        return str(iso or "")
 
 
 def _styles():
@@ -160,70 +197,122 @@ def build_agreement_pdf(ag, company=None, contact=None, mode="draft") -> bytes:
 
 
 def build_invoice_pdf(inv, company=None) -> bytes:
+    """Clean, professional invoice: no logo, no QR. Billed-to and issued-by, an
+    'Amount due by DATE' headline, line items, totals, and the ACH/Wire payment
+    details. Payment details and issuer are env-overridable."""
     ss = _styles()
     buf = io.BytesIO()
     doc = _doc(buf, f"Confidential — {BRAND} · {inv.number}")
-    cur = inv.currency
-    story = [
-        Paragraph(f"{BRAND} · Invoice", ss["RCBrand"]),
-        Paragraph(f"Invoice {_e(inv.number)}", ss["RCTitle"]),
-        Paragraph(f"Issued {_e(inv.issue_date or '—')} &nbsp;·&nbsp; Due {_e(inv.due_date or '—')} "
-                  f"&nbsp;·&nbsp; Status: {_e(inv.status)}", ss["RCMeta"]),
-        Paragraph("Bill To", ss["RCH2"]),
-        Paragraph(_e(inv.bill_to_company or (company.name if company else "")), ss["RCBody"]),
-    ]
-    if inv.bill_to_name:
-        story.append(Paragraph(_e(inv.bill_to_name), ss["RCBody"]))
-    if inv.bill_to_email:
-        story.append(Paragraph(_e(inv.bill_to_email), ss["RCBody"]))
-    if inv.agreement_id:
-        story.append(Paragraph(f"Ref: Agreement #{inv.agreement_id}", ss["RCMeta"]))
+    cur = inv.currency or "USD"
+    W = doc.width
 
-    story.append(Spacer(1, 8))
-    data = [["Description", "Qty", "Rate", "Amount"]]
+    title = ParagraphStyle("INVTitle", parent=ss["Normal"], fontName="Helvetica-Bold",
+                           fontSize=25, textColor=INK, leading=28)
+    lblR = ParagraphStyle("INVLblR", parent=ss["Normal"], fontName="Helvetica-Bold",
+                          fontSize=7.5, textColor=MUTED, alignment=TA_RIGHT, spaceAfter=1)
+    valR = ParagraphStyle("INVValR", parent=ss["Normal"], fontSize=10, textColor=INK,
+                          alignment=TA_RIGHT, spaceAfter=8)
+    lbl = ParagraphStyle("INVLbl", parent=ss["Normal"], fontName="Helvetica-Bold",
+                         fontSize=7.5, textColor=MUTED, spaceAfter=3)
+    body = ParagraphStyle("INVBody", parent=ss["Normal"], fontSize=10, textColor=INK, leading=14)
+    big = ParagraphStyle("INVBig", parent=ss["Normal"], fontName="Helvetica-Bold",
+                         fontSize=16.5, textColor=INK, leading=20)
+    payh = ParagraphStyle("INVPayH", parent=ss["Normal"], fontName="Helvetica-Bold",
+                          fontSize=9.5, textColor=INK, spaceAfter=8)
+
+    def money(n):
+        return f"{float(n or 0):,.2f}"
+
+    # header: "Invoice" left, number + issue date right
+    right = [Paragraph("INVOICE NUMBER", lblR), Paragraph(_e(inv.number or ""), valR),
+             Paragraph("ISSUE DATE", lblR), Paragraph(_fmt_date(inv.issue_date), valR)]
+    header = Table([[Paragraph("Invoice", title), right]], colWidths=[W * 0.55, W * 0.45])
+    header.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
+                                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
+    story = [header, Spacer(1, 14), HRFlowable(width="100%", thickness=0.7, color=LINE), Spacer(1, 18)]
+
+    # billed to | issued by
+    client = inv.bill_to_company or inv.bill_to_name or (company.name if company else "")
+    left_cell = [Paragraph("BILLED TO", lbl), Paragraph(_e(client) or "&nbsp;", body)]
+    if inv.bill_to_name and inv.bill_to_company:
+        left_cell.append(Paragraph(_e(inv.bill_to_name), body))
+    if inv.bill_to_address:
+        for ln in str(inv.bill_to_address).splitlines():
+            if ln.strip():
+                left_cell.append(Paragraph(_e(ln), body))
+    if inv.bill_to_email:
+        left_cell.append(Paragraph(_e(inv.bill_to_email), body))
+    right_cell = [Paragraph("ISSUED BY", lbl)]
+    for ln in INVOICE_ISSUER.splitlines():
+        right_cell.append(Paragraph(_e(ln), body))
+    parties = Table([[left_cell, right_cell]], colWidths=[W * 0.5, W * 0.5])
+    parties.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
+                                 ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                 ("RIGHTPADDING", (0, 0), (0, 0), 14)]))
+    story += [parties, Spacer(1, 22)]
+
+    # amount due by
+    story += [Paragraph(f"{money(inv.total)} {_e(cur)} due by {_fmt_date(inv.due_date)}", big),
+              Spacer(1, 14)]
+
+    # line items
+    data = [["Product or service", "Quantity", "Unit price", "Total"]]
     for li in (inv.line_items or []):
         qty = li.get("quantity", 1) or 0
         rate = li.get("rate", 0) or 0
-        amt = li.get("amount", qty * rate) or 0
-        data.append([Paragraph(_e(li.get("description", "")), ss["RCBody"]),
-                     f"{qty:g}", f"{cur} {rate:,.2f}", f"{cur} {amt:,.2f}"])
-    t = Table(data, colWidths=[doc.width - 3.3 * inch, 0.7 * inch, 1.2 * inch, 1.4 * inch])
+        amt = li.get("amount", (qty or 0) * (rate or 0)) or 0
+        data.append([Paragraph(_e(li.get("description", "")), body),
+                     f"{qty:g}", f"{money(rate)} {cur}", f"{money(amt)} {cur}"])
+    t = Table(data, colWidths=[W - 3.5 * inch, 0.9 * inch, 1.25 * inch, 1.35 * inch])
     t.setStyle(TableStyle([
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (-1, -1), 9.5),
-        ("TEXTCOLOR", (0, 0), (-1, 0), MUTED),
+        ("TEXTCOLOR", (0, 0), (-1, 0), INK),
         ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
-        ("LINEBELOW", (0, 0), (-1, 0), 0.6, INK),
-        ("LINEBELOW", (0, 1), (-1, -1), 0.3, LINE),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING", (0, 0), (0, -1), 0),
+        ("LINEBELOW", (0, 0), (-1, 0), 1.1, INK),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.4, LINE),
+        ("TOPPADDING", (0, 0), (-1, -1), 9),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
     ]))
     story.append(t)
 
-    totals = [["Subtotal", f"{cur} {inv.subtotal:,.2f}"]]
+    totals = [["Total excluding tax", f"{money(inv.subtotal)} {cur}"]]
     if inv.discount_amount:
-        totals.append(["Discount", f"-{cur} {inv.discount_amount:,.2f}"])
-    if inv.tax_amount:
-        totals.append([f"Tax ({inv.tax_rate:g}%)", f"{cur} {inv.tax_amount:,.2f}"])
-    totals.append(["Total", f"{cur} {inv.total:,.2f}"])
-    if inv.amount_paid:
-        totals.append(["Paid", f"{cur} {inv.amount_paid:,.2f}"])
-    totals.append(["Balance due", f"{cur} {inv.balance_due:,.2f}"])
-    tt = Table(totals, colWidths=[1.6 * inch, 1.6 * inch], hAlign="RIGHT")
-    style = [("ALIGN", (0, 0), (-1, -1), "RIGHT"), ("FONTSIZE", (0, 0), (-1, -1), 10),
-             ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-             ("LINEABOVE", (0, -1), (-1, -1), 1, INK),
-             ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold")]
-    tt.setStyle(TableStyle(style))
-    story.append(Spacer(1, 10))
-    story.append(tt)
+        totals.append(["Discount", f"-{money(inv.discount_amount)} {cur}"])
+    totals.append([f"Total tax", f"{money(inv.tax_amount)} {cur}"])
+    totals.append(["Amount Due", f"{money(inv.total)} {cur}"])
+    tt = Table(totals, colWidths=[1.9 * inch, 1.6 * inch], hAlign="RIGHT")
+    tt.setStyle(TableStyle([
+        ("ALIGN", (0, 0), (-1, -1), "RIGHT"), ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("TEXTCOLOR", (0, 0), (-1, -2), MUTED),
+        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LINEABOVE", (0, -1), (-1, -1), 1.1, INK),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, -1), (-1, -1), 12), ("TEXTCOLOR", (0, -1), (-1, -1), INK),
+        ("TOPPADDING", (0, -1), (-1, -1), 10),
+    ]))
+    story += [Spacer(1, 8), tt, Spacer(1, 34)]
 
-    if inv.payment_instructions:
-        story.append(Paragraph("Payment Instructions", ss["RCH2"]))
-        story += _body_flowables(inv.payment_instructions, ss)
+    # payment details (ACH / Wire)
+    story.append(Paragraph(_e(INVOICE_PAYMENT_TITLE), payh))
+    pd = [[Paragraph(_e(k), ParagraphStyle("pk", parent=body, textColor=MUTED, fontSize=9.5)),
+           Paragraph(_e(v), ParagraphStyle("pv", parent=body, fontName="Helvetica-Bold", fontSize=9.5))]
+          for k, v in _payment_details()]
+    pt = Table(pd, colWidths=[2.2 * inch, W - 2.2 * inch])
+    pt.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12), ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f6f7f9")),
+        ("BOX", (0, 0), (-1, -1), 0.5, LINE),
+        ("LINEBELOW", (0, 0), (-1, -2), 0.4, colors.HexColor("#eceef2")),
+    ]))
+    story.append(pt)
+
     if inv.notes:
-        story.append(Paragraph("Notes", ss["RCH2"]))
-        story += _body_flowables(inv.notes, ss)
+        story += [Spacer(1, 16)] + _body_flowables(inv.notes, ss)
 
     doc.build(story)
     return buf.getvalue()

@@ -366,6 +366,18 @@ def create_invoice(db, workspace_id, company=None, contact=None, deal=None, agre
                    profile=None, line_items=None, overrides=None, actor_user_id=None) -> Invoice:
     overrides = overrides or {}
     today = date.today().isoformat()
+    # Dates: issue defaults to today; due date is either given, or computed from a
+    # 'terms_days' choice (Net 7/15/30 etc.), or defaults to 7 days out.
+    _issue = overrides.get("issue_date") or today
+    if overrides.get("due_date"):
+        _due = overrides["due_date"]
+    elif overrides.get("terms_days") is not None:
+        try:
+            _due = (date.fromisoformat(str(_issue)) + timedelta(days=int(overrides["terms_days"]))).isoformat()
+        except Exception:
+            _due = (date.today() + timedelta(days=7)).isoformat()
+    else:
+        _due = (date.today() + timedelta(days=7)).isoformat()
     inv = Invoice(
         workspace_id=workspace_id,
         company_id=company.id if company else (agreement.company_id if agreement else None),
@@ -375,8 +387,8 @@ def create_invoice(db, workspace_id, company=None, contact=None, deal=None, agre
         client_profile_id=profile.id if profile else (agreement.client_profile_id if agreement else None),
         number=_next_number(db, Invoice, "INV", workspace_id),
         status="draft",
-        issue_date=overrides.get("issue_date", today),
-        due_date=overrides.get("due_date", (date.today() + timedelta(days=7)).isoformat()),
+        issue_date=_issue,
+        due_date=_due,
         currency=overrides.get("currency", "USD"),
         bill_to_name=overrides.get("bill_to_name", (f"{contact.first_name} {contact.last_name}".strip() if contact else "")),
         bill_to_company=overrides.get("bill_to_company", (company.name if company else "")),
