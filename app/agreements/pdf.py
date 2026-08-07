@@ -44,12 +44,12 @@ def _payment_details() -> list:
         except Exception:
             pass
     return [
-        ("Bank Name", "Citibank"),
+        ("Bank Name", "Citibank, N.A."),
         ("Bank Address", "111 Wall Street, New York, NY 10043, USA"),
-        ("Routing (ABA) Number", "031100209"),
+        ("Routing Number (ACH & Wire)", "031100209"),
         ("Account Number", "70581260000915865"),
         ("Account Type", "CHECKING"),
-        ("Beneficiary / Account Holder", "Rosis Sitoula (or Email Frost)"),
+        ("Beneficiary / Account Holder", "Email Frost LTD"),
     ]
 
 
