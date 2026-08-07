@@ -429,6 +429,35 @@ def move_deal(deal_id: int, body: MoveIn, ctx: AuthContext = Depends(get_ctx)):
 
 
 # ---------------------------------------------------------------- activities
+class ActivityIn(BaseModel):
+    workspace_id: int | None = None
+    contact_id: int | None = None
+    company_id: int | None = None
+    deal_id: int | None = None
+    kind: str = "note"
+    title: str = ""
+    body: str = ""
+
+
+@router.post("/activities")
+def create_activity(body: ActivityIn, ctx: AuthContext = Depends(get_ctx)):
+    from datetime import datetime as _dt
+    wsid = body.workspace_id
+    if not wsid and body.contact_id:
+        ct = ctx.db.get(Contact, body.contact_id)
+        wsid = ct.workspace_id if ct else None
+    if not wsid:
+        raise HTTPException(422, "workspace_id or a contact is required")
+    ctx.require_workspace(wsid)
+    a = Activity(workspace_id=wsid, contact_id=body.contact_id, company_id=body.company_id,
+                 deal_id=body.deal_id, kind=body.kind or "note", title=body.title, body=body.body,
+                 occurred_at=_dt.utcnow())
+    ctx.db.add(a)
+    ctx.db.commit()
+    return {"id": a.id, "kind": a.kind, "title": a.title, "body": a.body,
+            "at": a.occurred_at.isoformat()}
+
+
 @router.get("/activities")
 def list_activities(workspace_id: int | None = None, kind: str = "", limit: int = 50,
                     ctx: AuthContext = Depends(get_ctx)):

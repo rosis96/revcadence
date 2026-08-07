@@ -1,5 +1,6 @@
 // CRM → Contacts. Shared DataTable + global shell (DESIGN_SYSTEM.md step 3).
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Contact as ContactIcon, Plus } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
@@ -85,6 +86,7 @@ function ContactDrawer({ id, onClose }) {
 
 export default function Contacts() {
   const { wsParam, me } = useAuth();
+  const nav = useNavigate();
   const [open, setOpen] = useState(null);
   const [modal, setModal] = useState(false);
   const [filter, setFilter] = useState("__booked");
@@ -130,7 +132,7 @@ export default function Contacts() {
       <DataTable
         id="contacts" columns={columns} data={shown} loading={loading}
         searchPlaceholder="Search contacts…" getRowId={(r) => String(r.id)}
-        onRowClick={(r) => setOpen(r.id)}
+        onRowClick={(r) => nav(`/contacts/${r.id}`)}
         emptyIcon={ContactIcon} emptyTitle="No contacts"
         emptyHint="Contacts arrive via import, enrichment, or the reply bridge."
       />

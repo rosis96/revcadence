@@ -257,13 +257,53 @@ def company_detail(company_id: int, ctx: AuthContext = Depends(get_ctx)):
 
 @router.get("/contacts/{contact_id}")
 def contact_detail(contact_id: int, ctx: AuthContext = Depends(get_ctx)):
+    from ..models.crm import Activity, Company
     c = scoped(ctx.db.query(Contact), Contact, ctx).filter(Contact.id == contact_id).first()
     if not c:
         raise HTTPException(404, "Contact not found")
+    company = ctx.db.get(Company, c.company_id) if c.company_id else None
+    enr = c.enrichment or {}
+    # Meetings for the Calendly-style Upcoming panel: any meeting activity for this
+    # contact, with its time. The client splits future vs past by the date so a
+    # meeting drops out of "Upcoming" the moment it passes. Ready for Calendly to
+    # feed the same shape later.
+    acts = (scoped(ctx.db.query(Activity), Activity, ctx)
+            .filter(Activity.contact_id == c.id)
+            .order_by(Activity.occurred_at.desc()).limit(500).all())
+    meetings = [{"id": a.id, "title": a.title or "Meeting", "kind": a.kind,
+                 "at": a.occurred_at.isoformat() if a.occurred_at else None}
+                for a in acts if "meeting" in (a.kind or "").lower() or "meeting" in (a.title or "").lower()]
     return {"id": c.id, "workspace_id": c.workspace_id, "email": c.email,
-            "name": f"{c.first_name} {c.last_name}".strip(), "title": c.title,
-            "company_id": c.company_id, "email_status": c.email_status,
-            "revenue_score": c.revenue_score, "enrichment": c.enrichment or {}}
+            "name": f"{c.first_name} {c.last_name}".strip(),
+            "first_name": c.first_name, "last_name": c.last_name, "title": c.title,
+            "company_id": c.company_id, "company_name": company.name if company else "",
+            "phone": enr.get("phone") or "",
+            "timezone": c.timezone or "", "linkedin_url": c.linkedin_url or "",
+            "location": c.location or "", "buying_role": c.buying_role or "",
+            "email_status": c.email_status, "source": c.source,
+            "revenue_score": c.revenue_score, "enrichment": enr, "meetings": meetings}
+
+
+class ContactPatch(BaseModel):
+    title: str | None = None
+    timezone: str | None = None
+    linkedin_url: str | None = None
+    location: str | None = None
+    phone: str | None = None
+
+
+@router.put("/contacts/{contact_id}")
+def contact_update(contact_id: int, body: ContactPatch, ctx: AuthContext = Depends(get_ctx)):
+    c = scoped(ctx.db.query(Contact), Contact, ctx).filter(Contact.id == contact_id).first()
+    if not c:
+        raise HTTPException(404, "Contact not found")
+    data = body.model_dump(exclude_unset=True)
+    if "phone" in data:  # no column; stash on enrichment
+        c.enrichment = {**(c.enrichment or {}), "phone": data.pop("phone")}
+    for k, v in data.items():
+        setattr(c, k, v or "")
+    ctx.db.commit()
+    return contact_detail(contact_id, ctx)
 
 
 @router.get("/documents")

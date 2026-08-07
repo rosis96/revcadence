@@ -20,6 +20,7 @@ import Pipeline from "./pages/Pipeline";
 import Companies from "./pages/Companies";
 import CompanyDetail from "./pages/CompanyDetail";
 import Contacts from "./pages/Contacts";
+import ContactDetail from "./pages/ContactDetail";
 import Enrichment from "./pages/Enrichment";
 import EnrichLists from "./pages/EnrichLists";
 import EnrichListDetail from "./pages/EnrichListDetail";
@@ -325,6 +326,7 @@ function Protected() {
         <Route path="/companies/:id/profile" element={<ClientProfile />} />
         <Route path="/clients" element={<Clients />} />
         <Route path="/contacts" element={<Contacts />} />
+        <Route path="/contacts/:id" element={<ContactDetail />} />
         <Route path="/enrichment" element={<EnrichLists />} />
         <Route path="/enrichment/lists/:id" element={<EnrichListDetail />} />
         <Route path="/enrichment/database" element={<EnrichDatabase />} />
