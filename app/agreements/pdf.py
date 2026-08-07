@@ -202,7 +202,7 @@ def build_invoice_pdf(inv, company=None) -> bytes:
     details. Payment details and issuer are env-overridable."""
     ss = _styles()
     buf = io.BytesIO()
-    doc = _doc(buf, f"Confidential — {BRAND} · {inv.number}")
+    doc = _doc(buf, f"Email Frost LTD  ·  {inv.number}")
     cur = inv.currency or "USD"
     W = doc.width
 
@@ -303,11 +303,9 @@ def build_invoice_pdf(inv, company=None) -> bytes:
     pt = Table(pd, colWidths=[2.2 * inch, W - 2.2 * inch])
     pt.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 12), ("RIGHTPADDING", (0, 0), (-1, -1), 12),
-        ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f6f7f9")),
-        ("BOX", (0, 0), (-1, -1), 0.5, LINE),
-        ("LINEBELOW", (0, 0), (-1, -2), 0.4, colors.HexColor("#eceef2")),
+        ("LEFTPADDING", (0, 0), (0, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LINEBELOW", (0, 0), (-1, -2), 0.4, colors.HexColor("#eef1f5")),
     ]))
     story.append(pt)
 

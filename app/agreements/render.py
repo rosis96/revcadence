@@ -152,45 +152,100 @@ def render_agreement(ag, company=None, contact=None, *, signing=False, provider=
 </div></body></html>"""
 
 
+_INVOICE_CSS = """
+*{box-sizing:border-box}
+body{margin:0;background:#fff;color:#0d1424;
+  font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.sheet{max-width:820px;margin:0 auto;padding:56px 56px 60px}
+.row{display:flex;justify-content:space-between;gap:30px}
+.brand b{font-size:26px;font-weight:800;letter-spacing:-.02em}
+.rt{text-align:right;font-size:13px;color:#3b4557}
+.rt .k{color:#697586;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em}
+hr{border:0;border-top:1px solid #e6e9ef;margin:20px 0 24px}
+.lbl{font-size:11.5px;color:#697586;text-transform:uppercase;letter-spacing:.05em;font-weight:700;margin-bottom:5px}
+.amtdue{font-size:23px;font-weight:800;letter-spacing:-.02em;margin:26px 0 18px}
+table{width:100%;border-collapse:collapse;margin-top:4px}
+th{font-size:12.5px;color:#0d1424;text-align:right;font-weight:700;border-bottom:1.4px solid #0d1424;padding:0 0 8px}
+th.l,td.l{text-align:left}
+td{font-size:13.5px;padding:12px 0;border-bottom:1px solid #e6e9ef;vertical-align:top}
+.num{font-variant-numeric:tabular-nums}
+.totals{margin-top:8px;margin-left:auto;width:300px}
+.totals .tr{display:flex;justify-content:space-between;padding:6px 0;font-size:13.5px;color:#3b4557}
+.totals .tr.big{border-top:1.4px solid #0d1424;margin-top:6px;padding-top:12px;font-weight:800;color:#0d1424;font-size:16px}
+.pay{margin-top:40px}
+.pay h4{margin:0 0 12px;font-size:13px;letter-spacing:.02em}
+.pay .grid{display:grid;grid-template-columns:220px 1fr;row-gap:7px;column-gap:14px;font-size:13px}
+.pay .grid .k{color:#697586}
+.pay .grid .v{color:#0d1424;font-weight:600}
+.foot{margin-top:44px;padding-top:16px;border-top:1px solid #e6e9ef;color:#697586;font-size:12px}
+@media print{.sheet{padding:26px 30px}@page{margin:14mm}}
+"""
+
+
 def render_invoice(inv, company=None, provider=None):
-    provider = provider or BRAND
+    """Client-facing invoice page: clean, pure white, Email Frost issuer and the
+    ACH/Wire payment details. Same layout as the downloadable PDF."""
+    from .pdf import INVOICE_ISSUER, INVOICE_PAYMENT_TITLE, _fmt_date, _payment_details
+    cur = esc(inv.currency or "USD")
+
+    def money(n):
+        return f"{float(n or 0):,.2f}"
+
     rows = ""
     for li in (inv.line_items or []):
-        desc = esc(li.get("description", ""))
         qty = li.get("quantity", 1) or 0
         rate = li.get("rate", 0) or 0
-        amt = li.get("amount", qty * rate) or 0
-        rows += (f'<tr><td>{desc}</td><td class="n">{qty:g}</td>'
-                 f'<td class="n">{inv.currency} {rate:,.2f}</td>'
-                 f'<td class="n">{inv.currency} {amt:,.2f}</td></tr>')
-    cur = esc(inv.currency)
-    tot = (
-        f'<div class="tot">'
-        f'<div class="row"><span>Subtotal</span><span>{cur} {inv.subtotal:,.2f}</span></div>'
-        + (f'<div class="row"><span>Discount</span><span>-{cur} {inv.discount_amount:,.2f}</span></div>' if inv.discount_amount else "")
-        + (f'<div class="row"><span>Tax ({inv.tax_rate:g}%)</span><span>{cur} {inv.tax_amount:,.2f}</span></div>' if inv.tax_amount else "")
-        + f'<div class="row grand"><span>Total</span><span>{cur} {inv.total:,.2f}</span></div>'
-        + (f'<div class="row"><span>Paid</span><span>{cur} {inv.amount_paid:,.2f}</span></div>' if inv.amount_paid else "")
-        + f'<div class="row"><span>Balance due</span><span>{cur} {inv.balance_due:,.2f}</span></div>'
-        + '</div>')
-    pay = (f'<section><h2>Payment instructions</h2>{_body_html(inv.payment_instructions)}</section>'
-           if inv.payment_instructions else "")
-    notes = (f'<section><h2>Notes</h2>{_body_html(inv.notes)}</section>' if inv.notes else "")
+        amt = li.get("amount", (qty or 0) * (rate or 0)) or 0
+        rows += (f'<tr><td class="l">{esc(li.get("description", ""))}</td>'
+                 f'<td class="num">{qty:g}</td>'
+                 f'<td class="num">{money(rate)} {cur}</td>'
+                 f'<td class="num">{money(amt)} {cur}</td></tr>')
+    client = esc(inv.bill_to_company or inv.bill_to_name or (company.name if company else ""))
+    billed_extra = ""
+    if inv.bill_to_company and inv.bill_to_name:
+        billed_extra += f"<br>{esc(inv.bill_to_name)}"
+    if inv.bill_to_address:
+        billed_extra += "<br>" + esc(str(inv.bill_to_address)).replace("\n", "<br>")
+    if inv.bill_to_email:
+        billed_extra += f"<br>{esc(inv.bill_to_email)}"
+    issued_by = esc(INVOICE_ISSUER).replace("\n", "<br>")
+    disc = (f'<div class="tr"><span>Discount</span><span class="num">-{money(inv.discount_amount)} {cur}</span></div>'
+            if inv.discount_amount else "")
+    pay_rows = "".join(f'<div class="k">{esc(k)}</div><div class="v">{esc(v)}</div>' for k, v in _payment_details())
+    notes = (f'<div class="pay"><h4>Notes</h4>{_body_html(inv.notes)}</div>' if inv.notes else "")
+
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex"><title>Invoice {esc(inv.number)}</title><style>{_CSS}</style></head>
-<body><div class="wrap">
- <div class="brand">{esc(provider)} · Invoice</div>
- <h1>Invoice {esc(inv.number)}</h1>
- <div class="meta">Issued {esc(inv.issue_date or "—")} · Due {esc(inv.due_date or "—")} ·
-   <span class="pill">{esc(inv.status)}</span></div>
- <section><h2>Bill to</h2>
-   <p>{esc(inv.bill_to_company or (company.name if company else ""))}<br>
-   {esc(inv.bill_to_name)}<br>{esc(inv.bill_to_email)}<br>{_body_html(inv.bill_to_address)}</p></section>
- <section><h2>Details</h2>
-   <table class="inv"><thead><tr><th>Description</th><th class="n">Qty</th><th class="n">Rate</th><th class="n">Amount</th></tr></thead>
-   <tbody>{rows or '<tr><td colspan="4" style="color:#5b6472">No line items.</td></tr>'}</tbody></table>
-   {tot}</section>
- {pay}{notes}
- <div class="foot">Confidential — {esc(provider)}.</div>
+<meta name="robots" content="noindex"><title>Invoice {esc(inv.number)}</title><style>{_INVOICE_CSS}</style></head>
+<body><div class="sheet">
+  <div class="row">
+    <div class="brand"><b>Invoice</b></div>
+    <div class="rt">
+      <div class="k">Invoice number</div><div>{esc(inv.number)}</div>
+      <div class="k" style="margin-top:10px">Issue date</div><div>{esc(_fmt_date(inv.issue_date))}</div>
+    </div>
+  </div>
+  <hr>
+  <div class="row">
+    <div style="max-width:46%"><div class="lbl">Billed to</div><div>{client}{billed_extra}</div></div>
+    <div style="max-width:46%"><div class="lbl">Issued by</div><div>{issued_by}</div></div>
+  </div>
+  <div class="amtdue"><span class="num">{money(inv.total)} {cur}</span> due by {esc(_fmt_date(inv.due_date))}</div>
+  <table>
+    <thead><tr><th class="l">Product or service</th><th>Quantity</th><th>Unit price</th><th>Total</th></tr></thead>
+    <tbody>{rows or '<tr><td class="l" colspan="4" style="color:#697586">No line items.</td></tr>'}</tbody>
+  </table>
+  <div class="totals">
+    <div class="tr"><span>Total excluding tax</span><span class="num">{money(inv.subtotal)} {cur}</span></div>
+    {disc}
+    <div class="tr"><span>Total tax</span><span class="num">{money(inv.tax_amount)} {cur}</span></div>
+    <div class="tr big"><span>Amount Due</span><span class="num">{money(inv.total)} {cur}</span></div>
+  </div>
+  <div class="pay">
+    <h4>{esc(INVOICE_PAYMENT_TITLE)}</h4>
+    <div class="grid">{pay_rows}</div>
+  </div>
+  {notes}
+  <div class="foot">Email Frost LTD. Please include the invoice number {esc(inv.number)} as your payment reference.</div>
 </div></body></html>"""
