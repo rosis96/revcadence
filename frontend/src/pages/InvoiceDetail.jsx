@@ -41,6 +41,7 @@ export default function InvoiceDetail() {
   const editable = inv?.status === "draft";
   const [saveState] = useAutoSave(
     inv && editable ? {
+      number: inv.number,
       bill_to_company: inv.bill_to_company, bill_to_name: inv.bill_to_name, bill_to_email: inv.bill_to_email,
       currency: inv.currency, issue_date: inv.issue_date, due_date: inv.due_date,
       line_items: inv.line_items, tax_rate: inv.tax_rate, discount_amount: inv.discount_amount,
@@ -65,8 +66,12 @@ export default function InvoiceDetail() {
     catch (e) { toast(e.message, "bad"); }
     setBusy("");
   };
+  // Keep raw values while typing (so a field can be briefly empty); an empty
+  // quantity bills as 1 and an empty rate as 0 for the amount math.
   const setItem = (i, k, v) =>
-    setInv({ ...inv, line_items: items.map((li, j) => (j === i ? { ...li, [k]: k === "description" ? v : Number(v) } : li)) });
+    setInv({ ...inv, line_items: items.map((li, j) => (j === i ? { ...li, [k]: v } : li)) });
+  const num = (v, d) => (v === "" || v == null || isNaN(Number(v)) ? d : Number(v));
+  const lineAmt = (li) => num(li.quantity, 1) * num(li.rate, 0);
   const emailInvoice = () => {
     const subject = encodeURIComponent(`Invoice ${inv.number}${inv.bill_to_company ? ` — ${inv.bill_to_company}` : ""}`);
     const body = encodeURIComponent(`Hi ${inv.bill_to_name || ""},\n\nPlease find invoice ${inv.number} here:\n${url}\n\nTotal: ${fmt(inv.total)}${inv.due_date ? `\nDue: ${inv.due_date}` : ""}\n\nThank you!`);
@@ -78,7 +83,14 @@ export default function InvoiceDetail() {
       <Breadcrumbs items={[{ label: "Invoices", href: "/invoices" }, { label: inv.number }]} />
       <div className="page-head">
         <div style={{ flex: 1, minWidth: 0 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 650 }}>Invoice {inv.number}</h1>
+          <h1 style={{ fontSize: 22, fontWeight: 650, display: "flex", alignItems: "center", gap: 10 }}>
+            Invoice
+            {editable
+              ? <input value={inv.number || ""} onChange={(e) => setInv({ ...inv, number: e.target.value })}
+                  aria-label="Invoice number"
+                  style={{ fontSize: 20, fontWeight: 650, border: "1px solid var(--line-2, #d5d9e2)", borderRadius: 8, padding: "3px 10px", width: 190 }} />
+              : <span>{inv.number}</span>}
+          </h1>
           <p style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <StatusPill tone={TONE[inv.status] || "gray"}>{inv.status.replaceAll("_", " ")}</StatusPill>
             {inv.agreement_id && <a href={`#/agreements/${inv.agreement_id}`} style={{ fontSize: 12.5 }}>Agreement →</a>}
@@ -101,17 +113,18 @@ export default function InvoiceDetail() {
 
       <div className="doc-split">
         <div style={{ display: "grid", gap: 12 }}>
-          <div className="card" style={{ padding: 16 }}>
-            <h3 style={{ fontSize: 13, margin: "0 0 10px" }}>Bill to</h3>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div className="card" style={{ padding: 22 }}>
+            <h3 style={{ fontSize: 12.5, textTransform: "uppercase", letterSpacing: ".05em", color: "var(--muted)", margin: "0 0 14px" }}>Bill to</h3>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
               <div className="field"><label>Company</label>
-                <input disabled={!editable} value={inv.bill_to_company || ""} onChange={(e) => setInv({ ...inv, bill_to_company: e.target.value })} /></div>
-              <div className="field"><label>Name</label>
+                <input disabled={!editable} value={inv.bill_to_company || ""} placeholder="Client or company" onChange={(e) => setInv({ ...inv, bill_to_company: e.target.value })} /></div>
+              <div className="field"><label>Name (optional)</label>
                 <input disabled={!editable} value={inv.bill_to_name || ""} onChange={(e) => setInv({ ...inv, bill_to_name: e.target.value })} /></div>
               <div className="field"><label>Email</label>
                 <input disabled={!editable} value={inv.bill_to_email || ""} onChange={(e) => setInv({ ...inv, bill_to_email: e.target.value })} /></div>
               <div className="field"><label>Currency</label>
-                <input disabled={!editable} value={inv.currency} onChange={(e) => setInv({ ...inv, currency: e.target.value })} /></div>
+                <select disabled={!editable} value={inv.currency || "USD"} onChange={(e) => setInv({ ...inv, currency: e.target.value })}>
+                  <option>USD</option><option>GBP</option><option>EUR</option></select></div>
               <div className="field"><label>Issue date</label>
                 <input type="date" disabled={!editable} value={inv.issue_date || ""} onChange={(e) => setInv({ ...inv, issue_date: e.target.value })} /></div>
               <div className="field"><label>Due date</label>
@@ -119,32 +132,41 @@ export default function InvoiceDetail() {
             </div>
           </div>
 
-          <div className="card" style={{ padding: 16 }}>
-            <h3 style={{ fontSize: 13, margin: "0 0 10px" }}>Line items</h3>
-            <table className="dt">
-              <thead><tr><th>Description</th><th style={{ width: 70 }}>Qty</th><th style={{ width: 110 }}>Rate</th><th style={{ width: 120, textAlign: "right" }}>Amount</th><th style={{ width: 40 }} /></tr></thead>
+          <div className="card" style={{ padding: 22 }}>
+            <h3 style={{ fontSize: 12.5, textTransform: "uppercase", letterSpacing: ".05em", color: "var(--muted)", margin: "0 0 14px" }}>Line items</h3>
+            <table className="dt" style={{ tableLayout: "fixed", width: "100%" }}>
+              <thead><tr>
+                <th>Description</th>
+                <th style={{ width: 92, textAlign: "center" }}>Qty</th>
+                <th style={{ width: 130, textAlign: "right" }}>Unit price</th>
+                <th style={{ width: 140, textAlign: "right" }}>Amount</th>
+                <th style={{ width: 38 }} />
+              </tr></thead>
               <tbody>
                 {items.map((li, i) => (
                   <tr key={i}>
-                    <td><input disabled={!editable} value={li.description || ""} style={{ width: "100%" }}
+                    <td><input disabled={!editable} value={li.description || ""} style={{ width: "100%" }} placeholder="Service or product"
                       onChange={(e) => setItem(i, "description", e.target.value)} /></td>
-                    <td><input type="number" disabled={!editable} value={li.quantity ?? 1} style={{ width: "100%" }}
-                      onChange={(e) => setItem(i, "quantity", e.target.value)} /></td>
-                    <td><input type="number" disabled={!editable} value={li.rate ?? 0} style={{ width: "100%" }}
+                    <td><input type="number" min="0" step="1" disabled={!editable} value={li.quantity ?? 1}
+                      style={{ width: "100%", textAlign: "center" }}
+                      onChange={(e) => setItem(i, "quantity", e.target.value)}
+                      onBlur={(e) => { if (e.target.value === "") setItem(i, "quantity", 1); }} /></td>
+                    <td><input type="number" min="0" step="0.01" disabled={!editable} value={li.rate ?? 0}
+                      style={{ width: "100%", textAlign: "right" }}
                       onChange={(e) => setItem(i, "rate", e.target.value)} /></td>
-                    <td style={{ textAlign: "right", fontWeight: 600 }}>{fmt((li.quantity || 0) * (li.rate || 0))}</td>
-                    <td>{editable && <Button size="sm" variant="ghost" icon={X} onClick={() =>
+                    <td style={{ textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{fmt(lineAmt(li))}</td>
+                    <td style={{ textAlign: "center" }}>{editable && <Button size="sm" variant="ghost" icon={X} onClick={() =>
                       setInv({ ...inv, line_items: items.filter((_, j) => j !== i) })} />}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            {editable && <Button size="sm" variant="secondary" icon={Plus} style={{ marginTop: 10 }}
+            {editable && <Button size="sm" variant="secondary" icon={Plus} style={{ marginTop: 12 }}
               onClick={() => setInv({ ...inv, line_items: [...items, { description: "", quantity: 1, rate: 0 }] })}>Add line</Button>}
           </div>
 
-          <div className="card" style={{ padding: 16 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div className="card" style={{ padding: 22 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
               <div className="field"><label>Tax rate (%)</label>
                 <input type="number" disabled={!editable} value={inv.tax_rate ?? 0} onChange={(e) => setInv({ ...inv, tax_rate: Number(e.target.value) })} /></div>
               <div className="field"><label>Discount ({cur})</label>

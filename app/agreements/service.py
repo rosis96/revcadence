@@ -347,10 +347,27 @@ def _closed_won_automation(db, ag, actor_user_id=None):
 def recompute_invoice(inv):
     subtotal = 0.0
     for li in (inv.line_items or []):
-        qty = float(li.get("quantity", 1) or 0)
-        rate = float(li.get("rate", 0) or 0)
-        amt = li.get("amount")
-        amt = float(amt) if amt is not None else qty * rate
+        # An empty/blank/invalid quantity bills as 1 (a line with a rate is one
+        # unit unless someone explicitly types 0), so totals never come out 0.
+        qraw = li.get("quantity", 1)
+        try:
+            qty = 1.0 if qraw in (None, "") else float(qraw)
+        except (TypeError, ValueError):
+            qty = 1.0
+        try:
+            rate = float(li.get("rate", 0) or 0)
+        except (TypeError, ValueError):
+            rate = 0.0
+        # Recompute from qty*rate; only fall back to a stored amount when there is
+        # no rate to compute from (e.g. a flat fee line carried from an agreement).
+        amt_stored = li.get("amount")
+        if rate == 0 and amt_stored not in (None, ""):
+            try:
+                amt = float(amt_stored)
+            except (TypeError, ValueError):
+                amt = 0.0
+        else:
+            amt = qty * rate
         li["amount"] = round(amt, 2)
         subtotal += amt
     inv.subtotal = round(subtotal, 2)

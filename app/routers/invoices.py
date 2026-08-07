@@ -77,6 +77,7 @@ def get_invoice(invoice_id: int, ctx: AuthContext = Depends(get_ctx)):
 
 
 class InvoiceEdit(BaseModel):
+    number: str | None = None
     line_items: list | None = None
     bill_to_name: str | None = None
     bill_to_company: str | None = None
