@@ -53,6 +53,25 @@ def _payment_details() -> list:
     ]
 
 
+def _guidelines() -> list:
+    """Short payment rules shown beside the bank details. Env-overridable
+    (INVOICE_GUIDELINES as a JSON array of short strings)."""
+    raw = os.getenv("INVOICE_GUIDELINES")
+    if raw:
+        try:
+            import json as _j
+            return [str(x) for x in _j.loads(raw)]
+        except Exception:
+            pass
+    return [
+        "Business accounts only. Payments from a personal account will be declined.",
+        "The beneficiary name must match Email Frost LTD (or Rosis Sitoula).",
+        "Local: USD inside the US via ACH or FEDWIRE, usually 1 to 3 business days.",
+        "International and non-USD transfers are not supported and will be declined.",
+        "Paying in a non-USD currency? Contact the sender of this invoice first.",
+    ]
+
+
 def _fmt_date(iso) -> str:
     """ISO date string -> 'July 8, 2026'. Leaves anything else as-is."""
     from datetime import datetime as _dt
@@ -232,7 +251,7 @@ def build_invoice_pdf(inv, company=None) -> bytes:
     header.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
                                 ("LEFTPADDING", (0, 0), (-1, -1), 0),
                                 ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
-    story = [header, Spacer(1, 20), HRFlowable(width="100%", thickness=0.6, color=LINE), Spacer(1, 22)]
+    story = [header, Spacer(1, 15), HRFlowable(width="100%", thickness=0.6, color=LINE), Spacer(1, 18)]
 
     # billed to | issued by
     client = inv.bill_to_company or inv.bill_to_name or (company.name if company else "")
@@ -252,11 +271,11 @@ def build_invoice_pdf(inv, company=None) -> bytes:
     parties.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
                                  ("LEFTPADDING", (0, 0), (-1, -1), 0),
                                  ("RIGHTPADDING", (0, 0), (0, 0), 14)]))
-    story += [parties, Spacer(1, 30)]
+    story += [parties, Spacer(1, 20)]
 
     # amount due by (aligned to the left margin, large)
     story += [Paragraph(f"{money(inv.total)} {_e(cur)} due by {_fmt_date(inv.due_date)}", big),
-              Spacer(1, 18)]
+              Spacer(1, 12)]
 
     # line items (with a Tax column, matching the reference)
     right_p = ParagraphStyle("INVCellR", parent=body, alignment=TA_RIGHT, fontSize=9.5)
@@ -278,7 +297,7 @@ def build_invoice_pdf(inv, company=None) -> bytes:
         ("LINEBELOW", (0, 0), (-1, 0), 1.0, INK),
         ("LINEBELOW", (0, 1), (-1, -1), 0.4, LINE),
         ("TOPPADDING", (0, 0), (-1, 0), 0), ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
-        ("TOPPADDING", (0, 1), (-1, -1), 12), ("BOTTOMPADDING", (0, 1), (-1, -1), 12),
+        ("TOPPADDING", (0, 1), (-1, -1), 9), ("BOTTOMPADDING", (0, 1), (-1, -1), 9),
     ]))
     story.append(t)
 
@@ -298,18 +317,35 @@ def build_invoice_pdf(inv, company=None) -> bytes:
         ("LINEABOVE", (0, -1), (-1, -1), 1.0, INK),
         ("TOPPADDING", (0, -1), (-1, -1), 12), ("BOTTOMPADDING", (0, -1), (-1, -1), 4),
     ]))
-    story += [tt, Spacer(1, 46)]
+    story += [tt, Spacer(1, 26)]
 
-    # payment details: clean label/value column, no row lines (matches reference)
-    story.append(Paragraph(_e(INVOICE_PAYMENT_TITLE), payh))
-    pd = [[Paragraph(_e(k), pkey), Paragraph(_e(v), pval)] for k, v in _payment_details()]
-    pt = Table(pd, colWidths=[2.3 * inch, 3.5 * inch], hAlign="LEFT")
-    pt.setStyle(TableStyle([
+    # Payment details (left) + Guidelines (right). Details are stacked label-above-
+    # value with tight spacing (no big gaps); guidelines sit in their own column so
+    # they never crowd the bank details.
+    pLabel = ParagraphStyle("INVPLabel", parent=body, fontName="Helvetica-Bold",
+                            fontSize=9.5, textColor=INK, leading=12, spaceAfter=0)
+    pValTight = ParagraphStyle("INVPValT", parent=body, fontSize=9.5, textColor=INK,
+                               leading=12, spaceAfter=7)
+    gHead = ParagraphStyle("INVGHead", parent=body, fontName="Helvetica-Bold",
+                           fontSize=10.5, textColor=INK, spaceAfter=8)
+    gItem = ParagraphStyle("INVGItem", parent=body, fontSize=8.6, textColor=MUTED,
+                           leading=12, spaceAfter=7, leftIndent=10, firstLineIndent=-10)
+
+    left = [Paragraph(_e(INVOICE_PAYMENT_TITLE), payh)]
+    for k, v in _payment_details():
+        left.append(Paragraph(_e(k), pLabel))
+        left.append(Paragraph(_e(v), pValTight))
+    right = [Paragraph("Guidelines", gHead)]
+    for g in _guidelines():
+        right.append(Paragraph("&bull;&nbsp;&nbsp;" + _e(g), gItem))
+
+    pay = Table([[left, right]], colWidths=[W * 0.54, W * 0.46])
+    pay.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (0, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-        ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING", (0, 0), (0, -1), 0), ("LEFTPADDING", (1, 0), (1, -1), 26),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
     ]))
-    story.append(pt)
+    story.append(pay)
 
     if inv.notes:
         story += [Spacer(1, 18)] + _body_flowables(inv.notes, ss)
