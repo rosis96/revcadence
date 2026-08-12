@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowLeft, Eye, EyeOff } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 import { useAuth } from "../auth";
 
 // The RevCadence wave mark (same as the sidebar logo).
@@ -19,6 +21,13 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const [forgot, setForgot] = useState(false);
   const [sent, setSent] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const emailRef = useRef(null);
+
+  // Ensure the email field is ready for typing whenever the sign-in screen opens.
+  useEffect(() => {
+    if (!sent) emailRef.current?.focus();
+  }, [forgot, sent]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -42,7 +51,12 @@ export default function Login() {
 
   return (
     <div className="login-wrap">
-      <div className="login-card">
+      <motion.div className="login-card" initial={{ opacity: 0, y: 20, scale: 0.985 }} animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.42, ease: [0.16, 1, 0.3, 1] }}>
+        {forgot && <motion.button type="button" className="login-back" onClick={() => { setForgot(false); setSent(false); setError(""); }}
+          whileHover={{ x: -2 }} whileTap={{ scale: 0.98 }}>
+          <ArrowLeft size={17} /> Back to sign in
+        </motion.button>}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 18 }}>
           <Wave />
           <h1 style={{ marginTop: 6 }}>Rev<span>Cadence</span></h1>
@@ -51,36 +65,41 @@ export default function Login() {
 
         {error && <div className="error-box" style={{ marginBottom: 12 }}>{error}</div>}
 
+        <AnimatePresence mode="wait">
         {!forgot ? (
-          <form onSubmit={submit}>
+          <motion.form key="sign-in" onSubmit={submit} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.22 }}>
             <label>Email</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus required />
+            <input ref={emailRef} type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus required />
             <label>Password</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-            <button className="btn" disabled={busy} style={{ width: "100%", marginTop: 4 }}>{busy ? "Signing in…" : "Sign in"}</button>
-            <div style={{ textAlign: "center", marginTop: 12 }}>
+            <div className="password-control">
+              <input type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} required />
+              <button type="button" className="password-toggle" onClick={() => setShowPassword((visible) => !visible)}
+                aria-label={showPassword ? "Hide password" : "Show password"} title={showPassword ? "Hide password" : "Show password"}>
+                {showPassword ? <EyeOff size={19} /> : <Eye size={19} />}
+              </button>
+            </div>
+            <div className="forgot-row">
               <button type="button" className="linkbtn" onClick={() => { setForgot(true); setError(""); }}>Forgot password?</button>
             </div>
-          </form>
+            <motion.button className="btn" disabled={busy} whileHover={{ y: -1 }} whileTap={{ scale: 0.99 }}>{busy ? "Signing in…" : "Sign in"}</motion.button>
+          </motion.form>
         ) : sent ? (
-          <div style={{ textAlign: "center" }}>
+          <motion.div key="reset-sent" style={{ textAlign: "center" }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.22 }}>
             <div style={{ fontSize: 34, color: "var(--ok,#12b76a)" }}>✓</div>
             <p style={{ margin: "8px 0" }}>If <b>{email}</b> has an account, a reset link has been created.
               Check your email, or ask your workspace owner to send it to you.</p>
-            <button className="btn" style={{ width: "100%" }} onClick={() => { setForgot(false); setSent(false); }}>Back to sign in</button>
-          </div>
+            <motion.button className="btn" style={{ width: "100%" }} onClick={() => { setForgot(false); setSent(false); }} whileHover={{ y: -1 }} whileTap={{ scale: 0.99 }}>Done</motion.button>
+          </motion.div>
         ) : (
-          <form onSubmit={doForgot}>
+          <motion.form key="forgot-password" onSubmit={doForgot} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.22 }}>
             <p style={{ fontSize: 13, color: "var(--muted)", marginTop: 0 }}>Enter your email and we'll create a secure reset link.</p>
             <label>Email</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus required />
-            <button className="btn" disabled={busy} style={{ width: "100%", marginTop: 4 }}>{busy ? "Sending…" : "Send reset link"}</button>
-            <div style={{ textAlign: "center", marginTop: 12 }}>
-              <button type="button" className="linkbtn" onClick={() => { setForgot(false); setError(""); }}>Back to sign in</button>
-            </div>
-          </form>
+            <input ref={emailRef} type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus required />
+            <motion.button className="btn" disabled={busy} whileHover={{ y: -1 }} whileTap={{ scale: 0.99 }}>{busy ? "Sending…" : "Send reset link"}</motion.button>
+          </motion.form>
         )}
-      </div>
+        </AnimatePresence>
+      </motion.div>
     </div>
   );
 }
