@@ -28,7 +28,7 @@ BRAND = "RevCadence"
 # Who the invoice is FROM, and how to pay it. Env-overridable so they can change
 # without a code deploy. INVOICE_PAYMENT_DETAILS is a JSON array of [label, value].
 INVOICE_ISSUER = os.getenv("INVOICE_ISSUER") or (
-    "Email Frost ltd\n85 Great Portland Street\nLondon\nW1W 7LT\nUnited Kingdom")
+    "RevCadence LLC\n30 N Gould St, Ste N\nSheridan, WY 82801\nUSA")
 INVOICE_PAYMENT_TITLE = os.getenv(
     "INVOICE_PAYMENT_TITLE",
     "PAYMENT DETAILS (US Domestic Bank Transfer via ACH / Wire)")
@@ -45,11 +45,11 @@ def _payment_details() -> list:
             pass
     return [
         ("Bank Name", "Citibank, N.A."),
-        ("Bank Address", "111 Wall Street, New York, NY 10043, USA"),
-        ("Routing Number (ACH & Wire)", "031100209"),
+        ("Routing Number", "031100209"),
         ("Account Number", "70581260000915865"),
         ("Account Type", "CHECKING"),
-        ("Beneficiary / Account Holder", "Email Frost LTD"),
+        ("Beneficiary / Account Holder Name", "Rosis Sitoula"),
+        ("Note", "RevCadence LLC payment processing profile"),
     ]
 
 
@@ -65,7 +65,7 @@ def _guidelines() -> list:
             pass
     return [
         "Business accounts only. Payments from a personal account will be declined.",
-        "The beneficiary name must match Email Frost LTD (or Rosis Sitoula).",
+        "The beneficiary name must match Rosis Sitoula.",
         "Local: USD inside the US via ACH or FEDWIRE, usually 1 to 3 business days.",
         "International and non-USD transfers are not supported and will be declined.",
         "Paying in a non-USD currency? Contact the sender of this invoice first.",
@@ -221,7 +221,7 @@ def build_invoice_pdf(inv, company=None) -> bytes:
     details. Payment details and issuer are env-overridable."""
     ss = _styles()
     buf = io.BytesIO()
-    doc = _doc(buf, f"Email Frost LTD  ·  {inv.number}")
+    doc = _doc(buf, f"RevCadence LLC  ·  {inv.number}")
     cur = inv.currency or "USD"
     W = doc.width
 

@@ -184,7 +184,7 @@ td{font-size:13.5px;padding:12px 0;border-bottom:1px solid #e6e9ef;vertical-alig
 
 
 def render_invoice(inv, company=None, provider=None):
-    """Client-facing invoice page: clean, pure white, Email Frost issuer and the
+    """Client-facing invoice page: clean, pure white, RevCadence issuer and the
     ACH/Wire payment details. Same layout as the downloadable PDF."""
     from .pdf import INVOICE_ISSUER, INVOICE_PAYMENT_TITLE, _fmt_date, _payment_details
     cur = esc(inv.currency or "USD")
@@ -247,5 +247,5 @@ def render_invoice(inv, company=None, provider=None):
     <div class="grid">{pay_rows}</div>
   </div>
   {notes}
-  <div class="foot">Email Frost LTD. Please include the invoice number {esc(inv.number)} as your payment reference.</div>
+  <div class="foot">RevCadence LLC. Please include the invoice number {esc(inv.number)} as your payment reference.</div>
 </div></body></html>"""
