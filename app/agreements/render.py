@@ -160,24 +160,39 @@ body{margin:0;background:#fff;color:#0d1424;
 .sheet{max-width:820px;margin:0 auto;padding:56px 56px 60px}
 .row{display:flex;justify-content:space-between;gap:30px}
 .brand b{font-size:26px;font-weight:800;letter-spacing:-.02em}
-.rt{text-align:right;font-size:13px;color:#3b4557}
-.rt .k{color:#697586;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em}
+.meta{display:grid;grid-template-columns:1fr 1fr;min-width:310px;background:#f6f8fa;
+  border:1px solid #d9e1e8;border-radius:8px;overflow:hidden}
+.meta-cell{padding:9px 12px;color:#0d1424;font-size:13px}
+.meta-cell+.meta-cell{border-left:1px solid #d9e1e8}
+.meta .k{color:#697586;font-size:11.5px;margin-bottom:3px}
 hr{border:0;border-top:1px solid #e6e9ef;margin:20px 0 24px}
 .lbl{font-size:11.5px;color:#697586;text-transform:uppercase;letter-spacing:.05em;font-weight:700;margin-bottom:5px}
+.parties{gap:14px}
+.party{flex:1;background:#f6f8fa;border:1px solid #d9e1e8;border-radius:8px;padding:14px 16px}
 .amtdue{font-size:23px;font-weight:800;letter-spacing:-.02em;margin:26px 0 18px}
-table{width:100%;border-collapse:collapse;margin-top:4px}
-th{font-size:12.5px;color:#0d1424;text-align:right;font-weight:700;border-bottom:1.4px solid #0d1424;padding:0 0 8px}
-th.l,td.l{text-align:left}
-td{font-size:13.5px;padding:12px 0;border-bottom:1px solid #e6e9ef;vertical-align:top}
+.invoice-table{width:100%;border-collapse:collapse;margin-top:4px;border:1px solid #d9e1e8}
+.invoice-table th{font-size:12.5px;color:#244a68;background:#edf3f7;text-align:right;
+  font-weight:700;border-bottom:1px solid #244a68;padding:10px 9px}
+.invoice-table th.l,.invoice-table td.l{text-align:left}
+.invoice-table th+th,.invoice-table td+td{border-left:1px solid #d9e1e8}
+.invoice-table td{font-size:13.5px;padding:12px 9px;border-bottom:1px solid #d9e1e8;
+  vertical-align:top;text-align:right}
+.invoice-table tbody tr:nth-child(even){background:#f9fafb}
 .num{font-variant-numeric:tabular-nums}
-.totals{margin-top:8px;margin-left:auto;width:300px}
-.totals .tr{display:flex;justify-content:space-between;padding:6px 0;font-size:13.5px;color:#3b4557}
-.totals .tr.big{border-top:1.4px solid #0d1424;margin-top:6px;padding-top:12px;font-weight:800;color:#0d1424;font-size:16px}
+.totals{margin-top:10px;margin-left:auto;width:320px;border:1px solid #d9e1e8;
+  border-radius:8px;overflow:hidden}
+.totals .tr{display:flex;justify-content:space-between;padding:8px 11px;font-size:13.5px;color:#3b4557}
+.totals .tr+.tr{border-top:1px solid #d9e1e8}
+.totals .tr.big{background:#edf3f7;border-top:1px solid #244a68;padding:11px;
+  font-weight:800;color:#244a68;font-size:16px}
 .pay{margin-top:40px}
 .pay h4{margin:0 0 12px;font-size:13px;letter-spacing:.02em}
-.pay .grid{display:grid;grid-template-columns:220px 1fr;row-gap:7px;column-gap:14px;font-size:13px}
-.pay .grid .k{color:#697586}
-.pay .grid .v{color:#0d1424;font-weight:600}
+.pay .grid{display:grid;grid-template-columns:220px 1fr;font-size:13px;
+  border:1px solid #d9e1e8;border-radius:8px;overflow:hidden}
+.pay .grid .k,.pay .grid .v{padding:9px 11px;border-bottom:1px solid #d9e1e8}
+.pay .grid .k{color:#697586;background:#f6f8fa}
+.pay .grid .v{color:#0d1424;font-weight:600;border-left:1px solid #d9e1e8}
+.pay .grid>*:nth-last-child(-n+2){border-bottom:0}
 .foot{margin-top:44px;padding-top:16px;border-top:1px solid #e6e9ef;color:#697586;font-size:12px}
 @media print{.sheet{padding:26px 30px}@page{margin:14mm}}
 """
@@ -186,7 +201,8 @@ td{font-size:13.5px;padding:12px 0;border-bottom:1px solid #e6e9ef;vertical-alig
 def render_invoice(inv, company=None, provider=None):
     """Client-facing invoice page: clean, pure white, RevCadence issuer and the
     ACH/Wire payment details. Same layout as the downloadable PDF."""
-    from .pdf import INVOICE_ISSUER, INVOICE_PAYMENT_TITLE, _fmt_date, _payment_details
+    from .pdf import (INVOICE_ISSUER, INVOICE_PAYMENT_TITLE, _address_lines,
+                      _fmt_date, _payment_details)
     cur = esc(inv.currency or "USD")
 
     def money(n):
@@ -205,11 +221,11 @@ def render_invoice(inv, company=None, provider=None):
     billed_extra = ""
     if inv.bill_to_company and inv.bill_to_name:
         billed_extra += f"<br>{esc(inv.bill_to_name)}"
-    if inv.bill_to_address:
-        billed_extra += "<br>" + esc(str(inv.bill_to_address)).replace("\n", "<br>")
+    for line in _address_lines(inv.bill_to_address):
+        billed_extra += "<br>" + esc(line)
     if inv.bill_to_email:
         billed_extra += f"<br>{esc(inv.bill_to_email)}"
-    issued_by = esc(INVOICE_ISSUER).replace("\n", "<br>")
+    issued_by = "<br>".join(esc(line) for line in _address_lines(INVOICE_ISSUER))
     disc = (f'<div class="tr"><span>Discount</span><span class="num">-{money(inv.discount_amount)} {cur}</span></div>'
             if inv.discount_amount else "")
     pay_rows = "".join(f'<div class="k">{esc(k)}</div><div class="v">{esc(v)}</div>' for k, v in _payment_details())
@@ -221,18 +237,18 @@ def render_invoice(inv, company=None, provider=None):
 <body><div class="sheet">
   <div class="row">
     <div class="brand"><b>Invoice</b></div>
-    <div class="rt">
-      <div class="k">Invoice number</div><div>{esc(inv.number)}</div>
-      <div class="k" style="margin-top:10px">Issue date</div><div>{esc(_fmt_date(inv.issue_date))}</div>
+    <div class="meta">
+      <div class="meta-cell"><div class="k">Invoice number</div><div>{esc(inv.number)}</div></div>
+      <div class="meta-cell"><div class="k">Issue date</div><div>{esc(_fmt_date(inv.issue_date))}</div></div>
     </div>
   </div>
   <hr>
-  <div class="row">
-    <div style="max-width:46%"><div class="lbl">Billed to</div><div>{client}{billed_extra}</div></div>
-    <div style="max-width:46%"><div class="lbl">Issued by</div><div>{issued_by}</div></div>
+  <div class="row parties">
+    <div class="party"><div class="lbl">Billed to</div><div>{client}{billed_extra}</div></div>
+    <div class="party"><div class="lbl">Issued by</div><div>{issued_by}</div></div>
   </div>
   <div class="amtdue"><span class="num">{money(inv.total)} {cur}</span> due by {esc(_fmt_date(inv.due_date))}</div>
-  <table>
+  <table class="invoice-table">
     <thead><tr><th class="l">Product or service</th><th>Quantity</th><th>Unit price</th><th>Total</th></tr></thead>
     <tbody>{rows or '<tr><td class="l" colspan="4" style="color:#697586">No line items.</td></tr>'}</tbody>
   </table>
@@ -240,7 +256,7 @@ def render_invoice(inv, company=None, provider=None):
     <div class="tr"><span>Total excluding tax</span><span class="num">{money(inv.subtotal)} {cur}</span></div>
     {disc}
     <div class="tr"><span>Total tax</span><span class="num">{money(inv.tax_amount)} {cur}</span></div>
-    <div class="tr big"><span>Amount Due</span><span class="num">{money(inv.total)} {cur}</span></div>
+    <div class="tr big"><span>Invoice Total</span><span class="num">{money(inv.total)} {cur}</span></div>
   </div>
   <div class="pay">
     <h4>{esc(INVOICE_PAYMENT_TITLE)}</h4>
