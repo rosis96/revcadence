@@ -160,39 +160,33 @@ body{margin:0;background:#fff;color:#0d1424;
 .sheet{max-width:820px;margin:0 auto;padding:56px 56px 60px}
 .row{display:flex;justify-content:space-between;gap:30px}
 .brand b{font-size:26px;font-weight:800;letter-spacing:-.02em}
-.meta{display:grid;grid-template-columns:1fr 1fr;min-width:310px;background:#f6f8fa;
-  border:1px solid #d9e1e8;border-radius:8px;overflow:hidden}
-.meta-cell{padding:9px 12px;color:#0d1424;font-size:13px}
-.meta-cell+.meta-cell{border-left:1px solid #d9e1e8}
+.meta{display:flex;flex-direction:column;gap:9px;min-width:190px;text-align:right}
+.meta-cell{color:#0d1424;font-size:13px}
 .meta .k{color:#697586;font-size:11.5px;margin-bottom:3px}
 hr{border:0;border-top:1px solid #e6e9ef;margin:20px 0 24px}
 .lbl{font-size:11.5px;color:#697586;text-transform:uppercase;letter-spacing:.05em;font-weight:700;margin-bottom:5px}
-.parties{gap:14px}
-.party{flex:1;background:#f6f8fa;border:1px solid #d9e1e8;border-radius:8px;padding:14px 16px}
-.amtdue{font-size:23px;font-weight:800;letter-spacing:-.02em;margin:26px 0 18px}
-.invoice-table{width:100%;border-collapse:collapse;margin-top:4px;border:1px solid #d9e1e8}
-.invoice-table th{font-size:12.5px;color:#244a68;background:#edf3f7;text-align:right;
-  font-weight:700;border-bottom:1px solid #244a68;padding:10px 9px}
+.parties{gap:30px}
+.party{flex:1}
+.amtdue{font-size:22px;line-height:36px;font-weight:600;letter-spacing:-.015em;margin:26px 0 28px -8px}
+.invoice-table{width:100%;border-collapse:collapse;margin-top:4px}
+.invoice-table th{font-size:12.5px;color:#0d1424;text-align:right;font-weight:700;
+  border-bottom:1.4px solid #0d1424;padding:0 0 8px}
 .invoice-table th.l,.invoice-table td.l{text-align:left}
-.invoice-table th+th,.invoice-table td+td{border-left:1px solid #d9e1e8}
-.invoice-table td{font-size:13.5px;padding:12px 9px;border-bottom:1px solid #d9e1e8;
+.invoice-table td{font-size:13.5px;padding:12px 0;border-bottom:1px solid #e6e9ef;
   vertical-align:top;text-align:right}
-.invoice-table tbody tr:nth-child(even){background:#f9fafb}
 .num{font-variant-numeric:tabular-nums}
-.totals{margin-top:10px;margin-left:auto;width:320px;border:1px solid #d9e1e8;
-  border-radius:8px;overflow:hidden}
-.totals .tr{display:flex;justify-content:space-between;padding:8px 11px;font-size:13.5px;color:#3b4557}
-.totals .tr+.tr{border-top:1px solid #d9e1e8}
-.totals .tr.big{background:#edf3f7;border-top:1px solid #244a68;padding:11px;
-  font-weight:800;color:#244a68;font-size:16px}
+.totals{margin-top:8px;margin-left:auto;width:320px}
+.totals .tr{display:flex;justify-content:space-between;padding:6px 0;font-size:13.5px;color:#3b4557}
+.totals .tr.big{border-top:1.4px solid #0d1424;margin-top:6px;padding-top:12px;
+  font-weight:800;color:#0d1424;font-size:16px}
 .pay{margin-top:40px}
 .pay h4{margin:0 0 12px;font-size:13px;letter-spacing:.02em}
-.pay .grid{display:grid;grid-template-columns:220px 1fr;font-size:13px;
-  border:1px solid #d9e1e8;border-radius:8px;overflow:hidden}
-.pay .grid .k,.pay .grid .v{padding:9px 11px;border-bottom:1px solid #d9e1e8}
-.pay .grid .k{color:#697586;background:#f6f8fa}
-.pay .grid .v{color:#0d1424;font-weight:600;border-left:1px solid #d9e1e8}
-.pay .grid>*:nth-last-child(-n+2){border-bottom:0}
+.pay-cols{display:grid;grid-template-columns:1.15fr .85fr;gap:38px;align-items:start}
+.payment-row{margin-bottom:9px;font-size:13px;line-height:1.35}
+.payment-row .k{color:#0d1424;font-weight:700}
+.payment-row .v{color:#0d1424}
+.guidelines ul{margin:0;padding-left:17px;color:#697586;font-size:12.5px;line-height:1.45}
+.guidelines li{margin-bottom:8px;padding-left:3px}
 .foot{margin-top:44px;padding-top:16px;border-top:1px solid #e6e9ef;color:#697586;font-size:12px}
 @media print{.sheet{padding:26px 30px}@page{margin:14mm}}
 """
@@ -202,7 +196,7 @@ def render_invoice(inv, company=None, provider=None):
     """Client-facing invoice page: clean, pure white, RevCadence issuer and the
     ACH/Wire payment details. Same layout as the downloadable PDF."""
     from .pdf import (INVOICE_ISSUER, INVOICE_PAYMENT_TITLE, _address_lines,
-                      _fmt_date, _payment_details)
+                      _fmt_date, _guidelines, _payment_details)
     cur = esc(inv.currency or "USD")
 
     def money(n):
@@ -228,7 +222,10 @@ def render_invoice(inv, company=None, provider=None):
     issued_by = "<br>".join(esc(line) for line in _address_lines(INVOICE_ISSUER))
     disc = (f'<div class="tr"><span>Discount</span><span class="num">-{money(inv.discount_amount)} {cur}</span></div>'
             if inv.discount_amount else "")
-    pay_rows = "".join(f'<div class="k">{esc(k)}</div><div class="v">{esc(v)}</div>' for k, v in _payment_details())
+    pay_rows = "".join(
+        f'<div class="payment-row"><div class="k">{esc(k)}</div><div class="v">{esc(v)}</div></div>'
+        for k, v in _payment_details())
+    guideline_rows = "".join(f"<li>{esc(item)}</li>" for item in _guidelines())
     notes = (f'<div class="pay"><h4>Notes</h4>{_body_html(inv.notes)}</div>' if inv.notes else "")
 
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -259,8 +256,10 @@ def render_invoice(inv, company=None, provider=None):
     <div class="tr big"><span>Invoice Total</span><span class="num">{money(inv.total)} {cur}</span></div>
   </div>
   <div class="pay">
-    <h4>{esc(INVOICE_PAYMENT_TITLE)}</h4>
-    <div class="grid">{pay_rows}</div>
+    <div class="pay-cols">
+      <div><h4>{esc(INVOICE_PAYMENT_TITLE)}</h4>{pay_rows}</div>
+      <div class="guidelines"><h4>Guidelines</h4><ul>{guideline_rows}</ul></div>
+    </div>
   </div>
   {notes}
   <div class="foot">RevCadence LLC. Please include the invoice number {esc(inv.number)} as your payment reference.</div>
