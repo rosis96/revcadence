@@ -5,6 +5,7 @@ import { useAuth } from "../auth";
 import { Badge, Empty, ErrorBox, Spinner, fitTone, useApi } from "../components";
 import { NewCompanyModal } from "./Companies";
 import { alertDialog, confirmDialog } from "../components";
+import { Select } from "../components";
 
 const jobTone = { done: "green", failed: "red", running: "indigo", pending: "amber", cancelled: "" };
 
@@ -127,10 +128,10 @@ export default function Enrichment() {
         {me.is_master && (
           <>
             <label style={{ fontSize: 13, color: "var(--muted)" }}>Workspace:</label>
-            <select value={workspaceId} onChange={(e) => setWorkspaceId(e.target.value)}>
+            <Select value={workspaceId} onChange={(e) => setWorkspaceId(e.target.value)}>
               <option value="">All workspaces</option>
               {me.workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </select>
+            </Select>
           </>
         )}
         <div className="spacer" />

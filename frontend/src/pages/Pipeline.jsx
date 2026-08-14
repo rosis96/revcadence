@@ -8,6 +8,7 @@ import {
   Timeline, useApi,
 } from "../components";
 import { alertDialog } from "../components";
+import { Select } from "../components";
 
 function NewLeadModal({ onClose, onCreated, workspaceId, stages }) {
   const { data: companies } = useApi("/api/companies", { workspace_id: workspaceId });
@@ -57,10 +58,10 @@ function NewLeadModal({ onClose, onCreated, workspaceId, stages }) {
           <Seg v="new" cur={coMode} set={setCoMode}>New</Seg>
         </div>
         {coMode === "existing" ? (
-          <div className="field"><select value={form.company_id} onChange={(e) => setForm({ ...form, company_id: e.target.value, contact_id: "" })}>
+          <div className="field"><Select value={form.company_id} onChange={(e) => setForm({ ...form, company_id: e.target.value, contact_id: "" })}>
             <option value="">— none —</option>
             {(companies || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select></div>
+          </Select></div>
         ) : (
           <div className="field"><input value={form.company_name} placeholder="New company name"
                 onChange={(e) => setForm({ ...form, company_name: e.target.value })} /></div>
@@ -72,10 +73,10 @@ function NewLeadModal({ onClose, onCreated, workspaceId, stages }) {
           <Seg v="existing" cur={ctMode} set={setCtMode}>Existing</Seg>
         </div>
         {ctMode === "existing" ? (
-          <div className="field"><select value={form.contact_id} onChange={(e) => setForm({ ...form, contact_id: e.target.value })}>
+          <div className="field"><Select value={form.contact_id} onChange={(e) => setForm({ ...form, contact_id: e.target.value })}>
             <option value="">— none —</option>
             {contactOpts.map((c) => <option key={c.id} value={c.id}>{c.name || c.email}</option>)}
-          </select></div>
+          </Select></div>
         ) : (
           <>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -95,9 +96,9 @@ function NewLeadModal({ onClose, onCreated, workspaceId, stages }) {
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
           <div className="field"><label>Stage</label>
-            <select value={form.stage_id} onChange={(e) => setForm({ ...form, stage_id: e.target.value })}>
+            <Select value={form.stage_id} onChange={(e) => setForm({ ...form, stage_id: e.target.value })}>
               {(stages || []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select></div>
+            </Select></div>
           <div className="field"><label>Deal name</label>
             <input value={form.deal_name} placeholder="optional" onChange={(e) => setForm({ ...form, deal_name: e.target.value })} /></div>
           <div className="field"><label>Value ($)</label>
@@ -139,9 +140,9 @@ function DealDrawer({ dealId, onClose, onChanged }) {
             <div className="k">Value</div><div><b>{money(d.value)}</b></div>
             <div className="k">Stage</div>
             <div>
-              <select disabled={busy} value={d.stage?.id || ""} onChange={(e) => move(e.target.value)}>
+              <Select disabled={busy} value={d.stage?.id || ""} onChange={(e) => move(e.target.value)}>
                 {d.stages.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
+              </Select>
             </div>
             <div className="k">Company</div><div>{d.company ? <a href={`#/companies/${d.company.id}`}>{d.company.name}</a> : "—"}</div>
             <div className="k">Contact</div><div>{d.contact ? `${d.contact.name} · ${d.contact.email}` : "—"}</div>

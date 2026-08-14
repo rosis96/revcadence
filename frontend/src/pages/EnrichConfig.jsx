@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { api, getToken } from "../api";
 import { useAuth } from "../auth";
 import { ErrorBox, Spinner } from "../components";
+import { Select } from "../components";
 
 const PROFILE_FIELDS = [
   ["client_name", "Client name"],
@@ -169,8 +170,8 @@ export default function EnrichConfigPage({ tab }) {
 
       {tab === "profile" && (
         <>
-          <div className="card" style={{ padding: 18, marginBottom: 14, borderColor: "#bfdcf6",
-            background: "linear-gradient(180deg,#fff,#f4f9ff)" }}>
+          <div className="card" style={{ padding: 18, marginBottom: 14, borderColor: "rgba(96,165,250,.28)",
+            background: "linear-gradient(180deg, rgba(96,165,250,.10), var(--card) 65%)" }}>
             <h2 style={{ fontSize: 15, marginBottom: 4 }}>Build the client brain from their material</h2>
             <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 12 }}>
               Give the AI the client's website and/or paste their case studies & positioning. It reads
@@ -198,7 +199,7 @@ export default function EnrichConfigPage({ tab }) {
                   } catch (e) { alertDialog(e.message); setBrain((b) => ({ ...b, busy: false })); }
                 }}>
                 {brain.busy ? "Reading & building…" : "Build with AI"}</button>
-              {brain.done && <span style={{ fontSize: 12.5, color: "#15803d" }}>
+              {brain.done && <span style={{ fontSize: 12.5, color: "var(--ok-text)" }}>
                 ✓ crawled {brain.done.pages_crawled ?? "?"} pages{brain.done.js_rendered ? ` (${brain.done.js_rendered} JS-rendered)` : ""} ·
                 {" "}{brain.done.case_studies} case studies · {brain.done.services ?? 0} services · {brain.done.metrics ?? 0} metrics.
                 It <b>adds to and intelligently updates</b> what's already saved. Review below, then <b>Save profile</b>.</span>}
@@ -209,7 +210,7 @@ export default function EnrichConfigPage({ tab }) {
             const p = cfg.profile || {};
             const has = (p.case_studies?.length || p.problem_library?.length || p.services?.length || p.results_metrics?.length);
             if (!has) return null;
-            const Row = ({ children }) => <div style={{ fontSize: 12.5, color: "var(--muted)", padding: "4px 0", borderBottom: "1px solid #f2f5f9" }}>{children}</div>;
+            const Row = ({ children }) => <div style={{ fontSize: 12.5, color: "var(--muted)", padding: "4px 0", borderBottom: "1px solid var(--border)" }}>{children}</div>;
             return (
               <div className="card" style={{ padding: 18, marginBottom: 14 }}>
                 <h2 style={{ fontSize: 15, marginBottom: 8 }}>Captured knowledge</h2>
@@ -309,7 +310,7 @@ export default function EnrichConfigPage({ tab }) {
             </p>
             <div style={{
               display: "inline-block", fontSize: 12, fontWeight: 600, marginBottom: 10,
-              color: cfg.reoon_api_key_set ? "#15803d" : "#b91c1c",
+              color: cfg.reoon_api_key_set ? "var(--ok-text)" : "var(--bad-text)",
             }}>
               {cfg.reoon_api_key_set
                 ? `● Key active (${cfg.reoon_key_source === "env" ? "server env" : "workspace"})`
@@ -338,7 +339,7 @@ export default function EnrichConfigPage({ tab }) {
             <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
               <div className="field" style={{ margin: 0, minWidth: 190 }}>
                 <label>Reading level</label>
-                <select style={{ width: "100%" }} value={cfg.reading_level || "b2 business"}
+                <Select style={{ width: "100%" }} value={cfg.reading_level || "b2 business"}
                         onChange={(e) => setCfg({ ...cfg, reading_level: e.target.value })}>
                   <option value="professional">Polished professional (C1) — expert copywriter, recommended</option>
                   <option value="b2 business">Clear B2 business English — simpler</option>
@@ -349,19 +350,19 @@ export default function EnrichConfigPage({ tab }) {
                   <option value="8th grade">8th grade</option>
                   <option value="10th grade">10th grade</option>
                   <option value="plain professional">Plain professional</option>
-                </select>
+                </Select>
               </div>
               <div className="field" style={{ margin: 0, minWidth: 190 }}>
                 <label>Research depth</label>
-                <select style={{ width: "100%" }} value={cfg.research_depth || "standard"}
+                <Select style={{ width: "100%" }} value={cfg.research_depth || "standard"}
                         onChange={(e) => setCfg({ ...cfg, research_depth: e.target.value })}>
                   <option value="standard">Standard (faster, cheaper)</option>
                   <option value="deep">Deep (more pages + more content)</option>
-                </select>
+                </Select>
               </div>
               <div className="field" style={{ margin: 0, minWidth: 200 }}>
                 <label>Writer model</label>
-                <select style={{ width: "100%" }} value={cfg.writer_model || ""}
+                <Select style={{ width: "100%" }} value={cfg.writer_model || ""}
                         onChange={(e) => setCfg({ ...cfg, writer_model: e.target.value })}>
                   <option value="">Default ({cfg.writer_model_effective || "server default"})</option>
                   <option value="gpt-5-mini">gpt-5-mini — recommended cost/quality</option>
@@ -372,11 +373,11 @@ export default function EnrichConfigPage({ tab }) {
                   <option value="gpt-4o-mini">gpt-4o-mini — cost-effective</option>
                   <option value="gpt-4.1-mini">gpt-4.1-mini — legacy</option>
                   <option value="gpt-4.1">gpt-4.1 — legacy premium</option>
-                </select>
+                </Select>
                 <small style={{ color: "var(--muted)" }}>The default minimizes costly input tokens; upgrade only after comparing the same test leads.</small>
               </div>
             </div>
-            <div style={{ marginTop: 10, fontSize: 12, color: cfg.ai_enabled ? "var(--muted)" : "#b91c1c" }}>
+            <div style={{ marginTop: 10, fontSize: 12, color: cfg.ai_enabled ? "var(--muted)" : "var(--bad-text)" }}>
               {cfg.ai_enabled
                 ? `● AI on — writing with ${cfg.writer_model_effective}, ICP/extraction with ${cfg.icp_model_effective}.`
                 : "● AI is OFF (no OpenAI key) — generation will stop safely instead of producing generic copy. Set OPENAI_API_KEY."}
@@ -395,8 +396,8 @@ export default function EnrichConfigPage({ tab }) {
 
       {tab === "icp" && (
         <>
-          <div className="card" style={{ padding: 18, marginBottom: 14, borderColor: "#bfdcf6",
-            background: "linear-gradient(180deg,#fff,#f4f9ff)" }}>
+          <div className="card" style={{ padding: 18, marginBottom: 14, borderColor: "rgba(96,165,250,.28)",
+            background: "linear-gradient(180deg, rgba(96,165,250,.10), var(--card) 65%)" }}>
             <h2 style={{ fontSize: 15, marginBottom: 4 }}>Build the ICP with AI</h2>
             <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 12 }}>
               No JSON needed. Just click <b>Build ICP with AI</b> to use everything you've trained in the brain —
@@ -427,7 +428,7 @@ export default function EnrichConfigPage({ tab }) {
                     setIcpB((b) => ({ ...b, busy: false, done: r.counts }));
                   } catch (e) { alertDialog(e.message); setIcpB((b) => ({ ...b, busy: false })); }
                 }}>{icpB.busy ? "Reading & building…" : "Build ICP with AI"}</button>
-              {icpB.done && <span style={{ fontSize: 12.5, color: "#15803d" }}>
+              {icpB.done && <span style={{ fontSize: 12.5, color: "var(--ok-text)" }}>
                 ✓ {icpB.done.categories} fit categories · {icpB.done.rejects} auto-rejects. Review below, then <b>Save</b>.</span>}
             </div>
           </div>
@@ -452,8 +453,8 @@ export default function EnrichConfigPage({ tab }) {
 
       {tab === "formats" && (
         <>
-          <div className="card" style={{ padding: 18, marginBottom: 14, borderColor: "#bfdcf6",
-            background: "linear-gradient(180deg,#fff,#f4f9ff)" }}>
+          <div className="card" style={{ padding: 18, marginBottom: 14, borderColor: "rgba(96,165,250,.28)",
+            background: "linear-gradient(180deg, rgba(96,165,250,.10), var(--card) 65%)" }}>
             <h2 style={{ fontSize: 15, marginBottom: 4 }}>Build formats with AI</h2>
             <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 12 }}>
               No JSON needed. Explain how you want the variables written — in as much or as little detail as you
@@ -483,7 +484,7 @@ export default function EnrichConfigPage({ tab }) {
                          onChange={(e) => setFmtB({ ...fmtB, merge: !e.target.checked })} />
                   Rebuild all from scratch (replace)
                 </label>)}
-              {fmtB.done != null && <span style={{ fontSize: 12.5, color: "#15803d" }}>
+              {fmtB.done != null && <span style={{ fontSize: 12.5, color: "var(--ok-text)" }}>
                 ✓ {fmtB.done}. Review below, then <b>Save formats</b>.</span>}
             </div>
           </div>
@@ -514,7 +515,7 @@ export default function EnrichConfigPage({ tab }) {
               {/* collapsed header — click to expand this variable */}
               <div onClick={() => toggleVar(i)}
                    style={{ display: "flex", gap: 10, alignItems: "center", padding: "13px 16px", cursor: "pointer",
-                            background: open ? "var(--soft)" : "#fff" }}>
+                            background: open ? "var(--soft)" : "var(--card)" }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"
                      style={{ color: "var(--muted)", transform: open ? "" : "rotate(-90deg)", transition: "transform .15s", flexShrink: 0 }}>
                   <path d="M6 9l6 6 6-6" /></svg>

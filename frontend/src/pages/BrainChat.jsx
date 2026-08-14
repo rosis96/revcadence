@@ -145,21 +145,21 @@ export default function BrainChat() {
             <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "78%" }}>
               <div style={{
                 padding: "10px 13px", borderRadius: 12, fontSize: 13.5, lineHeight: 1.5, whiteSpace: "pre-wrap",
-                background: m.role === "user" ? "var(--primary)" : "#f2f5f9", color: m.role === "user" ? "#fff" : "#20303f",
+                background: m.role === "user" ? "var(--primary)" : "var(--card-2)", color: m.role === "user" ? "#fff" : "var(--text)",
               }}>{m.content}</div>
               {m.learned?.length ? (
-                <div style={{ fontSize: 11, color: "#15803d", marginTop: 3 }}>✓ brain updated: {m.learned.join(", ")}</div>
+                <div style={{ fontSize: 11, color: "var(--ok-text)", marginTop: 3 }}>✓ brain updated: {m.learned.join(", ")}</div>
               ) : null}
             </div>
           ))}
           {busy && <div style={{ alignSelf: "flex-start", fontSize: 12.5, color: "var(--muted)" }}>Thinking…</div>}
           <div ref={endRef} />
         </div>
-        <div style={{ borderTop: "1px solid #e6edf5", padding: 12, display: "flex", gap: 8, alignItems: "flex-end" }}>
+        <div style={{ borderTop: "1px solid var(--border)", padding: 12, display: "flex", gap: 8, alignItems: "flex-end" }}>
           <textarea ref={taRef} rows={1} value={input} onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
             placeholder="Ask about the client, draft outreach, or paste a new case study to save…"
-            style={{ flex: 1, resize: "none", padding: "10px 12px", borderRadius: 8, border: "1px solid #d9e2ec",
+            style={{ flex: 1, resize: "none", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)",
               fontSize: 13.5, lineHeight: 1.5, minHeight: 44, maxHeight: 320, overflowY: "auto", fontFamily: "inherit" }} />
           <button className="btn" disabled={busy || !input.trim()} onClick={send}
             style={{ display: "flex", alignItems: "center", gap: 6 }}><Send size={15} /> Send</button>

@@ -107,7 +107,7 @@ export default function AgreementDetail() {
       </div>
 
       {(a.missing_flags || []).length > 0 && editable && (
-        <div className="error-box" style={{ marginBottom: 14, background: "#FFFAEB", borderColor: "#FEDF89", color: "#B54708" }}>
+        <div className="error-box" style={{ marginBottom: 14, background: "var(--warn-soft)", borderColor: "rgba(251,191,36,.28)", color: "var(--warn-text)" }}>
           Missing before sending: {a.missing_flags.join(", ")}.
         </div>
       )}
@@ -195,7 +195,7 @@ export default function AgreementDetail() {
 
           <RowCard title="Audit history" empty="No events yet.">
             {acts.map((t) => (
-              <div key={t.id} style={{ fontSize: 12, padding: "5px 10px", borderTop: "1px solid #F2F3F5" }}>
+              <div key={t.id} style={{ fontSize: 12, padding: "5px 10px", borderTop: "1px solid var(--border)" }}>
                 {t.title}<div style={{ color: "var(--muted2)", fontSize: 11 }}>{timeAgo(t.occurred_at)}</div>
               </div>
             ))}

@@ -6,6 +6,7 @@ import { Copy, Link2, Plus } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { Badge, Empty, ErrorBox, Modal, PageHeader, Spinner, StatusBadge, useApi } from "../components";
+import { Select } from "../components";
 
 function DetailModal({ id, onClose }) {
   const { data: o, loading, error } = useApi(`/api/onboarding/${id}`);
@@ -93,9 +94,9 @@ export default function Onboarding() {
           {!newLink ? (
             <>
               <div className="field"><label>Client workspace</label>
-                <select value={ws} onChange={(e) => setWs(e.target.value)}>
+                <Select value={ws} onChange={(e) => setWs(e.target.value)}>
                   {me.workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-                </select></div>
+                </Select></div>
               <div className="actions">
                 <button className="btn ghost" onClick={() => setCreating(false)}>Cancel</button>
                 <button className="btn" onClick={create}>Create link</button>

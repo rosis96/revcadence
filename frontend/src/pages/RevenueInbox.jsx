@@ -7,6 +7,7 @@ import { Mail, X, ArrowRight, RefreshCw, Download, Inbox as InboxIcon, ChevronDo
 import { api, emailText, localDateTime, splitQuoted, timeAgo } from "../api";
 import { useAuth } from "../auth";
 import { Avatar, Badge, Button, Empty, ErrorBox, Modal, PageHeader, Spinner, useApi, useToast } from "../components";
+import { Select } from "../components";
 
 function ThreadMsg({ mm, name, last }) {
   const [open, setOpen] = useState(false);
@@ -163,10 +164,9 @@ export default function RevenueInbox() {
                 <Button icon={ArrowRight} onClick={() => nav(`/deals/${it.attached_deal.id}`)}>Open deal · {it.attached_deal.name}</Button>
               ) : it.deals.length > 0 ? (
                 <>
-                  <select value={pick[it.id] || it.deals[0].id} onChange={(e) => setPick({ ...pick, [it.id]: e.target.value })}
-                    style={{ padding: "7px 10px", borderRadius: 8, fontSize: 13 }}>
+                  <Select size="sm" value={pick[it.id] || it.deals[0].id} onChange={(e) => setPick({ ...pick, [it.id]: e.target.value })}>
                     {it.deals.map((dd) => <option key={dd.id} value={dd.id}>{dd.name || `Deal #${dd.id}`}</option>)}
-                  </select>
+                  </Select>
                   <Button icon={ArrowRight} loading={busy === it.id} onClick={() => attach(it)}>Attach to deal</Button>
                 </>
               ) : (
@@ -189,11 +189,11 @@ export default function RevenueInbox() {
             Conversations in <b>{browse.mailbox || "your mailbox"}</b>. Filter by a Gmail label or search, then import.
             Threads with a known lead are tagged — those are your pipeline contacts.</p>
           <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-            <select value={filterLabel} onChange={(e) => { setFilterLabel(e.target.value); fetchThreads(e.target.value, filterQ); }}
-              style={{ padding: "8px 10px", borderRadius: 8, fontSize: 13, minWidth: 150 }}>
+            <Select size="sm" value={filterLabel} onChange={(e) => { setFilterLabel(e.target.value); fetchThreads(e.target.value, filterQ); }}
+              style={{ minWidth: 150 }}>
               <option value="">All mail (last 90 days)</option>
               {labels.map((l) => <option key={l.id} value={l.name}>{l.name}</option>)}
-            </select>
+            </Select>
             <input value={filterQ} onChange={(e) => setFilterQ(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && fetchThreads(filterLabel, filterQ)}
               placeholder="Search sender, subject, text… (Enter)"
@@ -212,7 +212,7 @@ export default function RevenueInbox() {
                 <label key={k}
                   style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 12px", borderRadius: 10,
                     border: `1px solid ${on ? "var(--primary,#2563eb)" : "var(--border,#e2e4e9)"}`,
-                    background: on ? "var(--primary-soft,#eff6ff)" : "#fff", cursor: t.already ? "default" : "pointer",
+                    background: on ? "var(--primary-soft,#eff6ff)" : "var(--card)", cursor: t.already ? "default" : "pointer",
                     opacity: t.already ? 0.6 : 1 }}>
                   <input type="checkbox" checked={on} disabled={t.already}
                     onChange={(e) => setSel((s) => { const n = { ...s }; if (e.target.checked) n[k] = t; else delete n[k]; return n; })}

@@ -9,6 +9,7 @@ import {
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { useDebounced } from "./index";
+import { InlinePopup } from "./InlinePopup";
 
 // Clients only reach their own results; hidden pages never surface in ⌘K either.
 const CLIENT_PREFIXES = ["/reports", "/reply/inbox", "/pipeline", "/revenue-inbox", "/companies", "/contacts", "/deals"];
@@ -34,10 +35,12 @@ const NAV_ACTIONS = [
   ["Website Visitors", "/inbound"], ["Jobs", "/jobs"], ["Settings", "/settings"],
 ].map(([title, href]) => ({ type: "action", id: href, title, href }));
 
-export function CommandPalette({ open, onClose }) {
+export function CommandPalette({ open, onClose, variant = "modal", anchorRef, query: controlledQuery, onQueryChange, showInput = true }) {
   const { me } = useAuth();
   const navActions = me?.role === "client" ? NAV_ACTIONS.filter((a) => clientAllowed(a.href)) : NAV_ACTIONS;
-  const [q, setQ] = useState("");
+  const [localQuery, setLocalQuery] = useState("");
+  const q = controlledQuery ?? localQuery;
+  const setQ = onQueryChange ?? setLocalQuery;
   const [remote, setRemote] = useState([]);
   const [busy, setBusy] = useState(false);
   const [idx, setIdx] = useState(0);
@@ -45,7 +48,13 @@ export function CommandPalette({ open, onClose }) {
   const nav = useNavigate();
   const inputRef = useRef(null);
 
-  useEffect(() => { if (open) { setQ(""); setRemote([]); setIdx(0); setTimeout(() => inputRef.current?.focus(), 30); } }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    if (variant === "modal") setQ("");
+    setRemote([]);
+    setIdx(0);
+    if (showInput) setTimeout(() => inputRef.current?.focus(), 30);
+  }, [open, setQ, showInput, variant]);
 
   useEffect(() => {
     if (!open || dq.trim().length < 2) { setRemote([]); return; }
@@ -87,18 +96,18 @@ export function CommandPalette({ open, onClose }) {
     else if (e.key === "Escape") onClose();
   };
 
-  if (!open) return null;
   let flat = -1;
-  return (
-    <div className="cp-bg" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="cp" role="dialog" aria-label="Global search">
-        <div className="cp-in">
-          <Search size={16} />
-          <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey}
-            placeholder="Search companies, contacts, deals, replies, documents…" />
-          {busy && <span className="ui-btn-spin dark" />}
-          <kbd className="ui-kbd">esc</kbd>
-        </div>
+  const palette = (
+    <div className="cp" role="dialog" aria-label="Global search">
+        {showInput && (
+          <div className="cp-in">
+            <Search size={16} />
+            <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey}
+              placeholder="Search companies, contacts, deals, replies, documents…" />
+            {busy && <span className="ui-btn-spin dark" />}
+            <kbd className="ui-kbd">esc</kbd>
+          </div>
+        )}
         <div className="cp-list">
           {items.length === 0 && (
             <div className="cp-none">{q.trim().length >= 2 ? "No results" : "Type to search everything, or jump to a page"}</div>
@@ -126,7 +135,13 @@ export function CommandPalette({ open, onClose }) {
           })}
         </div>
         <div className="cp-foot"><span><kbd className="ui-kbd">↑↓</kbd> navigate</span><span><kbd className="ui-kbd">↵</kbd> open</span></div>
-      </div>
     </div>
   );
+
+  if (variant === "inline") {
+    return <InlinePopup open={open} onClose={onClose} anchorRef={anchorRef} className="cp cp-inline" minWidth={620} maxHeight={520} role="dialog">{palette.props.children}</InlinePopup>;
+  }
+
+  if (!open) return null;
+  return <div className="cp-bg" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>{palette}</div>;
 }

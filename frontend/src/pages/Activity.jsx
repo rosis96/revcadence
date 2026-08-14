@@ -4,6 +4,7 @@ import { Activity as ActivityIcon, RefreshCw } from "lucide-react";
 import { timeAgo } from "../api";
 import { useAuth } from "../auth";
 import { Badge, Button, DataTable, ErrorBox, PageHeader, useApi } from "../components";
+import { Select } from "../components";
 
 const KINDS = ["", "email_in", "email_out", "reply_drafted", "stage_change", "enriched", "deal_created", "doc_created", "import"];
 
@@ -38,9 +39,9 @@ export default function ActivityPage() {
         id="activity" columns={columns} data={data || []} loading={loading}
         searchPlaceholder="Search events…" getRowId={(r) => String(r.id)}
         tools={
-          <select value={kind} onChange={(e) => setKind(e.target.value)} style={{ height: 40 }}>
+          <Select value={kind} onChange={(e) => setKind(e.target.value)} style={{ height: 40 }}>
             {KINDS.map((k) => <option key={k} value={k}>{k || "All activity types"}</option>)}
-          </select>
+          </Select>
         }
         emptyIcon={ActivityIcon} emptyTitle="No activity"
         emptyHint="Events across the workspace appear here."

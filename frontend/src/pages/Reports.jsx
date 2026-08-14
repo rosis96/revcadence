@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { ErrorBox, MoneyEst, PageHeader, Spinner, useApi, useToast } from "../components";
+import { Select } from "../components";
 
 const money = (n) => "$" + (Math.round(n || 0)).toLocaleString();
 const RANGES = [[30, "30 days"], [90, "90 days"], [180, "6 months"], [365, "12 months"]];
@@ -76,10 +77,9 @@ export default function Reports() {
     <>
       <PageHeader title="Reports" desc="What the revenue engine produced — meetings, pipeline, and revenue."
         actions={
-          <select value={days} onChange={(e) => setDays(Number(e.target.value))}
-            style={{ padding: "7px 10px", borderRadius: 8, fontSize: 13 }}>
+          <Select size="sm" value={days} onChange={(e) => setDays(Number(e.target.value))}>
             {RANGES.map(([v, l]) => <option key={v} value={v}>Last {l}</option>)}
-          </select>
+          </Select>
         } />
 
       {/* HERO row — the dollars the outbound engine directly generated lead; $0 won
@@ -91,7 +91,7 @@ export default function Reports() {
         <Kpi label="Opportunities created" value={k.opportunities_in_range} sub="in range" />
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 18 }}>
-        <Kpi label="Won revenue (in range)" value={money(k.won_revenue_in_range)} sub={`${money(k.won_revenue)} all-time`} accent="#22a06b" />
+        <Kpi label="Won revenue (in range)" value={money(k.won_revenue_in_range)} sub={`${money(k.won_revenue)} all-time`} accent="var(--ok)" />
         <Kpi label="Deals won" value={k.deals_won_in_range} sub="in range" />
         <Kpi label="Booked → completed" value={`${c.completed_rate}%`} sub="meetings that progressed" />
         <Kpi label="Opportunity → won" value={`${c.opp_to_won_rate}%`} sub="overall close rate" />
@@ -99,14 +99,14 @@ export default function Reports() {
 
       {wsParam && (
         <div className="card" style={{ padding: 14, marginBottom: 18, display: "flex", alignItems: "center",
-          gap: 12, flexWrap: "wrap", background: "linear-gradient(180deg,#fff,#f6f9ff)", borderColor: "#dbe7f6" }}>
+          gap: 12, flexWrap: "wrap", background: "linear-gradient(180deg, rgba(96,165,250,.10), var(--card) 65%)", borderColor: "rgba(96,165,250,.28)" }}>
           <div style={{ fontSize: 13 }}>
             <b>Average deal value (ACV)</b> — new opportunities inherit this, so your pipeline shows real projected dollars instead of $0.
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
             <span style={{ color: "var(--muted)" }}>$</span>
             <input type="number" min="0" value={acv} onChange={(e) => setAcv(e.target.value)}
-              placeholder="5000" style={{ width: 110, padding: "7px 10px", borderRadius: 8, border: "1px solid #d9e2ec" }} />
+              placeholder="5000" style={{ width: 110, padding: "7px 10px", borderRadius: 8, border: "1px solid var(--border)" }} />
             <button className="btn ghost sm" disabled={savingAcv} onClick={() => saveAcv(false)}>Save</button>
             <button className="btn sm" disabled={savingAcv} onClick={() => saveAcv(true)}>Save & apply to open deals</button>
           </div>
@@ -130,7 +130,7 @@ export default function Reports() {
             <div className="field" style={{ margin: 0 }}><label>Client name (greeting)</label>
               <input value={dg.client_name} onChange={(e) => setDg({ ...dg, client_name: e.target.value })}
                 placeholder="Ascendly" style={{ width: "100%" }} /></div>
-            <div className="field" style={{ margin: 0 }}><label>Slack Incoming Webhook URL {dg.set && <span style={{ color: "#15803d" }}>· connected</span>}</label>
+            <div className="field" style={{ margin: 0 }}><label>Slack Incoming Webhook URL {dg.set && <span style={{ color: "var(--ok-text)" }}>· connected</span>}</label>
               <input value={dg.slack_webhook} onChange={(e) => setDg({ ...dg, slack_webhook: e.target.value })}
                 placeholder={dg.set ? "•••• saved — paste to replace" : "https://hooks.slack.com/services/…"} style={{ width: "100%" }} /></div>
           </div>
@@ -156,9 +156,9 @@ export default function Reports() {
                     {stepRate != null && <span> · {stepRate}%</span>}
                   </span>
                 </div>
-                <div style={{ height: 12, background: "#eef2f7", borderRadius: 6, overflow: "hidden" }}>
+                <div style={{ height: 12, background: "var(--card-2)", borderRadius: 6, overflow: "hidden" }}>
                   <div style={{ height: "100%", width: `${Math.max(3, 100 * f.count / funnelMax)}%`,
-                    background: ["#93b8e6", "#4a95e0", "var(--primary)", "#22a06b"][i] || "var(--primary)", borderRadius: 6 }} />
+                    background: ["#7FB2FC", "#3B82F6", "var(--primary)", "var(--ok)"][i] || "var(--primary)", borderRadius: 6 }} />
                 </div>
               </div>
             );
@@ -172,7 +172,7 @@ export default function Reports() {
             ? <div style={{ color: "var(--muted)", fontSize: 13 }}>No open deals yet.</div>
             : data.top_open_deals.map((d) => (
               <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
-                padding: "8px 0", borderBottom: "1px solid #f0f3f7", fontSize: 13 }}>
+                padding: "8px 0", borderBottom: "1px solid var(--border)", fontSize: 13 }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.name}</div>
                   <div style={{ color: "var(--muted)", fontSize: 12 }}>{d.stage}</div>
@@ -201,7 +201,7 @@ export default function Reports() {
         <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 90 }}>
           {data.trend.map((t, i) => (
             <div key={i} title={`${t.week}: ${money(t.won_value)}`} style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end", height: "100%" }}>
-              <div style={{ height: `${Math.max(2, 100 * t.won_value / wonMax)}%`, background: "#22a06b", borderRadius: "3px 3px 0 0" }} />
+              <div style={{ height: `${Math.max(2, 100 * t.won_value / wonMax)}%`, background: "var(--ok)", borderRadius: "3px 3px 0 0" }} />
             </div>
           ))}
         </div>

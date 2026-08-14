@@ -37,7 +37,7 @@ export default function InboundVisitors() {
               Point your website form at this URL. Each submission creates a contact, a deal in the
               pipeline, and a <b>“respond within 10 minutes”</b> task — so inbound is never dropped.</div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <code style={{ flex: 1, minWidth: 280, fontSize: 12, background: "#f4f7fb", padding: "8px 10px",
+              <code style={{ flex: 1, minWidth: 280, fontSize: 12, background: "var(--card-2)", padding: "8px 10px",
                 borderRadius: 6, overflowX: "auto", whiteSpace: "nowrap" }}>{cfg.data.form_url}</code>
               <button className="btn ghost sm" onClick={() => copy(cfg.data.form_url, "URL")}>Copy URL</button>
               <button className="btn ghost sm" onClick={() => setShowSnippet((v) => !v)}>

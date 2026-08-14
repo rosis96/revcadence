@@ -14,7 +14,7 @@ import { Badge, Button, ConfirmDialog, PageHeader, Spinner, useApi, useToast } f
 const CARDS = [
   { key: "google_workspace", name: "Google", sub: "Gmail / Workspace", badge: "G", color: "#ea4335", flow: "google" },
   { key: "microsoft_graph", name: "Microsoft", sub: "Office 365 / Outlook", badge: "M", color: "#0078d4", flow: "microsoft" },
-  { key: "smtp", name: "Any Provider", sub: "IMAP / SMTP", badge: "@", color: "#6b7280", flow: "smtp" },
+  { key: "smtp", name: "Any Provider", sub: "IMAP / SMTP", badge: "@", color: "var(--muted2)", flow: "smtp" },
 ];
 
 export default function MailboxConnect() {
@@ -101,7 +101,7 @@ export default function MailboxConnect() {
 
   // A reusable guided-authorization block for the two HTTPS providers.
   const AuthSteps = ({ info, title, adminLabel, notConfiguredEnv, scopesLabel }) => (
-    <div className="card" style={{ padding: 14, marginBottom: 12, background: "#fbfbfe" }}>
+    <div className="card" style={{ padding: 14, marginBottom: 12, background: "var(--card-2)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600, fontSize: 13, marginBottom: 4 }}>
         <ShieldCheck size={16} style={{ color: "var(--accent,#635BFF)" }} /> {title}
       </div>
@@ -128,7 +128,7 @@ export default function MailboxConnect() {
       {loading && <Spinner />}
 
       {importing && (
-        <div className="card" style={{ padding: 16, marginBottom: 14, display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(180deg,#f6f5ff,#fff)", borderColor: "#d6d3ff" }}>
+        <div className="card" style={{ padding: 16, marginBottom: 14, display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(180deg, rgba(96,165,250,.10), var(--card) 65%)", borderColor: "rgba(96,165,250,.28)" }}>
           <Sparkles size={20} style={{ color: "var(--accent,#635BFF)" }} />
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 600 }}>Importing your last 60 days of conversations…</div>
@@ -179,9 +179,9 @@ export default function MailboxConnect() {
               <button key={c.key} onClick={() => setForm((f) => ({ ...f, provider: c.key }))}
                 style={{ textAlign: "left", cursor: "pointer", padding: "12px 14px", borderRadius: 12,
                   border: `1px solid ${on ? "var(--primary,#2563eb)" : "var(--border,#e2e4e9)"}`,
-                  background: on ? "var(--primary-soft,#eff6ff)" : "#fff",
+                  background: on ? "var(--primary-soft,#eff6ff)" : "var(--card)",
                   display: "flex", alignItems: "center", gap: 10, transition: "border-color .15s, background .15s" }}>
-                <span style={{ width: 30, height: 30, borderRadius: 8, background: c.color, color: "#fff", fontWeight: 800,
+                <span style={{ width: 30, height: 30, borderRadius: 8, background: c.color, color: "var(--card)", fontWeight: 800,
                   display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{c.badge}</span>
                 <span><span style={{ display: "block", fontWeight: 650, fontSize: 13.5 }}>{c.name}</span>
                   <span style={{ display: "block", fontSize: 11.5, color: "var(--muted)" }}>{c.sub}</span></span>
@@ -200,9 +200,9 @@ export default function MailboxConnect() {
                 <button onClick={signInGoogle}
                   style={{ display: "inline-flex", alignItems: "center", gap: 10, cursor: "pointer",
                     padding: "10px 16px", borderRadius: 10, border: "1px solid var(--border-strong,#cdd0d8)",
-                    background: "#fff", fontWeight: 600, fontSize: 14 }}>
-                  <span style={{ width: 20, height: 20, borderRadius: 4, background: "#fff",
-                    border: "1px solid #e2e4e9", color: "#ea4335", fontWeight: 800,
+                    background: "var(--card)", fontWeight: 600, fontSize: 14 }}>
+                  <span style={{ width: 20, height: 20, borderRadius: 4, background: "var(--card)",
+                    border: "1px solid var(--border)", color: "#ea4335", fontWeight: 800,
                     display: "inline-flex", alignItems: "center", justifyContent: "center" }}>G</span>
                   Sign in with Google
                 </button>

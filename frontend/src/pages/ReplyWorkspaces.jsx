@@ -5,6 +5,7 @@ import { api } from "../api";
 import { useAuth } from "../auth";
 import { Badge, Empty, ErrorBox, Modal, Spinner, useApi } from "../components";
 import { alertDialog } from "../components";
+import { Select } from "../components";
 
 function Field({ label, children, half }) {
   return <div className="field" style={half ? { flex: 1 } : {}}><label>{label}</label>{children}</div>;
@@ -47,22 +48,22 @@ function WorkspaceModal({ existing, workspaces, onClose, onDone }) {
         {err && <div className="error-box" style={{ marginBottom: 10 }}>{err}</div>}
         {!existing && (
           <Field label="Client workspace">
-            <select value={f.workspace_id} onChange={(e) => set("workspace_id", Number(e.target.value))}>
+            <Select value={f.workspace_id} onChange={(e) => set("workspace_id", Number(e.target.value))}>
               {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </select>
+            </Select>
           </Field>
         )}
         <Field label="Reply-workspace name (must match webhook ?workspace_name=)">
           <input value={f.name} onChange={(e) => set("name", e.target.value)} required /></Field>
         <div style={{ display: "flex", gap: 10 }}>
           <Field label="Platform" half>
-            <select value={f.platform} onChange={(e) => set("platform", e.target.value)}>
+            <Select value={f.platform} onChange={(e) => set("platform", e.target.value)}>
               <option value="bison">Bison</option><option value="instantly">Instantly</option>
-            </select></Field>
+            </Select></Field>
           <Field label="Mode" half>
-            <select value={f.mode} onChange={(e) => set("mode", e.target.value)}>
+            <Select value={f.mode} onChange={(e) => set("mode", e.target.value)}>
               <option value="reply">reply</option><option value="followup">followup</option>
-            </select></Field>
+            </Select></Field>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
           {secretField("api_key", "API key", existing?.api_key_set)}
@@ -82,9 +83,9 @@ function WorkspaceModal({ existing, workspaces, onClose, onDone }) {
         </div>
         <div style={{ display: "flex", gap: 10 }}>
           <Field label="AI provider" half>
-            <select value={f.ai_provider} onChange={(e) => set("ai_provider", e.target.value)}>
+            <Select value={f.ai_provider} onChange={(e) => set("ai_provider", e.target.value)}>
               <option value="openai">OpenAI</option><option value="gemini">Gemini</option>
-            </select></Field>
+            </Select></Field>
           <Field label="Reply delay (seconds)" half>
             <input type="number" value={f.reply_delay_seconds} onChange={(e) => set("reply_delay_seconds", Number(e.target.value))} /></Field>
         </div>

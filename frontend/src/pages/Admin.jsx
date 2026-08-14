@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { Badge, Button, ConfirmDialog, ErrorBox, Modal, Spinner, useApi, useToast } from "../components";
+import { Select } from "../components";
 
 function Field({ label, children }) { return <div className="field"><label>{label}</label>{children}</div>; }
 
@@ -45,16 +46,16 @@ function UserModal({ workspaces, onClose, onDone }) {
         <Field label="Name"><input value={f.name} onChange={(e) => set("name", e.target.value)} /></Field>
         <Field label="Password"><input type="text" value={f.password} onChange={(e) => set("password", e.target.value)} required minLength={8} /></Field>
         <Field label="Role">
-          <select value={f.role} onChange={(e) => set("role", e.target.value)}>
+          <Select value={f.role} onChange={(e) => set("role", e.target.value)}>
             <option value="client">client — locked to ONE workspace (for your clients)</option>
             <option value="member">member — selected workspaces</option>
             <option value="admin">admin — all workspaces</option>
             <option value="owner">owner — all workspaces + billing</option>
-          </select>
+          </Select>
         </Field>
         {needsWs && (
           <Field label={f.role === "client" ? "Workspace (exactly one)" : "Workspaces"}>
-            <select multiple={f.role === "member"} size={Math.min(5, workspaces.length)}
+            <Select multiple={f.role === "member"} placeholder="choose…"
                     value={f.role === "member" ? f.workspace_ids.map(String) : String(f.workspace_ids[0] ?? "")}
                     onChange={(e) => set("workspace_ids",
                       f.role === "member"
@@ -62,7 +63,7 @@ function UserModal({ workspaces, onClose, onDone }) {
                         : [Number(e.target.value)])}>
               {f.role === "client" && <option value="" disabled>choose…</option>}
               {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </select>
+            </Select>
           </Field>
         )}
         <div className="actions"><button type="button" className="btn ghost" onClick={onClose}>Cancel</button><button className="btn">Create user</button></div>

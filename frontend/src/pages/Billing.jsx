@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { api, money } from "../api";
 import { Badge, ErrorBox, Modal, PageHeader, Spinner, StatCard, useApi, useToast } from "../components";
+import { Select } from "../components";
 
 const STATUSES = ["none", "trialing", "active", "past_due", "canceled"];
 const TONE = { active: "green", trialing: "blue", past_due: "red", canceled: "gray", none: "gray" };
@@ -34,9 +35,9 @@ function EditModal({ row, onClose, onSaved }) {
             <input type="number" min="0" style={{ width: "100%", marginTop: 4 }} value={f.price_monthly}
               onChange={(e) => set("price_monthly", Number(e.target.value) || 0)} /></label>
           <label style={{ fontSize: 13, flex: 1 }}>Status
-            <select style={{ width: "100%", marginTop: 4 }} value={f.status} onChange={(e) => set("status", e.target.value)}>
+            <Select style={{ width: "100%", marginTop: 4 }} value={f.status} onChange={(e) => set("status", e.target.value)}>
               {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select></label>
+            </Select></label>
         </div>
         <label style={{ fontSize: 13 }}>Renews / lapses on
           <input type="date" style={{ width: "100%", marginTop: 4 }} value={f.current_period_end}

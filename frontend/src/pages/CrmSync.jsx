@@ -10,6 +10,7 @@ import { useAuth } from "../auth";
 import {
   Badge, Button, ErrorBox, Modal, PageHeader, RowCard, StatusPill, useApi, useToast,
 } from "../components";
+import { Select } from "../components";
 
 const PROVIDER_LABEL = {
   generic: "Generic webhook / API", hubspot: "HubSpot", salesforce: "Salesforce",
@@ -50,13 +51,13 @@ function ConnForm({ meta, initial, onSaved, onClose }) {
   return (
     <Modal title={initial ? "Edit connection" : "Connect a CRM"} onClose={onClose}>
       <div className="field"><label>Provider</label>
-        <select value={f.provider} onChange={(e) => setF({ ...f, provider: e.target.value })}>
+        <Select value={f.provider} onChange={(e) => setF({ ...f, provider: e.target.value })}>
           {(meta?.providers || []).map((p) => (
             <option key={p} value={p}>{PROVIDER_LABEL[p] || p}{(meta?.native_ready || []).includes(p) ? "" : " (coming soon)"}</option>
           ))}
-        </select>
+        </Select>
         {!nativeReady && (
-          <div style={{ fontSize: 12, color: "#B54708", marginTop: 4 }}>
+          <div style={{ fontSize: 12, color: "var(--warn-text)", marginTop: 4 }}>
             The native {PROVIDER_LABEL[f.provider]} adapter isn't live yet. Use the Generic
             webhook/API provider today — it works with Zapier, Make, n8n, or any middleware.
           </div>
@@ -77,15 +78,15 @@ function ConnForm({ meta, initial, onSaved, onClose }) {
       )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <div className="field"><label>Sync direction</label>
-          <select value={f.direction} onChange={(e) => setF({ ...f, direction: e.target.value })}>
+          <Select value={f.direction} onChange={(e) => setF({ ...f, direction: e.target.value })}>
             <option value="outbound">RevCadence → CRM</option>
             <option value="inbound">CRM → RevCadence (native adapters only)</option>
             <option value="two_way">Two-way (native adapters only)</option>
-          </select></div>
+          </Select></div>
         <div className="field"><label>Conflict policy</label>
-          <select value={f.conflict_policy} onChange={(e) => setF({ ...f, conflict_policy: e.target.value })}>
+          <Select value={f.conflict_policy} onChange={(e) => setF({ ...f, conflict_policy: e.target.value })}>
             {(meta?.conflict_policies || []).map((p) => <option key={p} value={p}>{POLICY_LABEL[p] || p}</option>)}
-          </select></div>
+          </Select></div>
       </div>
       <div className="field"><label>Entities to sync</label>
         <div style={{ display: "flex", gap: 14, fontSize: 13 }}>
@@ -201,7 +202,7 @@ function Mappings({ connId }) {
       {(data || []).length === 0 && <div className="rc-empty">Nothing synced yet.</div>}
       {(data || []).map((m) => (
         <div key={m.id} style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 12.5,
-          padding: "5px 0", borderTop: "1px solid #F2F3F5" }}>
+          padding: "5px 0", borderTop: "1px solid var(--border)" }}>
           <Badge>{m.type}</Badge>
           <span style={{ fontFamily: "monospace" }}>#{m.local_id} → {m.external_id || "—"}</span>
           <StatusPill tone={TONE[m.status] || "gray"}>{m.status}</StatusPill>

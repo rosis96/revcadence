@@ -117,7 +117,7 @@ export default function TrainingBridge() {
         </p>
       </div>
 
-      {message && <div className="card" style={{ ...card, color: "#166534", borderColor: "#bbf7d0", background: "#f0fdf4" }}>
+      {message && <div className="card" style={{ ...card, color: "var(--ok-text)", borderColor: "rgba(52,211,153,.32)", background: "var(--ok-soft)" }}>
         <CheckCircle2 size={16} style={{ verticalAlign: "text-bottom", marginRight: 7 }} />{message}
       </div>}
 
@@ -129,12 +129,12 @@ export default function TrainingBridge() {
         <div className="card" style={card}><div style={{ color: "var(--muted)", fontSize: 12 }}>Golden evaluation cases</div>
           <b>{bundle.evaluation_cases?.length || 0}</b></div>
         <div className="card" style={card}><div style={{ color: "var(--muted)", fontSize: 12 }}>Safety</div>
-          <b style={{ color: "#166534" }}>No leads or credentials</b></div>
+          <b style={{ color: "var(--ok-text)" }}>No leads or credentials</b></div>
       </div>
 
       <div className="card" style={card}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <ShieldCheck size={21} color="#2563eb" />
+          <ShieldCheck size={21} color="var(--accent)" />
           <div style={{ flex: "1 1 420px", minWidth: 0 }}><h2 style={{ fontSize: 15, margin: 0 }}>Export a safe training package</h2>
             <p style={{ color: "var(--muted)", fontSize: 12.5, margin: "4px 0 0" }}>
               Contains Brain, ICP, formats, rules, model controls, feedback examples, and golden cases only.
@@ -146,7 +146,7 @@ export default function TrainingBridge() {
 
       <div className="card" style={card}>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <CheckCircle2 size={21} color="#2563eb" />
+          <CheckCircle2 size={21} color="var(--accent)" />
           <div style={{ flex: "1 1 420px", minWidth: 0 }}><h2 style={{ fontSize: 15, margin: 0 }}>Run golden-case evaluation</h2>
             <p style={{ color: "var(--muted)", fontSize: 12.5, margin: "4px 0 0" }}>
               Tests up to five active cases with the live writer, then checks required terms and quality gates.
@@ -157,21 +157,21 @@ export default function TrainingBridge() {
         </div>
         {evaluation && <div style={{ marginTop: 12 }}>
           {evaluation.results.map((result) => (
-            <details key={result.id} style={{ borderTop: "1px solid #eef2f7", padding: "9px 0" }}>
+            <details key={result.id} style={{ borderTop: "1px solid var(--border)", padding: "9px 0" }}>
               <summary style={{ cursor: "pointer", fontSize: 13 }}>
                 <b>{result.name}</b> · {result.score}/100 ·
-                <span style={{ color: result.passed ? "#166534" : "#b91c1c" }}>
+                <span style={{ color: result.passed ? "var(--ok-text)" : "var(--bad-text)" }}>
                   {" "}{result.passed ? "passed" : "needs work"}
                 </span>
               </summary>
-              {result.writer_error && <p style={{ color: "#b91c1c", fontSize: 12 }}>{result.writer_error}</p>}
+              {result.writer_error && <p style={{ color: "var(--bad-text)", fontSize: 12 }}>{result.writer_error}</p>}
               {result.variables.map((variable) => (
                 <div key={variable.variable} style={{ margin: "9px 0 0 18px", fontSize: 12.5 }}>
                   <b>{variable.variable.replaceAll("_", " ")}</b> · {variable.score}/100
                   {variable.missing_terms.length > 0 &&
-                    <div style={{ color: "#b91c1c" }}>Missing: {variable.missing_terms.join(", ")}</div>}
+                    <div style={{ color: "var(--bad-text)" }}>Missing: {variable.missing_terms.join(", ")}</div>}
                   {variable.quality_failure &&
-                    <div style={{ color: "#b91c1c" }}>{variable.quality_failure}</div>}
+                    <div style={{ color: "var(--bad-text)" }}>{variable.quality_failure}</div>}
                   <div><span style={{ color: "var(--muted)" }}>Actual:</span> {variable.actual || "withheld"}</div>
                   {variable.expected_example &&
                     <div><span style={{ color: "var(--muted)" }}>Approved example:</span> {variable.expected_example}</div>}
@@ -184,7 +184,7 @@ export default function TrainingBridge() {
 
       <div className="card" style={card}>
         <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10 }}>
-          <UploadCloud size={21} color="#2563eb" />
+          <UploadCloud size={21} color="var(--accent)" />
           <div><h2 style={{ fontSize: 15, margin: 0 }}>Preview and apply a training package</h2>
             <p style={{ color: "var(--muted)", fontSize: 12.5, margin: "4px 0 0" }}>
               Paste a complete exported package or a partial package such as
@@ -229,7 +229,7 @@ export default function TrainingBridge() {
           {preview.changes.map((change) => (
             <div key={change.section} style={{ display: "grid",
               gridTemplateColumns: "minmax(130px,180px) minmax(0,1fr) 26px minmax(0,1fr)",
-              gap: 8, padding: "8px 0", borderTop: "1px solid #eef2f7", fontSize: 12.5,
+              gap: 8, padding: "8px 0", borderTop: "1px solid var(--border)", fontSize: 12.5,
               overflowWrap: "anywhere" }}>
               <b>{change.section.replaceAll("_", " ")}</b>
               <span style={{ color: "var(--muted)" }}>{change.before || "empty"}</span>
@@ -247,7 +247,7 @@ export default function TrainingBridge() {
           ? <p style={{ color: "var(--muted)", fontSize: 12.5 }}>No training imports have been applied yet.</p>
           : revisions.map((revision) => (
             <div key={revision.id} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap",
-              padding: "9px 0", borderTop: "1px solid #eef2f7", fontSize: 12.5 }}>
+              padding: "9px 0", borderTop: "1px solid var(--border)", fontSize: 12.5 }}>
               <b>v{revision.version}</b><span style={{ color: "var(--muted)" }}>{revision.action}</span>
               <span style={{ flex: 1 }}>{revision.note || "Training snapshot"}</span>
               <code>{revision.revision.slice(0, 10)}</code>

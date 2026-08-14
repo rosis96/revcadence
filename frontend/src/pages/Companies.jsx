@@ -7,6 +7,7 @@ import { useAuth } from "../auth";
 import {
   Avatar, Badge, Button, ConfirmDialog, DataTable, ErrorBox, Modal, PageHeader, fitTone, useApi, useToast,
 } from "../components";
+import { Select } from "../components";
 
 export function NewCompanyModal({ onClose, onCreated, workspaceId, workspaces }) {
   const [form, setForm] = useState({ name: "", website: "", workspace_id: workspaceId || (workspaces[0]?.id ?? "") });
@@ -26,9 +27,9 @@ export function NewCompanyModal({ onClose, onCreated, workspaceId, workspaces })
         {error && <div className="error-box" style={{ marginBottom: 10 }}>{error}</div>}
         {!workspaceId && (
           <div className="field"><label>Workspace</label>
-            <select value={form.workspace_id} onChange={(e) => setForm({ ...form, workspace_id: e.target.value })}>
+            <Select value={form.workspace_id} onChange={(e) => setForm({ ...form, workspace_id: e.target.value })}>
               {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </select>
+            </Select>
           </div>
         )}
         <div className="field"><label>Name</label>
@@ -69,7 +70,8 @@ export function StatusChips({ data, filter, setFilter }) {
   (data || []).forEach((c) => { const k = c.status?.key || "none"; counts[k] = (counts[k] || 0) + 1; });
   const booked = (data || []).filter((c) => BOOKED_PLUS.has(c.status?.key)).length;
   const chips = STATUS_ORDER.filter((k) => counts[k]);
-  const colorFor = (k) => (data || []).find((c) => c.status?.key === k)?.status?.color || "#64748b";
+  // must stay a literal hex — Chip concatenates alpha suffixes onto it
+  const colorFor = (k) => (data || []).find((c) => c.status?.key === k)?.status?.color || "#94A3B8";
   const labelFor = (k) => (data || []).find((c) => c.status?.key === k)?.status?.label || k;
   if (!data?.length) return null;
   const Chip = ({ on, color, onClick, children }) => (
@@ -82,7 +84,7 @@ export function StatusChips({ data, filter, setFilter }) {
   return (
     <div className="chips" style={{ marginBottom: 14 }}>
       <Chip on={filter === "__booked"} color="#3b82f6" onClick={() => setFilter("__booked")}>Meetings · {booked}</Chip>
-      <Chip on={filter === ""} color="#111827" onClick={() => setFilter("")}>All · {data.length}</Chip>
+      <Chip on={filter === ""} color="#CBD5E1" onClick={() => setFilter("")}>All · {data.length}</Chip>
       {chips.map((k) => (
         <Chip key={k} on={filter === k} color={colorFor(k)} onClick={() => setFilter(filter === k ? "__booked" : k)}>
           {labelFor(k)} · {counts[k]}

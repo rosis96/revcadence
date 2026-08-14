@@ -4,6 +4,9 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, Inbox as InboxIcon, Search, X } from "lucide-react";
 export { confirmDialog, promptDialog, alertDialog, GlobalDialogs } from "./dialogs";
+export { Select } from "./Select";
+export { InlinePopup } from "./InlinePopup";
+import { Select } from "./Select";
 
 /* ---------------------------------------------------------------- Button */
 export function Button({ variant = "primary", size = "md", loading = false, icon: Icon, children, className = "", ...rest }) {
@@ -93,9 +96,9 @@ export function Pager({ page, pages, total, pageSize, onPage, onPageSize, sizes 
       <span>{total != null ? `${total.toLocaleString()} rows` : ""}</span>
       <div className="pr">
         {onPageSize && (
-          <select value={pageSize} onChange={(e) => onPageSize(Number(e.target.value))}>
+          <Select size="sm" value={pageSize} onChange={(e) => onPageSize(Number(e.target.value))}>
             {sizes.map((s) => <option key={s} value={s}>{s} / page</option>)}
-          </select>
+          </Select>
         )}
         <span>Page {page} of {Math.max(pages, 1)}</span>
         <button className="pgbtn" disabled={page <= 1} onClick={() => onPage(page - 1)}><ChevronLeft size={15} /></button>

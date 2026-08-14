@@ -7,6 +7,7 @@ import { useParams, Link } from "react-router-dom";
 import { api } from "../api";
 import { Badge, Breadcrumbs, ErrorBox, PageHeader, Spinner, StatusPill, useApi } from "../components";
 import { alertDialog } from "../components";
+import { Select } from "../components";
 
 const TABS = [
   ["overview", "Offer"], ["icp", "ICP"], ["sales_process", "Sales Process"],
@@ -71,9 +72,9 @@ export default function ClientProfile() {
         actions={
           <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
             <label style={{ fontSize: 12.5, color: "var(--muted)" }}>Scope</label>
-            <select value={p.scope_type} onChange={(e) => setScope(e.target.value)}>
+            <Select value={p.scope_type} onChange={(e) => setScope(e.target.value)}>
               <option value="outbound">Outbound</option><option value="inbound">Inbound</option><option value="full">Full engine</option>
-            </select>
+            </Select>
             <Link className="btn ghost sm" to={`/companies/${id}`}>← Company</Link>
           </span>
         } />
@@ -82,7 +83,7 @@ export default function ClientProfile() {
       <div className="card" style={{ padding: 14, marginBottom: 14, display: "flex", gap: 20, alignItems: "center" }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 4 }}>Onboarding completeness · {p.completeness}%</div>
-          <div style={{ height: 8, background: "#eceef3", borderRadius: 6, overflow: "hidden" }}>
+          <div style={{ height: 8, background: "rgba(255,255,255,.09)", borderRadius: 6, overflow: "hidden" }}>
             <div style={{ width: `${p.completeness}%`, height: "100%", background: "var(--accent, #635BFF)" }} />
           </div>
         </div>
@@ -108,8 +109,8 @@ export default function ClientProfile() {
               <div className="field" key={f.key} style={{ marginBottom: 12 }}>
                 <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   {f.label}
-                  <span className="badge" style={{ background: f.visibility === "client" ? "#e8f7ee" : "var(--primary-soft)",
-                        color: f.visibility === "client" ? "#1a7f45" : "var(--primary)", fontSize: 10.5 }}>
+                  <span className="badge" style={{ background: f.visibility === "client" ? "var(--ok-soft)" : "var(--primary-soft)",
+                        color: f.visibility === "client" ? "var(--ok-text)" : "var(--primary)", fontSize: 10.5 }}>
                     {f.visibility === "client" ? "client-visible" : "internal"}</span>
                   {cell.source && <span style={{ fontSize: 11, color: "var(--muted)" }}>· from {cell.source}{cell.at ? ` · ${new Date(cell.at + "Z").toLocaleDateString()}` : ""}</span>}
                 </label>

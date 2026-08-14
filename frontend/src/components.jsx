@@ -76,14 +76,11 @@ export function Metric({ icon, label, value, sub }) {
   );
 }
 
-// Standard page header: title + description + right-aligned actions.
-export function PageHeader({ title, desc, actions }) {
-  return (
-    <div className="page-head">
-      <div><h1>{title}</h1>{desc && <p>{desc}</p>}</div>
-      {actions && <div className="acts">{actions}</div>}
-    </div>
-  );
+// Standard page header: page actions only. Page names and descriptions are
+// intentionally omitted to keep the workspace chrome minimal.
+export function PageHeader({ actions }) {
+  if (!actions) return null;
+  return <div className="page-head page-head-actions"><div className="acts">{actions}</div></div>;
 }
 
 // Skeleton table rows while loading.

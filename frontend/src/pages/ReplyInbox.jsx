@@ -11,6 +11,7 @@ import {
   Avatar, Badge, Button, ErrorBox, Modal, PageHeader, Skeleton, StatusPill, Tabs,
   useApi, useToast,
 } from "../components";
+import { Select } from "../components";
 
 // Status labels a user can set from the inbox (mirrors the campaign tool's set).
 // The token is what we store on ReplyLead.stage; the backend maps it to the CRM.
@@ -139,11 +140,11 @@ export default function ReplyInbox() {
       <PageHeader title="Inbox" desc="Every conversation, with the AI's read and your one-click actions."
         actions={<>
           {buckets.length > 0 && (
-            <select value={bucket} onChange={(e) => setBucket(e.target.value)}
-              style={{ padding: "7px 10px", borderRadius: 8, fontSize: 13, maxWidth: 220 }}>
+            <Select size="sm" value={bucket} onChange={(e) => setBucket(e.target.value)}
+              style={{ maxWidth: 220 }}>
               <option value="">All intents</option>
               {buckets.map((b) => <option key={b} value={b}>{b}</option>)}
-            </select>
+            </Select>
           )}
           <Button variant="secondary" icon={Sparkles} disabled={classifying} onClick={classifyAI}>
             {classifying ? "Classifying…" : (selIds.length ? `Classify (${selIds.length})` : "Classify intents")}</Button>
@@ -332,14 +333,14 @@ function Thread({ id, pinned, onPin, aiOpen, onToggleAi, onChanged }) {
           <div className="ib-compose">
             {l.send_error && <div className="error-box" style={{ fontSize: 12.5 }}>Last send failed: {l.send_error}</div>}
             {l.platform === "instantly" && l.can_send_instantly === false && (
-              <div className="error-box" style={{ fontSize: 12.5, background: "#FFFAEB", borderColor: "#FEDF89", color: "#B54708" }}>
+              <div className="error-box" style={{ fontSize: 12.5, background: "var(--warn-soft)", borderColor: "rgba(251,191,36,.28)", color: "var(--warn-text)" }}>
                 Can't send through Instantly: the webhook didn't include the reply target. Point the Instantly
                 webhook at the reply-received event so it carries the email id and sending mailbox.
               </div>
             )}
             {!(body || "").trim() && (
               <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", marginBottom: 8,
-                background: "var(--primary-soft)", border: "1px solid #D6E7FD", borderRadius: 8, fontSize: 12.5, color: "var(--muted)" }}>
+                background: "var(--primary-soft)", border: "1px solid rgba(96,165,250,.32)", borderRadius: 8, fontSize: 12.5, color: "var(--muted)" }}>
                 <Sparkles size={16} style={{ color: "var(--primary)", flexShrink: 0 }} />
                 <span style={{ flex: 1 }}>No draft was generated for this reply. Draft one with AI, then review and send.</span>
                 <Button size="sm" icon={Sparkles} loading={busy === "ai"} disabled={!!busy} onClick={draftAI}>Draft with AI</Button>
@@ -361,7 +362,7 @@ function Thread({ id, pinned, onPin, aiOpen, onToggleAi, onChanged }) {
               <Check size={15} style={{ color: "var(--ok)" }} /> Replied — sent. Send a follow-up in the same thread:
             </div>
             {l.platform === "instantly" && l.can_send_instantly === false && (
-              <div className="error-box" style={{ fontSize: 12.5, background: "#FFFAEB", borderColor: "#FEDF89", color: "#B54708" }}>
+              <div className="error-box" style={{ fontSize: 12.5, background: "var(--warn-soft)", borderColor: "rgba(251,191,36,.28)", color: "var(--warn-text)" }}>
                 Can't send through Instantly: the webhook didn't include the reply target.
               </div>
             )}

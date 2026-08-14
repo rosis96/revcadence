@@ -34,8 +34,8 @@ function GettingStarted({ wsParam, nav }) {
   const [dismissed, setDismissed] = useState(() => localStorage.getItem(key) === "1");
   if (!data || data.complete || dismissed) return null;
   return (
-    <div className="card" style={{ padding: 18, marginBottom: 16, borderColor: "#bfdcf6",
-      background: "linear-gradient(180deg,#fff,#f4f9ff)" }}>
+    <div className="card" style={{ padding: 18, marginBottom: 16, borderColor: "rgba(96,165,250,.28)",
+      background: "linear-gradient(180deg, rgba(96,165,250,.10), var(--card) 65%)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
         <div>
           <h2 style={{ fontSize: 16, margin: 0 }}>Getting started</h2>
@@ -44,18 +44,18 @@ function GettingStarted({ wsParam, nav }) {
         </div>
         <button className="btn ghost sm" onClick={() => { localStorage.setItem(key, "1"); setDismissed(true); }}>Dismiss</button>
       </div>
-      <div style={{ height: 8, background: "#e6eef8", borderRadius: 6, overflow: "hidden", marginBottom: 14 }}>
+      <div style={{ height: 8, background: "rgba(255,255,255,.09)", borderRadius: 6, overflow: "hidden", marginBottom: 14 }}>
         <div style={{ height: "100%", width: `${100 * data.done / data.total}%`, background: "var(--primary)" }} />
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
         {data.steps.map((s) => (
           <div key={s.key} onClick={() => !s.done && nav(s.href)}
             style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 10px", borderRadius: 8,
-              cursor: s.done ? "default" : "pointer", background: s.done ? "transparent" : "#fff",
-              border: `1px solid ${s.done ? "transparent" : "#e6edf5"}` }}>
+              cursor: s.done ? "default" : "pointer", background: s.done ? "transparent" : "var(--card-2)",
+              border: `1px solid ${s.done ? "transparent" : "var(--border)"}` }}>
             {s.done
-              ? <CheckCircle2 size={18} style={{ color: "#22a06b", flexShrink: 0, marginTop: 1 }} />
-              : <Circle size={18} style={{ color: "#9fb0c0", flexShrink: 0, marginTop: 1 }} />}
+              ? <CheckCircle2 size={18} style={{ color: "var(--ok)", flexShrink: 0, marginTop: 1 }} />
+              : <Circle size={18} style={{ color: "var(--muted2)", flexShrink: 0, marginTop: 1 }} />}
             <div>
               <div style={{ fontSize: 13, fontWeight: 600, color: s.done ? "var(--muted)" : "inherit",
                 textDecoration: s.done ? "line-through" : "none" }}>{s.label}</div>

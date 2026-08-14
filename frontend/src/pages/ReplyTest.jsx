@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { Badge, ErrorBox, Spinner, useApi } from "../components";
+import { Select } from "../components";
 
 export default function ReplyTest() {
   const { wsParam, me } = useAuth();
@@ -34,9 +35,9 @@ export default function ReplyTest() {
         would for a real lead. <b>Nothing is sent, saved, or pushed</b> to Bison / Instantly.</p>
 
       <div className="field"><label>Reply space (uses its client profile, reply format, rules, AI provider)</label>
-        <select value={rwsId} onChange={(e) => setRwsId(e.target.value)} style={{ width: "100%" }}>
+        <Select value={rwsId} onChange={(e) => setRwsId(e.target.value)} style={{ width: "100%" }}>
           {(spaces || []).map((s) => <option key={s.id} value={s.id}>{s.name} ({s.platform}/{s.mode})</option>)}
-        </select></div>
+        </Select></div>
       <div className="field"><label>Email thread (paste the conversation — the prospect's latest reply matters most)</label>
         <textarea rows={10} style={{ width: "100%" }} value={thread} onChange={(e) => setThread(e.target.value)} placeholder="Paste the full thread here…" /></div>
       <button className="btn" disabled={busy || !thread.trim() || !rwsId} onClick={run}>{busy ? "Generating…" : "Generate reply"}</button>
@@ -59,7 +60,7 @@ export default function ReplyTest() {
               </div>
             )}
             <h3 style={{ fontSize: 13, marginBottom: 6 }}>Drafted reply</h3>
-            <div className="card" style={{ padding: 12, whiteSpace: "pre-wrap", fontSize: 13, background: "#fafbfc" }}>{result.reply || "—"}</div>
+            <div className="card" style={{ padding: 12, whiteSpace: "pre-wrap", fontSize: 13, background: "var(--card-2)" }}>{result.reply || "—"}</div>
             {result.followups?.length > 0 && (
               <>
                 <h3 style={{ fontSize: 13, margin: "14px 0 6px" }}>Follow-ups ({result.followups.length})</h3>

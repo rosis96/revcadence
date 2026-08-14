@@ -8,6 +8,7 @@ import {
   Avatar, Badge, Button, DataTable, Drawer, ErrorBox, Modal, PageHeader, Spinner,
   Timeline, scoreTone, useApi,
 } from "../components";
+import { Select } from "../components";
 import { PipelinePill, StatusChips, filterByStatus } from "./Companies";
 
 function NewContactModal({ onClose, onCreated, workspaceId }) {
@@ -43,10 +44,10 @@ function NewContactModal({ onClose, onCreated, workspaceId }) {
         <div className="field"><label>Title</label>
           <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Founder, Head of Growth…" /></div>
         <div className="field"><label>Company</label>
-          <select value={form.company_id} onChange={(e) => setForm({ ...form, company_id: e.target.value })}>
+          <Select value={form.company_id} onChange={(e) => setForm({ ...form, company_id: e.target.value })}>
             <option value="">— none —</option>
             {(companies || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          </Select>
           <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 4 }}>
             New contacts have no deal yet. Create a deal on Pipeline to book a meeting.</div>
         </div>

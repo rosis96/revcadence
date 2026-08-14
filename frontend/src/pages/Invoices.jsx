@@ -7,6 +7,7 @@ import { Plus, Receipt, Trash2 } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { Button, ConfirmDialog, DataTable, ErrorBox, Modal, PageHeader, StatusPill, useApi, useToast } from "../components";
+import { Select } from "../components";
 
 const TONE = { draft: "gray", issued: "blue", viewed: "amber", partially_paid: "amber", paid: "green", overdue: "red", void: "gray" };
 const fmt = (cur, n) => `${cur || "USD"} ${(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
@@ -112,22 +113,22 @@ export default function Invoices() {
               <div style={fld}><label style={lab}>Unit price</label>
                 <input style={inp} type="number" min="0" step="0.01" placeholder="0.00" value={f.price} onChange={(e) => set("price", e.target.value)} /></div>
               <div style={fld}><label style={lab}>Currency</label>
-                <select style={inp} value={f.currency} onChange={(e) => set("currency", e.target.value)}>
+                <Select style={{ width: "100%" }} value={f.currency} onChange={(e) => set("currency", e.target.value)}>
                   <option>USD</option><option>GBP</option><option>EUR</option>
-                </select></div>
+                </Select></div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div style={fld}><label style={lab}>Issue date</label>
                 <input style={inp} type="date" value={f.issue} onChange={(e) => set("issue", e.target.value)} /></div>
               <div style={fld}><label style={lab}>Terms</label>
-                <select style={inp} value={f.terms} onChange={(e) => set("terms", e.target.value)}>
+                <Select style={{ width: "100%" }} value={f.terms} onChange={(e) => set("terms", e.target.value)}>
                   <option value="0">Due on receipt</option>
                   <option value="7">Net 7</option>
                   <option value="14">Net 14</option>
                   <option value="15">Net 15</option>
                   <option value="30">Net 30</option>
                   <option value="custom">Custom days</option>
-                </select></div>
+                </Select></div>
             </div>
             {f.terms === "custom" && (
               <div style={fld}><label style={lab}>Days until due</label>

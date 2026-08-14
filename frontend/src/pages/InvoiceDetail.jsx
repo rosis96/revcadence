@@ -9,6 +9,7 @@ import {
   Badge, Breadcrumbs, Button, ErrorBox, Modal, RowCard, SaveIndicator, Spinner,
   StatusPill, StatusSteps, useApi, useAutoSave, useToast,
 } from "../components";
+import { Select } from "../components";
 
 const TONE = { draft: "gray", issued: "blue", viewed: "amber", partially_paid: "amber", paid: "green", overdue: "red", void: "gray" };
 const LIFE = [
@@ -123,8 +124,8 @@ export default function InvoiceDetail() {
               <div className="field"><label>Email</label>
                 <input disabled={!editable} value={inv.bill_to_email || ""} onChange={(e) => setInv({ ...inv, bill_to_email: e.target.value })} /></div>
               <div className="field"><label>Currency</label>
-                <select disabled={!editable} value={inv.currency || "USD"} onChange={(e) => setInv({ ...inv, currency: e.target.value })}>
-                  <option>USD</option><option>GBP</option><option>EUR</option></select></div>
+                <Select disabled={!editable} value={inv.currency || "USD"} onChange={(e) => setInv({ ...inv, currency: e.target.value })}>
+                  <option>USD</option><option>GBP</option><option>EUR</option></Select></div>
               <div className="field"><label>Issue date</label>
                 <input type="date" disabled={!editable} value={inv.issue_date || ""} onChange={(e) => setInv({ ...inv, issue_date: e.target.value })} /></div>
               <div className="field"><label>Due date</label>
@@ -208,7 +209,7 @@ export default function InvoiceDetail() {
 
           <RowCard title="Timeline" empty="No events yet.">
             {acts.map((t) => (
-              <div key={t.id} style={{ fontSize: 12, padding: "5px 10px", borderTop: "1px solid #F2F3F5" }}>
+              <div key={t.id} style={{ fontSize: 12, padding: "5px 10px", borderTop: "1px solid var(--border)" }}>
                 {t.title}<div style={{ color: "var(--muted2)", fontSize: 11 }}>{timeAgo(t.occurred_at)}</div>
               </div>
             ))}

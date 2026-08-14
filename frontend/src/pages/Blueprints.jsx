@@ -6,6 +6,7 @@ import { api } from "../api";
 import { useAuth } from "../auth";
 import { Badge, Empty, ErrorBox, Modal, Spinner, useApi } from "../components";
 import { alertDialog } from "../components";
+import { Select } from "../components";
 
 const statusTone = { draft: "amber", published: "green", viewed: "green", executed: "green" };
 
@@ -100,9 +101,9 @@ export default function Blueprints() {
       {modal === "transcript" && (
         <Modal title="New blueprint from a call transcript" onClose={() => setModal("")}>
           <div className="field"><label>Company</label>
-            <select value={companyId} onChange={(e) => setCompanyId(e.target.value)} style={{ width: "100%" }}>
+            <Select value={companyId} onChange={(e) => setCompanyId(e.target.value)} style={{ width: "100%" }}>
               {(companies || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            </Select>
             {(!companies || companies.length === 0) && (
               <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>No companies in this workspace yet — add one in CRM first.</div>
             )}
@@ -124,10 +125,10 @@ export default function Blueprints() {
             Bring your own page — upload an HTML file (or paste the markup) you built outside the system.
             It gets its own slug and public link, and publishes exactly like a generated blueprint.</p>
           <div className="field"><label>Company (optional)</label>
-            <select value={companyId} onChange={(e) => setCompanyId(e.target.value)} style={{ width: "100%" }}>
+            <Select value={companyId} onChange={(e) => setCompanyId(e.target.value)} style={{ width: "100%" }}>
               <option value="">— none —</option>
               {(companies || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            </Select>
           </div>
           <div className="field"><label>Title</label>
             <input value={upTitle} onChange={(e) => setUpTitle(e.target.value)}

@@ -15,6 +15,7 @@ import {
   Badge, Breadcrumbs, Button, DataTable, Drawer, ErrorBox, FilterPanel,
   Modal, PageHeader, Spinner, useApi, useDebounced, useToast,
 } from "../components";
+import { Select } from "../components";
 
 const VIEWS = [["all", "All"], ["processed", "Processed"], ["verified", "Verified"],
   ["enriched", "Enriched"], ["insufficient", "Insufficient research"],
@@ -397,7 +398,7 @@ export default function EnrichListDetail() {
 
       {reoon?.demo && (
         <div className="card" style={{
-          background: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b",
+          background: "var(--bad-soft)", border: "1px solid rgba(248,113,113,.32)", color: "var(--bad-text)",
           padding: "12px 16px", marginBottom: 12, fontSize: 13, display: "flex",
           alignItems: "center", gap: 10,
         }}>
@@ -463,11 +464,11 @@ export default function EnrichListDetail() {
                 <button className="dt-tool" disabled={!!job} onClick={splitByIndustry}>Split by industry</button>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                   <button className="dt-tool" disabled={!!job} onClick={fixGrammar}>Fix grammar</button>
-                  <select value={grammarVar} onChange={(e) => setGrammarVar(e.target.value)} title="Which variable to fix (default: all)"
-                    style={{ fontSize: 12, padding: "5px 6px", borderRadius: 7, maxWidth: 150 }}>
+                  <Select size="sm" value={grammarVar} onChange={(e) => setGrammarVar(e.target.value)} title="Which variable to fix (default: all)"
+                    style={{ maxWidth: 150 }}>
                     <option value="">all variables</option>
                     {(cfg.data?.formats || []).map((f) => <option key={f.name} value={f.name}>{f.label || f.name}</option>)}
-                  </select>
+                  </Select>
                 </span>
                 <button className="dt-tool" onClick={openDedupe}>Dedupe</button>
                 <button className="dt-tool" onClick={() => clearAction("clear-results")}>Clear results</button>
@@ -677,14 +678,14 @@ export default function EnrichListDetail() {
               placeholder={"e.g. B2B SaaS and digital agencies, 10-200 employees, selling paid services to other businesses. Plain prose or ICP JSON both work."}
               style={{ width: "100%", minHeight: 190, fontSize: 13, lineHeight: 1.5, fontFamily: "inherit", padding: 10 }}
             />
-            <div className="card" style={{ padding: "10px 12px", background: "#f0fdf4", border: "1px solid #bbf7d0", fontSize: 12.5, color: "#166534" }}>
+            <div className="card" style={{ padding: "10px 12px", background: "var(--ok-soft)", border: "1px solid rgba(52,211,153,.32)", fontSize: 12.5, color: "var(--ok-text)" }}>
               Always on for every list: non-profits, charities, churches, and donation
               organizations are kept as Non-ICP automatically (based on who they are, not who they serve).
             </div>
             {icpInfo && !((icpInfo.icp_definition || "").trim()) && (icpInfo.workspace_icp || "").trim() && (
               <details style={{ fontSize: 12.5 }}>
                 <summary style={{ cursor: "pointer", color: "var(--muted)" }}>Workspace ICP (used when this is blank)</summary>
-                <div style={{ whiteSpace: "pre-wrap", marginTop: 6, padding: 10, background: "#f8fafc", borderRadius: 6 }}>
+                <div style={{ whiteSpace: "pre-wrap", marginTop: 6, padding: 10, background: "var(--card-2)", borderRadius: 6 }}>
                   {icpInfo.workspace_icp}
                 </div>
               </details>
@@ -705,13 +706,13 @@ export default function EnrichListDetail() {
           <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 440 }}>
             <label style={{ fontSize: 13 }}>
               Compare against list
-              <select value={dedupeOther} style={{ width: "100%", marginTop: 4 }}
+              <Select value={dedupeOther} style={{ width: "100%", marginTop: 4 }}
                 onChange={(e) => { setDedupeOther(e.target.value); setDedupePreview(null); }}>
                 <option value="">Select a list…</option>
                 {dedupeLists.map((l) => (
                   <option key={l.id} value={l.id}>{l.name} ({(l.leads || 0).toLocaleString()} leads)</option>
                 ))}
-              </select>
+              </Select>
             </label>
             <div style={{ fontSize: 13 }}>
               <div style={{ marginBottom: 6, color: "var(--muted)" }}>When an email appears in both lists, delete it from:</div>
@@ -727,7 +728,7 @@ export default function EnrichListDetail() {
               </label>
             </div>
             {dedupePreview && (
-              <div className="card" style={{ padding: 12, background: "#f5f8fc", fontSize: 13 }}>
+              <div className="card" style={{ padding: 12, background: "var(--card-2)", fontSize: 13 }}>
                 <b>{dedupePreview.matches.toLocaleString()}</b> duplicate{dedupePreview.matches === 1 ? "" : "s"} found —
                 would be deleted from <b>{dedupePreview.target_list}</b> (of {dedupePreview.target_total.toLocaleString()} leads).
                 {dedupePreview.matches === 0 && " Nothing to remove."}

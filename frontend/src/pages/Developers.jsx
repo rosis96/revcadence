@@ -141,7 +141,7 @@ function RequestLogs({ k, onClose }) {
       {(data || []).length === 0 && <p style={{ color: "var(--muted)", fontSize: 13 }}>No requests yet.</p>}
       {(data || []).map((r, i) => (
         <div key={i} style={{ display: "flex", gap: 10, fontSize: 12.5, padding: "6px 0",
-          borderTop: "1px solid #F2F3F5", fontFamily: "monospace" }}>
+          borderTop: "1px solid var(--border)", fontFamily: "monospace" }}>
           <b style={{ width: 52 }}>{r.method}</b>
           <span style={{ flex: 1 }}>{r.path}</span>
           <Badge tone={r.status < 400 ? "green" : "red"}>{r.status}</Badge>
@@ -251,7 +251,7 @@ function Deliveries({ hookId }) {
       {(data || []).length === 0 && <div className="rc-empty">No deliveries yet.</div>}
       {(data || []).map((d) => (
         <div key={d.id} style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 12.5,
-          padding: "6px 0", borderTop: "1px solid #F2F3F5" }}>
+          padding: "6px 0", borderTop: "1px solid var(--border)" }}>
           <StatusPill tone={TONE[d.status] || "gray"}>{d.status}</StatusPill>
           <span style={{ fontFamily: "monospace", flex: 1 }}>{d.event_type}</span>
           <span style={{ color: "var(--muted2)" }}>attempt {d.attempts}{d.response_status ? ` · HTTP ${d.response_status}` : ""} · {timeAgo(d.created_at)}</span>

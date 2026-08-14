@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { Badge, ErrorBox, Spinner } from "../components";
+import { Select } from "../components";
 
 function Field({ label, children, hint }) {
   return (
@@ -255,8 +256,8 @@ export default function ReplySetup() {
         <WebhookBox platform={w.platform} name={w.name} />
 
         <div style={{ display: "flex", gap: 12 }}>
-          <Field label="Platform"><select value={w.platform} onChange={(e) => set("platform", e.target.value)}><option value="bison">Bison</option><option value="instantly">Instantly</option></select></Field>
-          <Field label="Mode"><select value={w.mode} onChange={(e) => set("mode", e.target.value)}><option value="reply">reply</option><option value="followup">followup</option></select></Field>
+          <Field label="Platform"><Select value={w.platform} onChange={(e) => set("platform", e.target.value)}><option value="bison">Bison</option><option value="instantly">Instantly</option></Select></Field>
+          <Field label="Mode"><Select value={w.mode} onChange={(e) => set("mode", e.target.value)}><option value="reply">reply</option><option value="followup">followup</option></Select></Field>
           <Field label="Reply delay (seconds)"><input type="number" style={{ width: 110 }} value={w.reply_delay_seconds} onChange={(e) => set("reply_delay_seconds", Number(e.target.value))} /></Field>
         </div>
         <div style={{ display: "flex", gap: 12 }}>
@@ -292,7 +293,7 @@ export default function ReplySetup() {
       <div className="card" style={{ padding: 18 }}>
         <h2 style={{ fontSize: 14, marginBottom: 8 }}>AI model</h2>
         <div style={{ display: "flex", gap: 12 }}>
-          <Field label="Provider"><select value={w.ai_provider} onChange={(e) => set("ai_provider", e.target.value)}><option value="openai">OpenAI</option><option value="gemini">Gemini</option></select></Field>
+          <Field label="Provider"><Select value={w.ai_provider} onChange={(e) => set("ai_provider", e.target.value)}><option value="openai">OpenAI</option><option value="gemini">Gemini</option></Select></Field>
         </div>
         <label style={{ display: "flex", gap: 8, fontSize: 13 }}><input type="checkbox" checked={w.ai_fallback} onChange={(e) => set("ai_fallback", e.target.checked)} /> Auto-fallback to the other provider on failure</label>
       </div>
@@ -307,8 +308,8 @@ export default function ReplySetup() {
       </div>
 
       <div className="section">
-        <div className="card" style={{ padding: 16, marginBottom: 12, borderColor: "#bfdcf6",
-          background: "linear-gradient(180deg,#fff,#f4f9ff)" }}>
+        <div className="card" style={{ padding: 16, marginBottom: 12, borderColor: "rgba(96,165,250,.28)",
+          background: "linear-gradient(180deg, rgba(96,165,250,.10), var(--card) 65%)" }}>
           <h2 style={{ fontSize: 15, margin: "0 0 4px" }}>Build reply formats with AI</h2>
           <p style={{ color: "var(--muted)", fontSize: 12.5, margin: "0 0 10px", lineHeight: 1.5 }}>
             Same idea as the outbound Formats builder, and it uses the <b>same Client Brain</b>. Describe your
@@ -336,7 +337,7 @@ export default function ReplySetup() {
                   setRfB((b) => ({ ...b, busy: false, done: `${r.count} response types${rfB.followups ? `, ${r.followup_count} follow-ups` : ""}` }));
                 } catch (e) { alertDialog(e.message); setRfB((b) => ({ ...b, busy: false })); }
               }}>{rfB.busy ? "Designing…" : "Build reply formats with AI"}</button>
-            {rfB.done && <span style={{ fontSize: 12.5, color: "#15803d" }}>✓ built {rfB.done}. Review below, then <b>Save</b>.</span>}
+            {rfB.done && <span style={{ fontSize: 12.5, color: "var(--ok-text)" }}>✓ built {rfB.done}. Review below, then <b>Save</b>.</span>}
           </div>
         </div>
         <div className="toolbar">

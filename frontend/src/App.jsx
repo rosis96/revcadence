@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { HashRouter, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   LayoutGrid, ListChecks, Database, CircleUser, Target, AlignLeft, CheckCheck, FileText,
   Mail, Inbox, FlaskConical, Settings2, SlidersHorizontal, Flag, Globe, Rows3, Building2,
-  Contact, Activity as ActivityIcon, Cog, Wrench, ShieldCheck, ChevronDown, MoreHorizontal,
+  Contact, Activity as ActivityIcon, Cog, Wrench, ShieldCheck, ChevronDown, ChevronsUpDown, MoreHorizontal,
   LogOut, Search, ClipboardList, Radar, Briefcase, Bell, KeyRound, Plug, BarChart3, Sparkles,
 } from "lucide-react";
 import { AuthProvider, useAuth } from "./auth";
-import { CommandPalette, GlobalDialogs, ToastProvider, useApi, useClickOutside } from "./components";
+import { CommandPalette, GlobalDialogs, InlinePopup, Select, ToastProvider, useApi } from "./components";
 import KitchenSink from "./pages/KitchenSink";
 import Developers from "./pages/Developers";
 import CrmSync from "./pages/CrmSync";
@@ -118,8 +119,32 @@ const BUILD_BY_MODE = {
 const BUILD_ALL = Object.values(BUILD_BY_MODE).flat();
 const SYSTEM_NAV = [["/activity", "Activity", ActivityIcon], ["/jobs", "Jobs", Cog], ["/settings", "Settings", Wrench],
   ["/settings/developers", "Developers", KeyRound], ["/settings/crm", "CRM Integrations", Plug]];
-const NAV = [...COMMON_NAV, ...Object.values(MODES).flatMap((m) => m.nav), ...BUILD_ALL, ...SYSTEM_NAV];
 const NavIcon = ({ ic: Ic }) => <span className="icon"><Ic size={I} /></span>;
+// The wordmark is now mark-only and lives at the far end of the top bar, where it
+// doubles as the system-status control.
+const RcWave = () => (
+  <svg className="rc-wave" viewBox="80 20 560 235" aria-hidden="true"><path d="M104 235 L121 235 C134 235 134 204 147 204 C160 204 160 235 173 235 C186 235 186 197 199 197 C212 197 212 235 225 235 C238 235 238 177 251 177 C264 177 264 235 277 235 C290 235 290 154 303 154 C316 154 316 235 329 235 C342 235 342 129 355 129 C368 129 368 235 381 235 C394 235 394 101 407 101 C420 101 420 235 433 235 C446 235 446 72 459 72 C472 72 472 235 485 235 C498 235 498 42 511 42 C524 42 524 235 537 235 L553 235" fill="none" stroke="currentColor" strokeWidth="20" strokeLinecap="round" strokeLinejoin="round" /></svg>
+);
+
+// Lives at the left of the top bar, so its width is independent of the sidebar.
+// Non-masters get the same box as a static label.
+function WorkspaceSwitcher({ me, workspaceId, setWorkspaceId }) {
+  if (!me?.is_master) {
+    return (
+      <span className="ws-top ws-top-static" title="Workspace">
+        <span className="ws-top-name">{me?.workspaces?.[0]?.name || "Workspace"}</span>
+      </span>
+    );
+  }
+  return (
+    <div className="ws-top" title="Active workspace" data-sel-anchor>
+      <Select tone="ghost" caret={ChevronsUpDown} value={workspaceId} onChange={(e) => setWorkspaceId(e.target.value)}>
+        <option value="">All workspaces</option>
+        {me.workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+      </Select>
+    </div>
+  );
+}
 
 // A handed-over client workspace stays clean: clients only see their results —
 // dashboard/reports, the reply inbox, and pipeline/CRM. Everything operational
@@ -153,15 +178,15 @@ function Sidebar() {
   const [systemOpen, setSystemOpen] = useState(() =>
     inGroup(SYSTEM_NAV) || loc.pathname.startsWith("/admin") || loc.pathname.startsWith("/billing"));
   const [menu, setMenu] = useState(false);
+  const profileRef = useRef(null);
   const initials = (me.user.name || me.user.email).slice(0, 2).toUpperCase();
   return (
     <aside className="sidebar">
-      <div className="logo"><svg className="rc-wave" viewBox="80 20 560 235" aria-hidden="true"><path d="M104 235 L121 235 C134 235 134 204 147 204 C160 204 160 235 173 235 C186 235 186 197 199 197 C212 197 212 235 225 235 C238 235 238 177 251 177 C264 177 264 235 277 235 C290 235 290 154 303 154 C316 154 316 235 329 235 C342 235 342 129 355 129 C368 129 368 235 381 235 C394 235 394 101 407 101 C420 101 420 235 433 235 C446 235 446 72 459 72 C472 72 472 235 485 235 C498 235 498 42 511 42 C524 42 524 235 537 235 L553 235" fill="none" stroke="currentColor" strokeWidth="20" strokeLinecap="round" strokeLinejoin="round" /></svg><span>revcadence</span></div>
       {modeEntries.length > 1 && (
         <div className="ws-switch">
-          <select value={activeMode} onChange={(e) => setMode(e.target.value)}>
+          <Select tone="dark" value={activeMode} onChange={(e) => setMode(e.target.value)}>
             {modeEntries.map(([key, m]) => <option key={key} value={key}>{m.label}</option>)}
-          </select>
+          </Select>
         </div>
       )}
       <nav className="nav">
@@ -178,36 +203,46 @@ function Sidebar() {
               <>
                 <button className="group-btn" onClick={() => setBuildOpen((v) => !v)} aria-expanded={buildOpen}>
                   <span>Build · {modeMap[activeMode].label}</span>
-                  <ChevronDown size={14} style={{ transform: buildOpen ? "" : "rotate(-90deg)", transition: "transform .15s" }} />
+                  <motion.span className="group-chevron" animate={{ rotate: buildOpen ? 0 : -90 }} transition={{ duration: 0.2, ease: "easeOut" }}>
+                    <ChevronDown size={14} />
+                  </motion.span>
                 </button>
-                {buildOpen && buildItems.map(([to, label, ic]) => (
-                  <NavLink key={to} to={to} end={to.split("/").length <= 2}><NavIcon ic={ic} /><span>{label}</span></NavLink>
-                ))}
+                <AnimatePresence initial={false}>
+                  {buildOpen && (
+                    <motion.div className="sidebar-subnav" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}>
+                      {buildItems.map(([to, label, ic]) => (
+                        <NavLink key={to} to={to} end={to.split("/").length <= 2}><NavIcon ic={ic} /><span>{label}</span></NavLink>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </>
             )}
             <button className="group-btn" onClick={() => setSystemOpen((v) => !v)} aria-expanded={systemOpen}>
               <span>System</span>
-              <ChevronDown size={14} style={{ transform: systemOpen ? "" : "rotate(-90deg)", transition: "transform .15s" }} />
+              <motion.span className="group-chevron" animate={{ rotate: systemOpen ? 0 : -90 }} transition={{ duration: 0.2, ease: "easeOut" }}>
+                <ChevronDown size={14} />
+              </motion.span>
             </button>
-            {systemOpen && (
-              <>
-                {SYSTEM_NAV.map(([to, label, ic]) => (
-                  <NavLink key={to} to={to}><NavIcon ic={ic} /><span>{label}</span></NavLink>
-                ))}
-                {me.is_master && <NavLink to="/billing"><NavIcon ic={BarChart3} /><span>Billing</span></NavLink>}
-                {me.is_master && <NavLink to="/admin"><NavIcon ic={ShieldCheck} /><span>Admin</span></NavLink>}
-              </>
-            )}
+            <AnimatePresence initial={false}>
+              {systemOpen && (
+                <motion.div className="sidebar-subnav" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}>
+                  {SYSTEM_NAV.map(([to, label, ic]) => (
+                    <NavLink key={to} to={to}><NavIcon ic={ic} /><span>{label}</span></NavLink>
+                  ))}
+                  {me.is_master && <NavLink to="/billing"><NavIcon ic={BarChart3} /><span>Billing</span></NavLink>}
+                  {me.is_master && <NavLink to="/admin"><NavIcon ic={ShieldCheck} /><span>Admin</span></NavLink>}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </>
         )}
       </nav>
       <div className="foot">
-        {menu && (
-          <div className="profile-menu">
-            <button onClick={logout}><LogOut size={15} /> Sign out</button>
-          </div>
-        )}
-        <div className="profile" onClick={() => setMenu((v) => !v)}>
+        <InlinePopup open={menu} onClose={() => setMenu(false)} anchorRef={profileRef} side="top" className="profile-menu">
+          <button onClick={logout}><LogOut size={15} /> Sign out</button>
+        </InlinePopup>
+        <div ref={profileRef} className="profile" onClick={() => setMenu((v) => !v)}>
           <div className="pa">{initials}</div>
           <div className="pn"><b>{me.user.name || me.user.email}</b><span>{me.role}</span></div>
           <MoreHorizontal size={16} className="dots" />
@@ -217,65 +252,56 @@ function Sidebar() {
   );
 }
 
-function Topbar({ onSearch }) {
+function Topbar({ inlineSearchOpen, onInlineSearchChange, inlineSearchQuery, onInlineSearchQueryChange, searchRef }) {
   const loc = useLocation();
   const { me, workspaceId, setWorkspaceId } = useAuth();
   const { data: health } = useApi("/healthz", undefined, [loc.pathname]);
   const [statusOpen, setStatusOpen] = useState(false);
   const [bellOpen, setBellOpen] = useState(false);
-  const popRef = useRef(null);
+  const statusRef = useRef(null);
   const bellRef = useRef(null);
-  useClickOutside(popRef, () => setStatusOpen(false));
-  useClickOutside(bellRef, () => setBellOpen(false));
-  const title = (NAV.find(([to]) => to === loc.pathname)?.[1]) ||
-    (loc.pathname.startsWith("/admin") ? "Admin" :
-     loc.pathname.startsWith("/companies") ? "Companies" :
-     loc.pathname.startsWith("/dev") ? "Kitchen sink" :
-     loc.pathname.startsWith("/blueprints") ? "Blueprints" : "RevCadence");
   const workerOk = health?.worker?.alive;
   const allOk = workerOk && health?.ok;
   return (
     <header className="topbar">
-      <h1>{title}</h1>
-      <button className="cmdbtn global" onClick={onSearch}>
-        <Search size={15} /> Search or ask… <kbd>⌘K</kbd>
-      </button>
+      <WorkspaceSwitcher me={me} workspaceId={workspaceId} setWorkspaceId={setWorkspaceId} />
+      <div ref={searchRef} className="cmdbtn global top-search">
+        <Search size={15} />
+        <input
+          value={inlineSearchQuery}
+          placeholder="Search or ask…"
+          aria-label="Search or ask"
+          onFocus={() => onInlineSearchChange(true)}
+          onChange={(event) => { onInlineSearchQueryChange(event.target.value); onInlineSearchChange(true); }}
+          onKeyDown={(event) => event.key === "Escape" && onInlineSearchChange(false)}
+        />
+        <kbd>⌘K</kbd>
+      </div>
+      <CommandPalette variant="inline" open={inlineSearchOpen} onClose={() => onInlineSearchChange(false)} anchorRef={searchRef}
+        query={inlineSearchQuery} onQueryChange={onInlineSearchQueryChange} showInput={false} />
       <div className="right">
-        {me?.is_master ? (
-          <div className="ws-top" title="Active workspace">
-            <Building2 size={14} style={{ opacity: 0.6 }} />
-            <select value={workspaceId} onChange={(e) => setWorkspaceId(e.target.value)}>
-              <option value="">All workspaces</option>
-              {me.workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </select>
-          </div>
-        ) : (
-          <span className="ws-top ws-top-static"><Building2 size={14} style={{ opacity: 0.6 }} />{me?.workspaces?.[0]?.name || "Workspace"}</span>
-        )}
-        <div ref={bellRef} style={{ position: "relative" }}>
-          <button className="iconbtn" title="Notifications" onClick={() => setBellOpen((v) => !v)}>
-            <Bell size={16} />
-          </button>
-          {bellOpen && (
-            <div className="status-pop">
-              <div className="pop-title">Notifications</div>
-              <div style={{ color: "var(--muted)", fontSize: 13, padding: "8px 0" }}>You're all caught up.</div>
-            </div>
-          )}
-        </div>
-        <div ref={popRef} style={{ position: "relative" }}>
-          <button className="iconbtn" title="System status" onClick={() => setStatusOpen((v) => !v)}>
-            <span className={`dot ${allOk ? "ok" : "bad"}`} />
-          </button>
-          {statusOpen && (
-            <div className="status-pop">
-              <div className="pop-title">System status</div>
-              <div className="row"><span>API</span><span><span className={`dot ${health?.ok ? "ok" : "bad"}`} /> {health?.ok ? "online" : "down"}</span></div>
-              <div className="row"><span>Worker</span><span><span className={`dot ${workerOk ? "ok" : "bad"}`} /> {workerOk ? "online" : "offline"}</span></div>
-              <div className="row"><span>Database</span><span style={{ color: "var(--muted)" }}>{health?.db || "—"}</span></div>
-            </div>
-          )}
-        </div>
+        <button ref={bellRef} className="iconbtn" title="Notifications" onClick={() => setBellOpen((v) => !v)}>
+          <Bell size={16} />
+        </button>
+        <InlinePopup open={bellOpen} onClose={() => setBellOpen(false)} anchorRef={bellRef} align="end" className="status-pop">
+          <div className="pop-title">Notifications</div>
+          <div style={{ color: "var(--muted)", fontSize: 13, padding: "8px 0" }}>You're all caught up.</div>
+        </InlinePopup>
+        <button
+          ref={statusRef}
+          className={`rc-status ${allOk ? "ok" : "bad"}`}
+          title={allOk ? "System status — all systems go" : "System status — needs attention"}
+          aria-label="System status"
+          onClick={() => setStatusOpen((v) => !v)}
+        >
+          <RcWave />
+        </button>
+        <InlinePopup open={statusOpen} onClose={() => setStatusOpen(false)} anchorRef={statusRef} align="end" className="status-pop">
+          <div className="pop-title">System status</div>
+          <div className="row"><span>API</span><span><span className={`dot ${health?.ok ? "ok" : "bad"}`} /> {health?.ok ? "online" : "down"}</span></div>
+          <div className="row"><span>Worker</span><span><span className={`dot ${workerOk ? "ok" : "bad"}`} /> {workerOk ? "online" : "offline"}</span></div>
+          <div className="row"><span>Database</span><span style={{ color: "var(--muted)" }}>{health?.db || "—"}</span></div>
+        </InlinePopup>
       </div>
     </header>
   );
@@ -283,9 +309,16 @@ function Topbar({ onSearch }) {
 
 function Shell({ children }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [inlineSearchOpen, setInlineSearchOpen] = useState(false);
+  const [inlineSearchQuery, setInlineSearchQuery] = useState("");
+  const searchRef = useRef(null);
   useEffect(() => {
     const h = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPaletteOpen((v) => !v); }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setInlineSearchOpen(false);
+        setPaletteOpen((v) => !v);
+      }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
@@ -295,7 +328,8 @@ function Shell({ children }) {
       <div className="app">
         <Sidebar />
         <div className="main">
-          <Topbar onSearch={() => setPaletteOpen(true)} />
+          <Topbar inlineSearchOpen={inlineSearchOpen} onInlineSearchChange={setInlineSearchOpen}
+            inlineSearchQuery={inlineSearchQuery} onInlineSearchQueryChange={setInlineSearchQuery} searchRef={searchRef} />
           <div className="content">{children}</div>
         </div>
         <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />

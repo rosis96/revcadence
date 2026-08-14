@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Badge, Empty, ErrorBox, Spinner, useApi } from "../components";
 import { alertDialog } from "../components";
+import { Select } from "../components";
 
 const tone = { done: "green", failed: "red", running: "indigo", pending: "amber" };
 
@@ -24,10 +25,10 @@ export default function Jobs() {
   return (
     <>
       <div className="toolbar">
-        <select value={status} onChange={(e) => setStatus(e.target.value)}>
+        <Select value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">All statuses</option>
           {["pending", "running", "done", "failed", "cancelled"].map((s) => <option key={s}>{s}</option>)}
-        </select>
+        </Select>
         <button className="btn ghost sm" onClick={reload}>Refresh</button>
       </div>
       {loading && <Spinner />}

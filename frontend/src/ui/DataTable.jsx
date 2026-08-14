@@ -1,4 +1,5 @@
 import { promptDialog } from "./dialogs";
+import { Select } from "./Select";
 /* THE DataTable (DESIGN_SYSTEM.md Part 3). One table for every list in RevCadence.
    TanStack Table (headless) + TanStack Virtual. Features: search, sorting, column
    chooser (persisted), saved views (persisted), bulk actions, sticky header,
@@ -265,10 +266,10 @@ export function DataTable({
         <div className="pager">
           <span>{table.getFilteredRowModel().rows.length.toLocaleString()} rows</span>
           <div className="pr">
-            <select value={pagination.pageSize}
+            <Select size="sm" value={pagination.pageSize}
               onChange={(e) => setPagination((p) => ({ ...p, pageSize: Number(e.target.value), pageIndex: 0 }))}>
               {[25, 50, 100].map((s) => <option key={s} value={s}>{s} / page</option>)}
-            </select>
+            </Select>
             <span>Page {pagination.pageIndex + 1} of {Math.max(table.getPageCount(), 1)}</span>
             <button className="pgbtn" disabled={!table.getCanPreviousPage()} onClick={() => table.previousPage()}>‹</button>
             <button className="pgbtn" disabled={!table.getCanNextPage()} onClick={() => table.nextPage()}>›</button>
