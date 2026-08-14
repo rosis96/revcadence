@@ -116,10 +116,10 @@ def _footer(canvas, doc, note):
     canvas.restoreState()
 
 
-def _doc(buf, footer_note):
+def _doc(buf, footer_note, *, top_margin=0.8 * inch, bottom_margin=0.9 * inch):
     doc = BaseDocTemplate(buf, pagesize=LETTER,
                           leftMargin=0.9 * inch, rightMargin=0.9 * inch,
-                          topMargin=0.8 * inch, bottomMargin=0.9 * inch,
+                          topMargin=top_margin, bottomMargin=bottom_margin,
                           title=footer_note)
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="main")
     doc.addPageTemplates([PageTemplate(id="t", frames=[frame],
@@ -221,7 +221,11 @@ def build_invoice_pdf(inv, company=None) -> bytes:
     details. Payment details and issuer are env-overridable."""
     ss = _styles()
     buf = io.BytesIO()
-    doc = _doc(buf, f"RevCadence LLC  ·  {inv.number}")
+    doc = _doc(buf, f"RevCadence LLC  ·  {inv.number}",
+               top_margin=0.62 * inch, bottom_margin=0.82 * inch)
+    # Invoices have compact, table-oriented content and should remain a single
+    # page for normal line-item counts. Keep the footer clearance, but reclaim
+    # a little vertical space from the agreement-oriented default margins.
     cur = inv.currency or "USD"
     W = doc.width
 
@@ -251,7 +255,7 @@ def build_invoice_pdf(inv, company=None) -> bytes:
     header.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
                                 ("LEFTPADDING", (0, 0), (-1, -1), 0),
                                 ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
-    story = [header, Spacer(1, 15), HRFlowable(width="100%", thickness=0.6, color=LINE), Spacer(1, 18)]
+    story = [header, Spacer(1, 10), HRFlowable(width="100%", thickness=0.6, color=LINE), Spacer(1, 12)]
 
     # billed to | issued by
     client = inv.bill_to_company or inv.bill_to_name or (company.name if company else "")
@@ -271,11 +275,11 @@ def build_invoice_pdf(inv, company=None) -> bytes:
     parties.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
                                  ("LEFTPADDING", (0, 0), (-1, -1), 0),
                                  ("RIGHTPADDING", (0, 0), (0, 0), 14)]))
-    story += [parties, Spacer(1, 20)]
+    story += [parties, Spacer(1, 13)]
 
     # amount due by (aligned to the left margin, large)
     story += [Paragraph(f"{money(inv.total)} {_e(cur)} due by {_fmt_date(inv.due_date)}", big),
-              Spacer(1, 12)]
+              Spacer(1, 8)]
 
     # line items (with a Tax column, matching the reference)
     right_p = ParagraphStyle("INVCellR", parent=body, alignment=TA_RIGHT, fontSize=9.5)
@@ -317,29 +321,36 @@ def build_invoice_pdf(inv, company=None) -> bytes:
         ("LINEABOVE", (0, -1), (-1, -1), 1.0, INK),
         ("TOPPADDING", (0, -1), (-1, -1), 12), ("BOTTOMPADDING", (0, -1), (-1, -1), 4),
     ]))
-    story += [tt, Spacer(1, 26)]
+    story += [tt, Spacer(1, 16)]
 
-    # Payment details (left) + Guidelines (right). Details are stacked label-above-
-    # value with tight spacing (no big gaps); guidelines sit in their own column so
-    # they never crowd the bank details.
+    # Payment details (left) + Guidelines (right). A compact key/value table keeps
+    # the bank details readable without pushing notes onto a second page.
     pLabel = ParagraphStyle("INVPLabel", parent=body, fontName="Helvetica-Bold",
                             fontSize=9.5, textColor=INK, leading=12, spaceAfter=0)
-    pValTight = ParagraphStyle("INVPValT", parent=body, fontSize=9.5, textColor=INK,
-                               leading=12, spaceAfter=7)
+    pValTight = ParagraphStyle("INVPValT", parent=body, fontSize=9.2, textColor=INK,
+                               leading=11.5)
     gHead = ParagraphStyle("INVGHead", parent=body, fontName="Helvetica-Bold",
                            fontSize=10.5, textColor=INK, spaceAfter=8)
     gItem = ParagraphStyle("INVGItem", parent=body, fontSize=8.6, textColor=MUTED,
                            leading=12, spaceAfter=7, leftIndent=10, firstLineIndent=-10)
 
-    left = [Paragraph(_e(INVOICE_PAYMENT_TITLE), payh)]
-    for k, v in _payment_details():
-        left.append(Paragraph(_e(k), pLabel))
-        left.append(Paragraph(_e(v), pValTight))
+    detail_rows = [[Paragraph(_e(k), pLabel), Paragraph(_e(v), pValTight)]
+                   for k, v in _payment_details()]
+    details = Table(detail_rows, colWidths=[1.55 * inch, W * 0.56 - 1.55 * inch])
+    details.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (0, -1), 8),
+        ("RIGHTPADDING", (1, 0), (1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    left = [Paragraph(_e(INVOICE_PAYMENT_TITLE), payh), details]
     right = [Paragraph("Guidelines", gHead)]
     for g in _guidelines():
         right.append(Paragraph("&bull;&nbsp;&nbsp;" + _e(g), gItem))
 
-    pay = Table([[left, right]], colWidths=[W * 0.54, W * 0.46])
+    pay = Table([[left, right]], colWidths=[W * 0.56, W * 0.44])
     pay.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (0, -1), 0), ("LEFTPADDING", (1, 0), (1, -1), 26),
@@ -348,7 +359,7 @@ def build_invoice_pdf(inv, company=None) -> bytes:
     story.append(pay)
 
     if inv.notes:
-        story += [Spacer(1, 18)] + _body_flowables(inv.notes, ss)
+        story += [Spacer(1, 10)] + _body_flowables(inv.notes, ss)
 
     doc.build(story)
     return buf.getvalue()
