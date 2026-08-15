@@ -107,7 +107,7 @@ export default function AgreementDetail() {
       </div>
 
       {(a.missing_flags || []).length > 0 && editable && (
-        <div className="error-box" style={{ marginBottom: 14, background: "var(--warn-soft)", borderColor: "rgba(251,191,36,.28)", color: "var(--warn-text)" }}>
+        <div className="error-box" style={{ marginBottom: 14, background: "var(--warn-soft)", borderColor: "var(--warn-border)", color: "var(--warn-text)" }}>
           Missing before sending: {a.missing_flags.join(", ")}.
         </div>
       )}

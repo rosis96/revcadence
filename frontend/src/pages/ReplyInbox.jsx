@@ -333,14 +333,14 @@ function Thread({ id, pinned, onPin, aiOpen, onToggleAi, onChanged }) {
           <div className="ib-compose">
             {l.send_error && <div className="error-box" style={{ fontSize: 12.5 }}>Last send failed: {l.send_error}</div>}
             {l.platform === "instantly" && l.can_send_instantly === false && (
-              <div className="error-box" style={{ fontSize: 12.5, background: "var(--warn-soft)", borderColor: "rgba(251,191,36,.28)", color: "var(--warn-text)" }}>
+              <div className="error-box" style={{ fontSize: 12.5, background: "var(--warn-soft)", borderColor: "var(--warn-border)", color: "var(--warn-text)" }}>
                 Can't send through Instantly: the webhook didn't include the reply target. Point the Instantly
                 webhook at the reply-received event so it carries the email id and sending mailbox.
               </div>
             )}
             {!(body || "").trim() && (
               <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", marginBottom: 8,
-                background: "var(--primary-soft)", border: "1px solid rgba(96,165,250,.32)", borderRadius: 8, fontSize: 12.5, color: "var(--muted)" }}>
+                background: "var(--primary-soft)", border: "1px solid var(--accent-border)", borderRadius: 8, fontSize: 12.5, color: "var(--muted)" }}>
                 <Sparkles size={16} style={{ color: "var(--primary)", flexShrink: 0 }} />
                 <span style={{ flex: 1 }}>No draft was generated for this reply. Draft one with AI, then review and send.</span>
                 <Button size="sm" icon={Sparkles} loading={busy === "ai"} disabled={!!busy} onClick={draftAI}>Draft with AI</Button>
@@ -362,7 +362,7 @@ function Thread({ id, pinned, onPin, aiOpen, onToggleAi, onChanged }) {
               <Check size={15} style={{ color: "var(--ok)" }} /> Replied — sent. Send a follow-up in the same thread:
             </div>
             {l.platform === "instantly" && l.can_send_instantly === false && (
-              <div className="error-box" style={{ fontSize: 12.5, background: "var(--warn-soft)", borderColor: "rgba(251,191,36,.28)", color: "var(--warn-text)" }}>
+              <div className="error-box" style={{ fontSize: 12.5, background: "var(--warn-soft)", borderColor: "var(--warn-border)", color: "var(--warn-text)" }}>
                 Can't send through Instantly: the webhook didn't include the reply target.
               </div>
             )}

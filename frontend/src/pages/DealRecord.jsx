@@ -141,7 +141,7 @@ function OverviewTab({ dealId, deal, nav, setTab }) {
     <div className="deal-grid">
       <div style={{ display: "grid", gap: 14 }}>
         {/* AI briefing */}
-        <div className="card" style={{ padding: 18, background: "var(--primary-soft)", borderColor: "rgba(96,165,250,.32)" }}>
+        <div className="card" style={{ padding: 18, background: "var(--primary-soft)", borderColor: "var(--accent-border)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
             <Sparkles size={16} style={{ color: "var(--primary)" }} />
             <b style={{ fontSize: 14 }}>What's happening with this deal</b>
@@ -247,7 +247,7 @@ function TasksTab({ dealId }) {
       {rows.length === 0 && <div style={{ color: "var(--muted)", fontSize: 13 }}>No tasks yet.</div>}
       {rows.map((t) => (
         <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: "1px solid var(--border)" }}>
-          <button className="iconbtn" style={{ width: 26, height: 26, border: t.done ? "none" : "1px solid var(--border)", background: t.done ? "var(--ok,#12b76a)" : "var(--card)", color: "var(--card)" }} onClick={() => toggle(t)}>
+          <button className="iconbtn" style={{ width: 26, height: 26, border: t.done ? "none" : "1px solid var(--border)", background: t.done ? "var(--ok)" : "var(--card)", color: t.done ? "#fff" : "var(--muted2)" }} onClick={() => toggle(t)}>
             {t.done && <Check size={14} />}</button>
           <span style={{ flex: 1, fontSize: 13.5, textDecoration: t.done ? "line-through" : "none", color: t.done ? "var(--muted)" : "var(--ink)" }}>{t.title}</span>
           {t.due_at && <span style={{ fontSize: 12, color: "var(--muted2)" }}>{new Date(t.due_at + "Z").toLocaleDateString()}</span>}

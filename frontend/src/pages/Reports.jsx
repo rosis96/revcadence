@@ -99,7 +99,7 @@ export default function Reports() {
 
       {wsParam && (
         <div className="card" style={{ padding: 14, marginBottom: 18, display: "flex", alignItems: "center",
-          gap: 12, flexWrap: "wrap", background: "linear-gradient(180deg, rgba(96,165,250,.10), var(--card) 65%)", borderColor: "rgba(96,165,250,.28)" }}>
+          gap: 12, flexWrap: "wrap", background: "linear-gradient(180deg, var(--primary-soft), var(--card) 65%)", borderColor: "var(--accent-border)" }}>
           <div style={{ fontSize: 13 }}>
             <b>Average deal value (ACV)</b> — new opportunities inherit this, so your pipeline shows real projected dollars instead of $0.
           </div>

@@ -170,8 +170,8 @@ export default function EnrichConfigPage({ tab }) {
 
       {tab === "profile" && (
         <>
-          <div className="card" style={{ padding: 18, marginBottom: 14, borderColor: "rgba(96,165,250,.28)",
-            background: "linear-gradient(180deg, rgba(96,165,250,.10), var(--card) 65%)" }}>
+          <div className="card" style={{ padding: 18, marginBottom: 14, borderColor: "var(--accent-border)",
+            background: "linear-gradient(180deg, var(--primary-soft), var(--card) 65%)" }}>
             <h2 style={{ fontSize: 15, marginBottom: 4 }}>Build the client brain from their material</h2>
             <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 12 }}>
               Give the AI the client's website and/or paste their case studies & positioning. It reads
@@ -396,8 +396,8 @@ export default function EnrichConfigPage({ tab }) {
 
       {tab === "icp" && (
         <>
-          <div className="card" style={{ padding: 18, marginBottom: 14, borderColor: "rgba(96,165,250,.28)",
-            background: "linear-gradient(180deg, rgba(96,165,250,.10), var(--card) 65%)" }}>
+          <div className="card" style={{ padding: 18, marginBottom: 14, borderColor: "var(--accent-border)",
+            background: "linear-gradient(180deg, var(--primary-soft), var(--card) 65%)" }}>
             <h2 style={{ fontSize: 15, marginBottom: 4 }}>Build the ICP with AI</h2>
             <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 12 }}>
               No JSON needed. Just click <b>Build ICP with AI</b> to use everything you've trained in the brain —
@@ -453,8 +453,8 @@ export default function EnrichConfigPage({ tab }) {
 
       {tab === "formats" && (
         <>
-          <div className="card" style={{ padding: 18, marginBottom: 14, borderColor: "rgba(96,165,250,.28)",
-            background: "linear-gradient(180deg, rgba(96,165,250,.10), var(--card) 65%)" }}>
+          <div className="card" style={{ padding: 18, marginBottom: 14, borderColor: "var(--accent-border)",
+            background: "linear-gradient(180deg, var(--primary-soft), var(--card) 65%)" }}>
             <h2 style={{ fontSize: 15, marginBottom: 4 }}>Build formats with AI</h2>
             <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 12 }}>
               No JSON needed. Explain how you want the variables written — in as much or as little detail as you

@@ -308,8 +308,8 @@ export default function ReplySetup() {
       </div>
 
       <div className="section">
-        <div className="card" style={{ padding: 16, marginBottom: 12, borderColor: "rgba(96,165,250,.28)",
-          background: "linear-gradient(180deg, rgba(96,165,250,.10), var(--card) 65%)" }}>
+        <div className="card" style={{ padding: 16, marginBottom: 12, borderColor: "var(--accent-border)",
+          background: "linear-gradient(180deg, var(--primary-soft), var(--card) 65%)" }}>
           <h2 style={{ fontSize: 15, margin: "0 0 4px" }}>Build reply formats with AI</h2>
           <p style={{ color: "var(--muted)", fontSize: 12.5, margin: "0 0 10px", lineHeight: 1.5 }}>
             Same idea as the outbound Formats builder, and it uses the <b>same Client Brain</b>. Describe your

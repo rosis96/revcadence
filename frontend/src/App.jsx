@@ -5,9 +5,10 @@ import {
   LayoutGrid, ListChecks, Database, CircleUser, Target, AlignLeft, CheckCheck, FileText,
   Mail, Inbox, FlaskConical, Settings2, SlidersHorizontal, Flag, Globe, Rows3, Building2,
   Contact, Activity as ActivityIcon, Cog, Wrench, ShieldCheck, ChevronDown, ChevronsUpDown, MoreHorizontal,
-  LogOut, Search, ClipboardList, Radar, Briefcase, Bell, KeyRound, Plug, BarChart3, Sparkles,
+  LogOut, Search, ClipboardList, Radar, Briefcase, Bell, KeyRound, Plug, BarChart3, Sparkles, Sun, Moon,
 } from "lucide-react";
 import { AuthProvider, useAuth } from "./auth";
+import { ThemeProvider, ThemeToggleButton, useTheme } from "./theme";
 import { CommandPalette, GlobalDialogs, InlinePopup, Select, ToastProvider, useApi } from "./components";
 import KitchenSink from "./pages/KitchenSink";
 import Developers from "./pages/Developers";
@@ -155,6 +156,7 @@ const clientAllowed = (path) => path === "/" || CLIENT_PREFIXES.some((p) => path
 
 function Sidebar() {
   const { me, logout } = useAuth();
+  const { isDark, toggleTheme } = useTheme();
   const isClient = me.role === "client";
   // For clients, drop any nav item and any whole mode they shouldn't see.
   const modeEntries = Object.entries(MODES)
@@ -240,6 +242,11 @@ function Sidebar() {
       </nav>
       <div className="foot">
         <InlinePopup open={menu} onClose={() => setMenu(false)} anchorRef={profileRef} side="top" className="profile-menu">
+          <button onClick={() => { toggleTheme(); setMenu(false); }}>
+            {isDark ? <Sun size={15} /> : <Moon size={15} />}
+            {isDark ? "Light mode" : "Dark mode"}
+          </button>
+          <div className="profile-menu-sep" />
           <button onClick={logout}><LogOut size={15} /> Sign out</button>
         </InlinePopup>
         <div ref={profileRef} className="profile" onClick={() => setMenu((v) => !v)}>
@@ -343,7 +350,7 @@ function Protected() {
   const { me, loading } = useAuth();
   const loc = useLocation();
   if (loading) return <div className="center" style={{ minHeight: "100vh" }}><div className="spinner" /></div>;
-  if (!me) return <Login />;
+  if (!me) return <><ThemeToggleButton className="theme-float" /><Login /></>;
   // Belt-and-suspenders: a client typing a hidden URL is sent back to their dashboard.
   if (me.role === "client" && !clientAllowed(loc.pathname)) return <Shell><Navigate to="/" replace /></Shell>;
   return (
@@ -405,16 +412,16 @@ function Root() {
   if (hash.startsWith("#/onboard/")) {
     return (
       <Routes>
-        <Route path="/onboard/:token" element={<OnboardingForm />} />
-        <Route path="*" element={<OnboardingForm />} />
+        <Route path="/onboard/:token" element={<><ThemeToggleButton className="theme-float" /><OnboardingForm /></>} />
+        <Route path="*" element={<><ThemeToggleButton className="theme-float" /><OnboardingForm /></>} />
       </Routes>
     );
   }
   if (hash.startsWith("#/reset/")) {
     return (
       <Routes>
-        <Route path="/reset/:token" element={<ResetPassword />} />
-        <Route path="*" element={<ResetPassword />} />
+        <Route path="/reset/:token" element={<><ThemeToggleButton className="theme-float" /><ResetPassword /></>} />
+        <Route path="*" element={<><ThemeToggleButton className="theme-float" /><ResetPassword /></>} />
       </Routes>
     );
   }
@@ -427,6 +434,6 @@ function Root() {
 
 export default function App() {
   return (
-    <HashRouter><Root /></HashRouter>
+    <ThemeProvider><HashRouter><Root /></HashRouter></ThemeProvider>
   );
 }

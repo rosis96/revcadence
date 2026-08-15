@@ -398,7 +398,7 @@ export default function EnrichListDetail() {
 
       {reoon?.demo && (
         <div className="card" style={{
-          background: "var(--bad-soft)", border: "1px solid rgba(248,113,113,.32)", color: "var(--bad-text)",
+          background: "var(--bad-soft)", border: "1px solid var(--bad-border)", color: "var(--bad-text)",
           padding: "12px 16px", marginBottom: 12, fontSize: 13, display: "flex",
           alignItems: "center", gap: 10,
         }}>
@@ -678,7 +678,7 @@ export default function EnrichListDetail() {
               placeholder={"e.g. B2B SaaS and digital agencies, 10-200 employees, selling paid services to other businesses. Plain prose or ICP JSON both work."}
               style={{ width: "100%", minHeight: 190, fontSize: 13, lineHeight: 1.5, fontFamily: "inherit", padding: 10 }}
             />
-            <div className="card" style={{ padding: "10px 12px", background: "var(--ok-soft)", border: "1px solid rgba(52,211,153,.32)", fontSize: 12.5, color: "var(--ok-text)" }}>
+            <div className="card" style={{ padding: "10px 12px", background: "var(--ok-soft)", border: "1px solid var(--ok-border)", fontSize: 12.5, color: "var(--ok-text)" }}>
               Always on for every list: non-profits, charities, churches, and donation
               organizations are kept as Non-ICP automatically (based on who they are, not who they serve).
             </div>

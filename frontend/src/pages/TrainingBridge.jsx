@@ -117,7 +117,7 @@ export default function TrainingBridge() {
         </p>
       </div>
 
-      {message && <div className="card" style={{ ...card, color: "var(--ok-text)", borderColor: "rgba(52,211,153,.32)", background: "var(--ok-soft)" }}>
+      {message && <div className="card" style={{ ...card, color: "var(--ok-text)", borderColor: "var(--ok-border)", background: "var(--ok-soft)" }}>
         <CheckCircle2 size={16} style={{ verticalAlign: "text-bottom", marginRight: 7 }} />{message}
       </div>}
 

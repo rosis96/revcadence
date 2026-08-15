@@ -1,6 +1,6 @@
 /* Select — the one dropdown for the whole dashboard.
 
-   Replaces every native select element. The popup is a black, rounded-md panel rendered
+   Replaces every native select element. The popup is a themed, rounded panel rendered
    in a portal (native option lists can't be styled, and an in-flow menu would be
    clipped by .surface / .dt-scroll / .modal .box, which all hide overflow).
 

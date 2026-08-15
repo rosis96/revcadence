@@ -45,7 +45,7 @@ export default function InboundVisitors() {
             </div>
             {showSnippet && (
               <div style={{ marginTop: 10 }}>
-                <pre style={{ fontSize: 11.5, background: "#0f1b2a", color: "#d6e4f0", padding: 12,
+                <pre style={{ fontSize: 11.5, background: "var(--code-bg)", color: "var(--code-text)", padding: 12,
                   borderRadius: 8, overflowX: "auto" }}>{cfg.data.form_snippet}</pre>
                 <button className="btn ghost sm" onClick={() => copy(cfg.data.form_snippet, "Snippet")}>Copy snippet</button>
               </div>

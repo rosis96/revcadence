@@ -128,7 +128,7 @@ export default function MailboxConnect() {
       {loading && <Spinner />}
 
       {importing && (
-        <div className="card" style={{ padding: 16, marginBottom: 14, display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(180deg, rgba(96,165,250,.10), var(--card) 65%)", borderColor: "rgba(96,165,250,.28)" }}>
+        <div className="card" style={{ padding: 16, marginBottom: 14, display: "flex", alignItems: "center", gap: 12, background: "linear-gradient(180deg, var(--primary-soft), var(--card) 65%)", borderColor: "var(--accent-border)" }}>
           <Sparkles size={20} style={{ color: "var(--accent,#635BFF)" }} />
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 600 }}>Importing your last 60 days of conversations…</div>

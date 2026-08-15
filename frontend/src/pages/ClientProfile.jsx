@@ -83,7 +83,7 @@ export default function ClientProfile() {
       <div className="card" style={{ padding: 14, marginBottom: 14, display: "flex", gap: 20, alignItems: "center" }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 4 }}>Onboarding completeness · {p.completeness}%</div>
-          <div style={{ height: 8, background: "rgba(255,255,255,.09)", borderRadius: 6, overflow: "hidden" }}>
+          <div style={{ height: 8, background: "var(--progress-track)", borderRadius: 6, overflow: "hidden" }}>
             <div style={{ width: `${p.completeness}%`, height: "100%", background: "var(--accent, #635BFF)" }} />
           </div>
         </div>

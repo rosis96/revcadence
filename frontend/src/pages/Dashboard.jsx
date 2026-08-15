@@ -34,8 +34,8 @@ function GettingStarted({ wsParam, nav }) {
   const [dismissed, setDismissed] = useState(() => localStorage.getItem(key) === "1");
   if (!data || data.complete || dismissed) return null;
   return (
-    <div className="card" style={{ padding: 18, marginBottom: 16, borderColor: "rgba(96,165,250,.28)",
-      background: "linear-gradient(180deg, rgba(96,165,250,.10), var(--card) 65%)" }}>
+    <div className="card" style={{ padding: 18, marginBottom: 16, borderColor: "var(--accent-border)",
+      background: "linear-gradient(180deg, var(--primary-soft), var(--card) 65%)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
         <div>
           <h2 style={{ fontSize: 16, margin: 0 }}>Getting started</h2>
@@ -44,7 +44,7 @@ function GettingStarted({ wsParam, nav }) {
         </div>
         <button className="btn ghost sm" onClick={() => { localStorage.setItem(key, "1"); setDismissed(true); }}>Dismiss</button>
       </div>
-      <div style={{ height: 8, background: "rgba(255,255,255,.09)", borderRadius: 6, overflow: "hidden", marginBottom: 14 }}>
+      <div style={{ height: 8, background: "var(--progress-track)", borderRadius: 6, overflow: "hidden", marginBottom: 14 }}>
         <div style={{ height: "100%", width: `${100 * data.done / data.total}%`, background: "var(--primary)" }} />
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
