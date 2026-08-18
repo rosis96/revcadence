@@ -1922,21 +1922,20 @@ def main():
     # space rather than whichever one is first in their own list.
     check("invite returns the workspace link and credentials once",
           inv["email"] == "dana@invited.test"
-          and inv["login_url"].endswith("/w/invited-co")
+          and inv["login_url"].endswith("/client/invited-co")
           and str(iw["id"]) not in inv["login_url"]
           and len(inv["temp_password"]) >= 12 and inv["workspace"]["name"] == "Invited Co",
           str({k: v for k, v in inv.items() if k != "temp_password"})[:220])
-    # With no client host configured the link still has to work: it falls back to
-    # the operator host's hash route, which reaches the same screen. A blank or
-    # broken link in a credentials email is unrecoverable.
-    check("invite link falls back to the operator host when no client host is set",
-          inv["login_url"] == "http://testserver/#/w/invited-co", inv["login_url"])
+    # Without a dedicated client host the link stays on the deployed RevCadence
+    # origin, but still uses the real client path rather than a hash route.
+    check("invite link uses the RevCadence client path when no client host is set",
+          inv["login_url"] == "http://testserver/client/invited-co", inv["login_url"])
     # No mailbox is connected in this suite and no SMTP_* is set, so delivery must
     # report failure honestly rather than claim a send that never happened.
     check("invite reports delivery truthfully when no mail is configured",
           inv["emailed"] is False and "SMTP_HOST" in inv["delivery"], str(inv["delivery"])[:200])
 
-    # ---------------- the client host: app.revcadence.com/w/<slug>
+    # ---------------- the client portal: <origin>/client/<slug>
     #
     # Two hosts, one deploy. These checks are the contract between them: the link
     # we email is built from the client host, and that host answers a real path
@@ -1946,12 +1945,12 @@ def main():
     try:
         config.CLIENT_BASE_URL = "https://app.revcadence.com"
         check("a configured client host builds the workspace link",
-              config.client_workspace_url("invited-co") == "https://app.revcadence.com/w/invited-co",
+              config.client_workspace_url("invited-co") == "https://app.revcadence.com/client/invited-co",
               config.client_workspace_url("invited-co"))
         check("the client host never leaks a hash route into an emailed link",
               "#" not in config.client_workspace_url("invited-co"))
-        check("no slug still resolves to the client host root",
-              config.client_workspace_url("") == "https://app.revcadence.com")
+        check("no slug still resolves to the client portal root",
+              config.client_workspace_url("") == "https://app.revcadence.com/client")
         # A form is answered before the account exists, so its link is often the
         # first address a client sees from us. It belongs on the same host.
         check("form invites are issued against the client host too",
@@ -1965,7 +1964,7 @@ def main():
                         json={"email": "dana@invited.test"}, headers=auth(tok))
         check("re-invite is issued against the client host",
               r.status_code == 200
-              and r.json()["login_url"] == "https://app.revcadence.com/w/invited-co", r.text[:200])
+              and r.json()["login_url"] == "https://app.revcadence.com/client/invited-co", r.text[:200])
         # A re-invite rotates the temporary password, so the sign-in checks below
         # must carry the one this call issued, not the one it just invalidated.
         inv = r.json()
@@ -1973,11 +1972,11 @@ def main():
         config.CLIENT_BASE_URL = was_client_base
 
     host = {"host": "app.revcadence.com"}
-    r = client.get("/w/invited-co", headers=host)
+    r = client.get("/client/invited-co", headers=host)
     check("a real client path on the client host returns the app, not a 404",
           r.status_code == 200 and "text/html" in r.headers.get("content-type", ""),
           f"{r.status_code} {r.headers.get('content-type')}")
-    r = client.get("/w/invited-co/docs/999", headers=host)
+    r = client.get("/client/invited-co/docs/999", headers=host)
     check("a deep client path on the client host returns the app too",
           r.status_code == 200 and "text/html" in r.headers.get("content-type", ""),
           f"{r.status_code} {r.headers.get('content-type')}")
@@ -1997,8 +1996,10 @@ def main():
     check("the client host does not swallow /assets", r.status_code == 404, str(r.status_code))
     # The operator host is untouched: it serves the hash router, so an unknown
     # real path there is still a 404 rather than a silent SPA page.
-    r = client.get("/w/invited-co", headers={"host": "engine.revcadence.com"})
-    check("the operator host does not gain an SPA fallback", r.status_code == 404, str(r.status_code))
+    r = client.get("/client/invited-co", headers={"host": "engine.revcadence.com"})
+    check("the operator host serves the real client portal path",
+          r.status_code == 200 and "text/html" in r.headers.get("content-type", ""),
+          f"{r.status_code} {r.headers.get('content-type')}")
 
     # client@webaholics.com is w1's client, not this workspace's. An invite must
     # not quietly repoint an existing account at a different client's data.

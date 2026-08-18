@@ -152,8 +152,8 @@ async def _public_host_router(request, call_next):
                 return _pub._render_blueprint(path)
             if not path:
                 return _pub._404
-        elif _is("app.", _CLIENT_HOSTS):
-            # The client app serves real paths — app.revcadence.com/w/acme-inc —
+        elif _is("app.", _CLIENT_HOSTS) or (segs and segs[0] == "client"):
+            # The client app serves real paths — revcadence.com/client/acme-inc —
             # so a pasted link or a hard refresh arrives as a GET this API has no
             # route for. Hand back the SPA and let its router resolve it. Without
             # this every link we email works until the client reloads the page.

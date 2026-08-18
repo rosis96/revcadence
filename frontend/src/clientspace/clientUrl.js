@@ -2,17 +2,17 @@
 // icons — so it can be exercised directly by `node` (see the block at the bottom
 // of this comment) rather than only through a browser.
 //
-// The client's base carries the workspace slug: `/w/acme-inc`. Ours does not,
+// The client's base carries the workspace slug: `/client/acme-inc`. Ours does not,
 // because the operator shell already has a workspace switcher and the URL would
 // then have two places saying which client is on screen.
 //
-// The slug is here for the link we email. `app.revcadence.com/w/acme-inc` names
-// the client; `/#/w?ws=12` names a row in our database.
+// The slug is here for the link we email. `revcadence.com/client/acme-inc` names
+// the client; the old `/#/w?ws=12` link names a row in our database.
 //
 //   node -e "import('./src/clientspace/clientUrl.js').then(m => console.log(
 //     m.clientRedirectTarget('/w', '', 'acme')))"
 
-export const CLIENT_BASE = "/w";
+export const CLIENT_BASE = "/client";
 
 // The pattern the router matches, as opposed to any resolved path. Keeping the
 // two apart is what stops a NavLink pointing at the literal `/w/:slug`.

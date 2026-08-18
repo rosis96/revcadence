@@ -2,9 +2,9 @@
 //
 // One deploy, one bundle, two hosts. `engine.revcadence.com` is ours and keeps
 // the hash router: every bookmark, every `#/w` preview link and every invite
-// already sitting in somebody's inbox stays valid. `app.revcadence.com` is the
-// client's and serves real paths, because `app.revcadence.com/w/acme-inc` is a
-// link you can put in an email without explaining it, and `/#/w?ws=12` is not.
+// already sitting in somebody's inbox stays valid. The client portal serves
+// real paths at `/client/<workspace-slug>`, so its address remains on the
+// deployed RevCadence origin instead of becoming a localhost/hash URL.
 //
 // The `app.` prefix test mirrors `app/main.py::_public_host_router`, which
 // already recognises `blueprint.` / `agreement.` / `invoice.` the same way, with
@@ -33,8 +33,9 @@ function devOverride() {
 }
 
 const host = (window.location.hostname || "").toLowerCase();
+const clientPath = /^\/client(?:\/|$)/.test(window.location.pathname || "");
 
-export const IS_CLIENT_HOST = host.startsWith("app.") || EXTRA.includes(host) || devOverride();
+export const IS_CLIENT_HOST = clientPath || host.startsWith("app.") || EXTRA.includes(host) || devOverride();
 
 // The route the browser is on, whichever router is mounted. Code that reads the
 // URL before the router exists — the public-route branch in App.jsx — has to ask

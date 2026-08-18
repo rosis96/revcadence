@@ -76,9 +76,8 @@ PUBLIC_BASE_URL = _env("PUBLIC_BASE_URL").rstrip("/")
 # Repointing it at a client-facing host would break both. So the client host is
 # its own setting, and the two can move independently.
 #
-# Unset is supported: links then fall back to the operator host's hash route,
-# which serves the same screens. A working link in development beats a broken one
-# in an email.
+# Unset is supported: links then use the operator origin's real `/client` path.
+# A working link in development beats a broken one in an email.
 CLIENT_BASE_URL = _env("CLIENT_BASE_URL").rstrip("/")
 
 # Hosts that serve the client app rather than the operator one. `app.<domain>` is
@@ -90,18 +89,18 @@ CLIENT_HOSTS = tuple(h.strip().lower() for h in _env("CLIENT_HOSTS").split(",") 
 def client_workspace_url(slug: str = "", fallback: str = "") -> str:
     """The link we hand a client for their workspace.
 
-    Prefers the client host, where a workspace is a real path — the address
-    `https://app.revcadence.com/w/acme-inc` names the client, which is what
-    belongs in an email. Without one configured it falls back to the operator
-    host's hash route, which reaches the same screen.
+    The workspace is always a real `/client/<slug>` path. It can live on a
+    dedicated client host when CLIENT_BASE_URL is configured, or on the same
+    deployed RevCadence origin as the operator app when it is not. Either way,
+    the client is never sent a development localhost/hash URL.
     """
     slug = (slug or "").strip("/")
     if CLIENT_BASE_URL:
-        return f"{CLIENT_BASE_URL}/w/{slug}" if slug else CLIENT_BASE_URL
+        return f"{CLIENT_BASE_URL}/client/{slug}" if slug else f"{CLIENT_BASE_URL}/client"
     root = (PUBLIC_BASE_URL or fallback or "").rstrip("/")
     if not root:
         return ""
-    return f"{root}/#/w/{slug}" if slug else f"{root}/#/w"
+    return f"{root}/client/{slug}" if slug else f"{root}/client"
 
 
 def client_form_url(token: str, fallback: str = "") -> str:
