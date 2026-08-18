@@ -31,7 +31,8 @@ def _resolve_ws(db, key: str, workspace_id: int = 0) -> Workspace:
     """Find the workspace for a public capture call. Prefer the per-workspace
     key; fall back to the legacy global env key + explicit workspace_id."""
     if key:
-        ws = db.query(Workspace).filter(Workspace.inbound_key == key).first()
+        ws = db.query(Workspace).filter(Workspace.inbound_key == key,
+                                        Workspace.archived_at.is_(None)).first()
         if ws:
             return ws
     env = os.getenv("INBOUND_WEBHOOK_KEY", "")
@@ -169,11 +170,15 @@ async def visitor_webhook(request: Request, key: str = "", workspace_id: int = 0
 # ---------------------------------------------------------------- authed config + list
 @router.get("/config")
 def inbound_config(workspace_id: int, ctx: AuthContext = Depends(get_ctx)):
-    """The client's capture key + ready-to-paste form snippet."""
+    """The client's capture key + ready-to-paste form snippet.
+
+    Client-reachable: they paste the form URL onto their own website, so it is
+    theirs to read. Rotating the key stays ours (see below) — a rotation breaks a
+    live form silently, until somebody re-pastes the snippet."""
     ctx.require_workspace(workspace_id)
     ws = ctx.db.get(Workspace, workspace_id)
     key = _ensure_key(ctx.db, ws)
-    base = os.getenv("PUBLIC_BASE_URL", "https://engine.revcadence.com")
+    base = os.getenv("PUBLIC_BASE_URL") or "https://engine.revcadence.com"
     form_url = f"{base}/api/inbound/form?key={key}"
     snippet = (f'<form action="{form_url}" method="POST">\n'
                '  <input name="name" placeholder="Name">\n'

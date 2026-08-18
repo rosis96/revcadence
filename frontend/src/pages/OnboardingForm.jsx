@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, Save, Send } from "lucide-react";
 import { api } from "../api";
+import { Area } from "../components";
 
 export default function OnboardingForm() {
   const { token } = useParams();
@@ -81,7 +82,7 @@ export default function OnboardingForm() {
       <div className="ob-field" key={f.key}>
         <label>{f.label}{f.required && <em>*</em>}</label>
         {f.type === "textarea"
-          ? <textarea rows={3} value={v} placeholder={f.placeholder || "Enter text"} onChange={(e) => set(f.key, e.target.value)} />
+          ? <Area size="md" value={v} placeholder={f.placeholder || "Enter text"} onChange={(e) => set(f.key, e.target.value)} />
           : <input type={f.type === "password" ? "password" : f.type === "email" ? "email" : "text"}
               value={v} placeholder={f.secret && secretSet[f.key] ? "•••••••• (saved — leave blank to keep)" : (f.placeholder || "Enter text")}
               onChange={(e) => set(f.key, e.target.value)} />}

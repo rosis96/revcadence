@@ -1,13 +1,22 @@
 // Inbound — website form-fills (high intent → deal + 10-min task) and identified
 // visitors (a signal). Shows the client's own capture key + a paste-ready form.
+//
+// Mounted at two bases: `/inbound` for us, `/w/<slug>/visitors` for the client,
+// where it lives in Client Space next to Boards & Tables.
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { timeAgo } from "../api";
 import { useAuth } from "../auth";
+import { useAppPath } from "../clientspace/appPath";
 import { Badge, Empty, ErrorBox, PageHeader, Spinner, useApi, useToast } from "../components";
 
 export default function InboundVisitors() {
   const { wsParam } = useAuth();
   const toast = useToast();
+  // The deal and company links resolve against whichever shell is running. They
+  // were `#/deals/…` hrefs, which the client host cannot follow at all — it
+  // serves real paths, so the hash is inert there.
+  const appTo = useAppPath();
   const [showSnippet, setShowSnippet] = useState(false);
   const { data, error, loading, reload } = useApi("/api/inbound/visitors", { workspace_id: wsParam });
   const cfg = useApi(wsParam ? `/api/inbound/config?workspace_id=${wsParam}` : null);
@@ -71,8 +80,8 @@ export default function InboundVisitors() {
               <tr key={e.id}>
                 <td>
                   <b>{e.title}</b>
-                  {e.deal_id ? <> · <a href={`#/deals/${e.deal_id}`}>deal</a></>
-                    : e.company_id ? <> · <a href={`#/companies/${e.company_id}`}>company</a></> : null}
+                  {e.deal_id ? <> · <Link to={appTo(`/deals/${e.deal_id}`)}>deal</Link></>
+                    : e.company_id ? <> · <Link to={appTo(`/companies/${e.company_id}`)}>company</Link></> : null}
                 </td>
                 <td><Badge tone={e.kind === "inbound_lead" ? "green" : "blue"}>
                   {e.kind === "inbound_lead" ? "Form lead" : "Visitor"}</Badge></td>

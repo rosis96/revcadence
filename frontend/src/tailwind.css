@@ -1,0 +1,74 @@
+/* The stylesheet entry point. Everything the app loads comes through here, in
+   cascade layers, so Tailwind utilities can actually win.
+
+   THE LAYER ORDER IS THE WHOLE POINT. Unlayered CSS beats layered CSS no matter
+   what its specificity is — so with styles.css left unlayered, `class="p-4"`
+   would silently lose to `input { padding: 9px 11px }` and Tailwind would look
+   broken for no visible reason. Putting the existing stylesheet in its own
+   layer, ordered before `utilities`, makes a utility class do what it says.
+   Inside `app` nothing changes: layers do not touch specificity between rules
+   of the same layer, so all ~2000 lines keep their existing relationships.
+
+   `vendor` sits before `app` because styles.css deliberately restyles
+   react-toastify onto our tokens, and that override has to keep winning.
+
+   NO PREFLIGHT, on purpose. Tailwind's reset would strip the element defaults
+   this app has been built on for months — headings, lists, buttons — and it
+   would land in `base`, below `app`, so it could not even be corrected by the
+   stylesheet it broke. New Tailwind components style themselves explicitly
+   instead. Add `@import "tailwindcss/preflight.css" layer(base);` only as a
+   deliberate migration step, not as a default. */
+@layer theme, base, vendor, app, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "react-toastify/dist/ReactToastify.css" layer(vendor);
+@import "./styles.css" layer(app);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/* The token bridge: `bg-card`, `text-muted`, `border-border` resolve to the
+   same custom properties the rest of the app reads, so a Tailwind component
+   follows the light/dark switch without knowing it exists. Values indirect
+   through var() rather than being copied — a token that changes in styles.css
+   changes here too, and there is no second palette to keep in sync.
+
+   Radii are deliberately absent. Tailwind's `rounded-*` already reads
+   --radius-sm/md/lg, and styles.css defines those in a later layer, so
+   `rounded-md` is the app's 8px for free. Declaring them again would only
+   create a copy that can drift. */
+@theme {
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-primary: var(--primary);
+  --color-primary-soft: var(--primary-soft);
+  --color-link: var(--link);
+
+  --color-bg: var(--bg);
+  --color-bg-soft: var(--bg-soft);
+  --color-card: var(--card);
+  --color-card-2: var(--card-2);
+  --color-soft: var(--soft);
+  --color-hover-soft: var(--hover-soft);
+  --color-overlay: var(--overlay);
+
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-muted2: var(--muted2);
+
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+  --color-info: var(--info);
+}
+
+/* Tailwind's dark: variant, pointed at how this app actually switches themes.
+   ThemeProvider puts a `dark` class on <html> (and mirrors it to data-theme);
+   there is no system-preference path, because the theme here is always an
+   explicit choice. Without this, `dark:` would follow prefers-color-scheme and
+   ignore the toggle in the app entirely. */
+@custom-variant dark (&:where(.dark, .dark *));

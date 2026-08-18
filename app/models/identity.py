@@ -44,6 +44,11 @@ class Workspace(Base):
     inbound_key = Column(String(64), default="", index=True)
     settings = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Soft delete. "Delete" in the admin screen sets this: the workspace leaves
+    # every list, switcher and query at once (auth.allowed_workspace_ids is the
+    # single gate), but not one row is destroyed. Restoring puts it back exactly
+    # as it was; only an explicit purge removes it for good.
+    archived_at = Column(DateTime, index=True)
 
     __table_args__ = (UniqueConstraint("org_id", "slug", name="uq_workspace_org_slug"),)
 
@@ -81,6 +86,12 @@ class User(Base):
     # password reset (token hashed at rest; expires)
     reset_token_hash = Column(String(128), default="")
     reset_expires_at = Column(DateTime)
+    # Set when an operator issues a temporary password (a client invite). While
+    # true the account can do nothing but read /me and change its password —
+    # enforced in auth.get_ctx, so a temporary password cannot be left in place
+    # by a client who simply avoids the screen that asks them to change it.
+    must_change_password = Column(Boolean, default=False, nullable=False,
+                                  server_default="0")
 
 
 class Membership(Base):

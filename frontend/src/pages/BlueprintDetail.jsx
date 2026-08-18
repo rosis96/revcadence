@@ -2,15 +2,18 @@
 // auto-save with a live indicator, large distraction-free preview, version
 // history, comments, publish toggle, share. Shared components only.
 import { useEffect, useMemo, useState } from "react";
+import { AnimatePresence } from "framer-motion";
 import { useNavigate, useParams } from "react-router-dom";
 import { ExternalLink, Eye, Link2, Sparkles, Trash2, Upload } from "lucide-react";
 import { api } from "../api";
+import { useAppPath } from "../clientspace/appPath";
 import {
-  Badge, Breadcrumbs, Button, CommentsPanel, ConfirmDialog, ErrorBox, RowCard,
+  Area, Badge, Breadcrumbs, Button, CommentsPanel, ConfirmDialog, ErrorBox, RowCard,
   SaveIndicator, Spinner, StatusPill, Tabs, VersionList, useApi, useAutoSave, useToast,
 } from "../components";
 
 export default function BlueprintDetail() {
+  const appTo = useAppPath();
   const { id } = useParams();
   const nav = useNavigate();
   const toast = useToast();
@@ -97,7 +100,7 @@ export default function BlueprintDetail() {
 
   return (
     <>
-      <Breadcrumbs items={[{ label: "Blueprints", href: "/blueprints" }, { label: d.title || "Blueprint" }]} />
+      <Breadcrumbs items={[{ label: "Blueprints", href: appTo("/blueprints") }, { label: d.title || "Blueprint" }]} />
       <div className="page-head">
         <div style={{ flex: 1, minWidth: 0 }}>
           <input className="doc-title" value={d.title} placeholder="Untitled blueprint"
@@ -154,7 +157,7 @@ export default function BlueprintDetail() {
                         <Upload size={14} /> Replace HTML file
                         <input type="file" accept=".html,.htm,text/html" style={{ display: "none" }} onChange={onFile} />
                       </label>
-                      <textarea rows={12} style={{ fontFamily: "monospace", fontSize: 11.5 }}
+                      <Area size="lg" style={{ fontFamily: "monospace", fontSize: 11.5 }}
                         value={d.html || ""} onChange={(e) => setD({ ...d, html: e.target.value })} />
                     </>
                   ) : (
@@ -162,7 +165,7 @@ export default function BlueprintDetail() {
                       <p style={{ fontSize: 12.5, color: "var(--muted)" }}>
                         Paste the call transcript. Every section is generated from what was said;
                         pricing appears only if it came up on the call.</p>
-                      <textarea rows={9} style={{ fontFamily: "monospace", fontSize: 11.5 }}
+                      <Area size="lg" style={{ fontFamily: "monospace", fontSize: 11.5 }}
                         value={transcript} onChange={(e) => setTranscript(e.target.value)}
                         placeholder="Paste the Fathom transcript here…" />
                       <Button icon={Sparkles} loading={busy === "gen"} onClick={regenerate}>Generate blueprint</Button>
@@ -196,15 +199,17 @@ export default function BlueprintDetail() {
         </div>
       </div>
 
+      <AnimatePresence>
       {confirmDel && (
-        <ConfirmDialog danger title="Delete this blueprint?" message="The public page goes offline immediately. This cannot be undone."
+        <ConfirmDialog key="del" danger title="Delete this blueprint?" message="The public page goes offline immediately. This cannot be undone."
           confirmLabel="Delete"
           onConfirm={async () => {
-            try { await api(`/api/documents/${id}`, { method: "DELETE" }); nav("/blueprints"); }
+            try { await api(`/api/documents/${id}`, { method: "DELETE" }); nav(appTo("/blueprints")); }
             catch (e) { toast(e.message, "bad"); }
           }}
           onClose={() => setConfirmDel(false)} />
       )}
+      </AnimatePresence>
     </>
   );
 }

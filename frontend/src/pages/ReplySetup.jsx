@@ -1,8 +1,14 @@
-import { alertDialog, confirmDialog } from "../components";
+import { Area, alertDialog, confirmDialog } from "../components";
 // Reply Management → Setup: edits THE current workspace's reply space (which is
 // auto-provisioned with the workspace — no "create" step). Full structured
 // editor: connection + AI + client profile + response types + follow-ups + rules.
 // This is the legacy reply-format editor, ported faithfully.
+//
+// Mounted at two bases: `/reply/setup` for us, `/w/<slug>/reply/setup` for the
+// client, who configures their own connection (decision D8). One component, so
+// the two sides are never looking at different screens — the single difference
+// is the AI model card, which is ours: provider choice is a cost and vendor
+// decision across every client, not a per-client preference.
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../auth";
@@ -22,13 +28,24 @@ function Field({ label, children, hint }) {
 // The exact, copy-ready webhook URL to paste into Instantly/Bison. This is the
 // single most-missed setup step: if the sending platform isn't POSTing here,
 // no replies ever reach RevCadence (the queue stays empty).
-function WebhookBox({ platform, name }) {
+//
+// The origin comes from the server, not from `window.location`. The browser's
+// own origin is the Vite dev server in development and the client host in
+// production — neither is the API, and both produce a URL that looks correct and
+// delivers nothing. The query string is still built here so the box tracks the
+// name field as you type, before anything is saved.
+const webhookOrigin = (serverUrl) => {
+  const at = (serverUrl || "").indexOf("/api/");
+  return (at > 0 ? serverUrl.slice(0, at) : "")
+    || (typeof window !== "undefined" ? window.location.origin : "");
+};
+
+function WebhookBox({ platform, name, serverUrl }) {
   const [copied, setCopied] = useState(false);
-  const origin = typeof window !== "undefined" ? window.location.origin : "https://engine.revcadence.com";
   const path = platform === "bison"
     ? `/api/reply/webhooks/bison?reply_workspace=${encodeURIComponent(name || "")}`
     : `/api/reply/webhooks/instantly?workspace_name=${encodeURIComponent(name || "")}`;
-  const url = origin + path;
+  const url = webhookOrigin(serverUrl) + path;
   const copy = () => { navigator.clipboard?.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); };
   return (
     <div className="card" style={{ padding: 14, margin: "4px 0 14px", background: "var(--bg-soft, #f7f8fb)" }}>
@@ -75,8 +92,8 @@ function ResponseTypes({ items, onChange }) {
           <Field label="Example replies (comma separated)">
             <input style={{ width: "100%" }} value={(t.examples || []).join(", ")}
                    onChange={(e) => set(i, "examples", e.target.value.split(",").map((x) => x.trim()).filter(Boolean))} /></Field>
-          <Field label="Response template"><textarea rows={5} style={{ width: "100%" }} value={t.template} onChange={(e) => set(i, "template", e.target.value)} /></Field>
-          <Field label="Rules / conditions (one per line)"><textarea rows={2} style={{ width: "100%" }} value={t.rules} onChange={(e) => set(i, "rules", e.target.value)} /></Field>
+          <Field label="Response template"><Area size="md" style={{ width: "100%" }} value={t.template} onChange={(e) => set(i, "template", e.target.value)} /></Field>
+          <Field label="Rules / conditions (one per line)"><Area size="sm" style={{ width: "100%" }} value={t.rules} onChange={(e) => set(i, "rules", e.target.value)} /></Field>
           <div style={{ textAlign: "right" }}><button className="btn danger sm" onClick={() => remove(i)}>Remove</button></div>
         </div>
       ))}
@@ -101,7 +118,7 @@ function Followups({ items, onChange }) {
             <Field label="Max words"><input type="number" style={{ width: 100 }} value={t.max_words ?? ""} onChange={(e) => set(i, "max_words", Number(e.target.value) || null)} /></Field>
           </div>
           <Field label="Purpose (intent)"><input style={{ width: "100%" }} value={t.intent} onChange={(e) => set(i, "intent", e.target.value)} /></Field>
-          <Field label="Template"><textarea rows={4} style={{ width: "100%" }} value={t.template} onChange={(e) => set(i, "template", e.target.value)} /></Field>
+          <Field label="Template"><Area size="md" style={{ width: "100%" }} value={t.template} onChange={(e) => set(i, "template", e.target.value)} /></Field>
           <div style={{ textAlign: "right" }}><button className="btn danger sm" onClick={() => remove(i)}>Remove</button></div>
         </div>
       ))}
@@ -125,12 +142,17 @@ export default function ReplySetup() {
 
   useEffect(() => {
     setW(null); setError("");
-    if (!wsId || !me.is_master) return;
+    if (!wsId) return;
     api(`/api/reply/workspaces/for/${wsId}`).then(setW).catch((e) => setError(e.message));
   }, [wsId]);
 
-  if (!me.is_master) return <ErrorBox msg="Master access required." />;
-  if (!wsId) return <ErrorBox msg="Pick a specific workspace (top-left) — reply setup is per client workspace." />;
+  // A client always has a workspace, so this can only be an operator who has not
+  // picked one — say the thing that is actually actionable for whoever is here.
+  if (!wsId) {
+    return <ErrorBox msg={me.is_master
+      ? "Pick a specific workspace (top-left) — reply setup is per client workspace."
+      : "No workspace on this account yet. Ask us to finish the invite."} />;
+  }
   if (error) return <ErrorBox msg={error} />;
   if (!w) return <Spinner />;
 
@@ -225,7 +247,16 @@ export default function ReplySetup() {
         website: w.website, sender_name: w.sender_name, default_sender_email: w.default_sender_email,
         calendly_scheduling_url: w.calendly_scheduling_url, ai_provider: w.ai_provider,
         ai_fallback: w.ai_fallback, client_profile: w.client_profile, reply_format: w.reply_format,
-        ai_rules: w.ai_rules, reply_delay_seconds: w.reply_delay_seconds, ...secrets,
+        ai_rules: w.ai_rules, reply_delay_seconds: w.reply_delay_seconds,
+        // Reply Settings edits the same reply space, so these have to be sent
+        // back even though this screen never shows them. The PUT replaces the
+        // whole row: omit them and saving Setup would silently blank whatever
+        // was set over there — the model included.
+        openai_model: w.openai_model || "", gemini_model: w.gemini_model || "",
+        review_webhook_url: w.review_webhook_url || "",
+        reply_trigger_tag: w.reply_trigger_tag || "",
+        followup_trigger_tag: w.followup_trigger_tag || "",
+        ...secrets,
       } });
       setSaved(true); setSecrets({}); setTimeout(() => setSaved(false), 2500);
     } catch (e) { alertDialog(e.message); }
@@ -253,7 +284,7 @@ export default function ReplySetup() {
         <h2 style={{ fontSize: 14, marginBottom: 12 }}>Connection</h2>
         <Field label="Reply-space name (must match webhook ?workspace_name= / ?reply_workspace=)">
           <input style={{ width: "100%" }} value={w.name} onChange={(e) => set("name", e.target.value)} /></Field>
-        <WebhookBox platform={w.platform} name={w.name} />
+        <WebhookBox platform={w.platform} name={w.name} serverUrl={w.webhook_url} />
 
         <div style={{ display: "flex", gap: 12 }}>
           <Field label="Platform"><Select value={w.platform} onChange={(e) => set("platform", e.target.value)}><option value="bison">Bison</option><option value="instantly">Instantly</option></Select></Field>
@@ -290,6 +321,7 @@ export default function ReplySetup() {
       </div>
 
       <div>
+      {me.is_master && (
       <div className="card" style={{ padding: 18 }}>
         <h2 style={{ fontSize: 14, marginBottom: 8 }}>AI model</h2>
         <div style={{ display: "flex", gap: 12 }}>
@@ -297,10 +329,11 @@ export default function ReplySetup() {
         </div>
         <label style={{ display: "flex", gap: 8, fontSize: 13 }}><input type="checkbox" checked={w.ai_fallback} onChange={(e) => set("ai_fallback", e.target.checked)} /> Auto-fallback to the other provider on failure</label>
       </div>
+      )}
 
-      <div className="card" style={{ padding: 18, marginTop: 14 }}>
+      <div className="card" style={{ padding: 18, marginTop: me.is_master ? 14 : 0 }}>
         <h2 style={{ fontSize: 14, marginBottom: 8 }}>Client profile (JSON)</h2>
-        <textarea rows={8} style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
+        <Area size="lg" style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
                   value={JSON.stringify(w.client_profile || {}, null, 2)}
                   onChange={(e) => { try { set("client_profile", JSON.parse(e.target.value || "{}")); } catch { /* keep typing */ } }} />
       </div>
@@ -316,7 +349,7 @@ export default function ReplySetup() {
             reply types and how each should be written — it builds the structured response types (and the FUP1–6
             ladder) for you to review and Save. It stays faithful to what you describe and won't invent rules.
             <b> Train the brain / fill the Client Profile first</b> for the best results.</p>
-          <textarea rows={5} style={{ width: "100%" }} value={rfB.instructions}
+          <Area size="lg" style={{ width: "100%" }} value={rfB.instructions}
                     onChange={(e) => setRfB({ ...rfB, instructions: e.target.value })}
                     placeholder={"e.g. Positive/interested → offer 2 times from Calendly, warm, 1–2 sentences, may auto-send. Asks pricing → don't quote a number, pivot to a quick call. Not now → gracious, ask to circle back in a quarter. Referral → thank + ask for the right contact…"} />
           <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
@@ -351,7 +384,7 @@ export default function ReplySetup() {
             <b>Add to existing</b> merges the pasted intents in (by id) and keeps everything you already have —
             use this to add new intent spaces. <b>Replace</b> overwrites the sections (asks first). Download a
             backup above before big changes.</p>
-          <textarea rows={3} style={{ width: "100%", fontFamily: "monospace", fontSize: 12, marginTop: 4 }} value={pasteJson} onChange={(e) => setPasteJson(e.target.value)} placeholder='{"response_types":[{"id":"positive_simple","intent":"…","examples":["…"],"auto_send":true,"template":"…"}],"followups":[]}' />
+          <Area size="md" style={{ width: "100%", fontFamily: "monospace", fontSize: 12, marginTop: 4 }} value={pasteJson} onChange={(e) => setPasteJson(e.target.value)} placeholder='{"response_types":[{"id":"positive_simple","intent":"…","examples":["…"],"auto_send":true,"template":"…"}],"followups":[]}' />
           <div className="toolbar" style={{ marginTop: 6 }}>
             <button className="btn sm" onClick={addFromJson}>+ Add to existing</button>
             <button className="btn ghost sm" onClick={fillFromJson}>Replace sections</button>
@@ -373,7 +406,7 @@ export default function ReplySetup() {
             {" "}<code>{"{ label, intent, max_words, template }"}</code>. <b>Add</b> appends in send order;
             <b> Replace</b> overwrites. These are generated per reply and (for Instantly) pushed onto the lead
             as {"{{followup_1}}…"} so your follow-up campaign can send them.</p>
-          <textarea rows={3} style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }} value={fupJson}
+          <Area size="md" style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }} value={fupJson}
                     onChange={(e) => setFupJson(e.target.value)}
                     placeholder='[{"label":"FUP 1","intent":"nudge on the proposed times","max_words":80,"template":"Hi {{firstName}}, following up on the times I shared…"}]' />
           <div className="toolbar" style={{ marginTop: 6 }}>
@@ -393,7 +426,7 @@ export default function ReplySetup() {
           Mondays.", "Keep replies under 90 words.", "Do not mention pricing in email; steer to a call.",
           "No emojis."
         </p>
-        <textarea rows={8} style={{ width: "100%" }} value={w.ai_rules}
+        <Area size="lg" style={{ width: "100%" }} value={w.ai_rules}
                   onChange={(e) => set("ai_rules", e.target.value)}
                   placeholder={"Avoid em dashes — use commas or periods.\nKeep replies short and specific.\nNever propose meetings on Mondays.\nDo not mention pricing in email; steer to a call."} />
       </div>

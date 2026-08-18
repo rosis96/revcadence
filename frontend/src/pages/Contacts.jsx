@@ -1,8 +1,10 @@
 // CRM → Contacts. Shared DataTable + global shell (DESIGN_SYSTEM.md step 3).
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { AnimatePresence } from "framer-motion";
+import { Link, useNavigate } from "react-router-dom";
 import { Contact as ContactIcon, Plus } from "lucide-react";
 import { api } from "../api";
+import { useAppPath } from "../clientspace/appPath";
 import { useAuth } from "../auth";
 import {
   Avatar, Badge, Button, DataTable, Drawer, ErrorBox, Modal, PageHeader, Spinner,
@@ -61,6 +63,7 @@ function NewContactModal({ onClose, onCreated, workspaceId }) {
 }
 
 function ContactDrawer({ id, onClose }) {
+  const appTo = useAppPath();
   const { data: c, loading, error } = useApi(`/api/contacts/${id}`);
   const { data: tl } = useApi(`/api/contacts/${id}/timeline`);
   return (
@@ -72,7 +75,7 @@ function ContactDrawer({ id, onClose }) {
           <div className="kv">
             <div className="k">Email</div><div>{c.email || "—"}</div>
             <div className="k">Title</div><div>{c.title || "—"}</div>
-            <div className="k">Company</div><div>{c.company_id ? <a href={`#/companies/${c.company_id}`}>view company</a> : "—"}</div>
+            <div className="k">Company</div><div>{c.company_id ? <Link to={appTo(`/companies/${c.company_id}`)}>view company</Link> : "—"}</div>
             <div className="k">Email status</div><div>{c.email_status ? <Badge>{c.email_status}</Badge> : "—"}</div>
             <div className="k">Revenue score</div>
             <div>{c.revenue_score != null ? <Badge tone={scoreTone(c.revenue_score)}>{c.revenue_score}</Badge> : <Badge>not scored</Badge>}</div>
@@ -86,6 +89,7 @@ function ContactDrawer({ id, onClose }) {
 }
 
 export default function Contacts() {
+  const appTo = useAppPath();
   const { wsParam, me } = useAuth();
   const nav = useNavigate();
   const [open, setOpen] = useState(null);
@@ -133,15 +137,19 @@ export default function Contacts() {
       <DataTable
         id="contacts" columns={columns} data={shown} loading={loading}
         searchPlaceholder="Search contacts…" getRowId={(r) => String(r.id)}
-        onRowClick={(r) => nav(`/contacts/${r.id}`)}
+        onRowClick={(r) => nav(appTo(`/contacts/${r.id}`))}
         emptyIcon={ContactIcon} emptyTitle="No contacts"
         emptyHint="Contacts arrive via import, enrichment, or the reply bridge."
       />
-      {open && <ContactDrawer id={open} onClose={() => setOpen(null)} />}
+      <AnimatePresence>
+      {open && <ContactDrawer key="contact" id={open} onClose={() => setOpen(null)} />}
+      </AnimatePresence>
+      <AnimatePresence>
       {modal && (
-        <NewContactModal workspaceId={wsId} onClose={() => setModal(false)}
+        <NewContactModal key="new" workspaceId={wsId} onClose={() => setModal(false)}
           onCreated={() => { setModal(false); setFilter("none"); reload(); }} />
       )}
+      </AnimatePresence>
     </>
   );
 }

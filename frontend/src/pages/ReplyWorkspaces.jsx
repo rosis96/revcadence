@@ -1,9 +1,19 @@
-// Reply Management → Workspaces: the full per-client config editor (platform,
+// Reply Management → Extra Channels: the full per-client config editor (platform,
 // keys [write-only], Calendly, AI provider, client profile, reply format, rules).
+//
+// Mounted at two bases. The main reply space is edited under Setup; this screen
+// exists for the second one — a client running Bison for cold and Instantly for
+// follow-up. That is a statement about their own sending setup, so it is theirs
+// to make, and the list is workspace-scoped on the server.
+//
+// The "Client workspace" picker is the one operator-only control: choosing which
+// client a channel belongs to is a question that only exists when you have more
+// than one, and answering it wrongly would put a channel in the wrong client.
 import { useState } from "react";
+import { AnimatePresence } from "framer-motion";
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { Badge, Empty, ErrorBox, Modal, Spinner, useApi } from "../components";
+import { Area, Badge, Empty, ErrorBox, Modal, Spinner, useApi } from "../components";
 import { alertDialog } from "../components";
 import { Select } from "../components";
 
@@ -11,9 +21,13 @@ function Field({ label, children, half }) {
   return <div className="field" style={half ? { flex: 1 } : {}}><label>{label}</label>{children}</div>;
 }
 
-function WorkspaceModal({ existing, workspaces, onClose, onDone }) {
+function WorkspaceModal({ existing, workspaces, defaultWorkspaceId, onClose, onDone }) {
+  // The workspace on screen, not the org's first one: with a workspace selected
+  // the picker used to open on somebody else, so a distracted Create filed the
+  // channel under the wrong client.
   const blank = {
-    workspace_id: workspaces[0]?.id, name: "", platform: "bison", mode: "reply", active: true,
+    workspace_id: Number(defaultWorkspaceId) || workspaces[0]?.id,
+    name: "", platform: "bison", mode: "reply", active: true,
     base_url: "", reply_followup_campaign_id: "", website: "", sender_name: "",
     default_sender_email: "", calendly_scheduling_url: "", ai_provider: "openai", ai_fallback: true,
     reply_delay_seconds: 420, client_profile: {}, reply_format: {}, ai_rules: "",
@@ -46,7 +60,7 @@ function WorkspaceModal({ existing, workspaces, onClose, onDone }) {
     <Modal title={existing ? `Edit ${existing.name}` : "New reply workspace"} onClose={onClose}>
       <form onSubmit={submit}>
         {err && <div className="error-box" style={{ marginBottom: 10 }}>{err}</div>}
-        {!existing && (
+        {!existing && workspaces.length > 1 && (
           <Field label="Client workspace">
             <Select value={f.workspace_id} onChange={(e) => set("workspace_id", Number(e.target.value))}>
               {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
@@ -92,9 +106,9 @@ function WorkspaceModal({ existing, workspaces, onClose, onDone }) {
         <label style={{ display: "flex", gap: 8, fontSize: 13, margin: "4px 0 10px" }}>
           <input type="checkbox" checked={f.ai_fallback} onChange={(e) => set("ai_fallback", e.target.checked)} />
           Auto-fallback to the other provider on failure</label>
-        <Field label="Client Profile (JSON)"><textarea rows={4} style={{ fontFamily: "monospace", fontSize: 12 }} value={profileStr} onChange={(e) => setProfileStr(e.target.value)} /></Field>
-        <Field label="Reply Format (JSON — response_types[] + followups)"><textarea rows={5} style={{ fontFamily: "monospace", fontSize: 12 }} value={formatStr} onChange={(e) => setFormatStr(e.target.value)} /></Field>
-        <Field label="AI Rules (one per line — injected into every prompt)"><textarea rows={3} value={f.ai_rules} onChange={(e) => set("ai_rules", e.target.value)} /></Field>
+        <Field label="Client Profile (JSON)"><Area size="md" style={{ fontFamily: "monospace", fontSize: 12 }} value={profileStr} onChange={(e) => setProfileStr(e.target.value)} /></Field>
+        <Field label="Reply Format (JSON — response_types[] + followups)"><Area size="lg" style={{ fontFamily: "monospace", fontSize: 12 }} value={formatStr} onChange={(e) => setFormatStr(e.target.value)} /></Field>
+        <Field label="AI Rules (one per line — injected into every prompt)"><Area size="md" value={f.ai_rules} onChange={(e) => set("ai_rules", e.target.value)} /></Field>
         <label style={{ display: "flex", gap: 8, fontSize: 13 }}>
           <input type="checkbox" checked={f.active} onChange={(e) => set("active", e.target.checked)} /> Active</label>
         <div className="actions"><button type="button" className="btn ghost" onClick={onClose}>Cancel</button><button className="btn">{existing ? "Save" : "Create"}</button></div>
@@ -107,7 +121,6 @@ export default function ReplyWorkspaces() {
   const { me, wsParam } = useAuth();
   const { data, error, loading, reload } = useApi("/api/reply/workspaces", { workspace_id: wsParam });
   const [modal, setModal] = useState(null);
-  if (!me.is_master) return <ErrorBox msg="Master access required." />;
   const dup = async (id) => { try { await api(`/api/reply/workspaces/${id}/duplicate`, { method: "POST" }); reload(); } catch (e) { alertDialog(e.message); } };
   return (
     <>
@@ -140,7 +153,10 @@ export default function ReplyWorkspaces() {
           </tbody>
         </table>
       )}
-      {modal && <WorkspaceModal existing={modal.id ? modal : null} workspaces={me.workspaces} onClose={() => setModal(null)} onDone={() => { setModal(null); reload(); }} />}
+      <AnimatePresence>
+      {modal && <WorkspaceModal key="ws" existing={modal.id ? modal : null} workspaces={me.workspaces}
+        defaultWorkspaceId={wsParam} onClose={() => setModal(null)} onDone={() => { setModal(null); reload(); }} />}
+      </AnimatePresence>
     </>
   );
 }

@@ -1,13 +1,16 @@
 """Reply Management API: webhooks (public), workspace config, review console.
 Webhooks only record + enqueue; the worker job does the engine run."""
 from datetime import datetime
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import func
 
 from ..auth import AuthContext, get_ctx, require_master
+from ..config import PUBLIC_BASE_URL
 from ..crypto import decrypt, encrypt
+from ..models.identity import Workspace
 from ..models.jobs import Job
 from ..models.reply import ReplyLead, ReplyWorkspace
 
@@ -141,6 +144,47 @@ class RWorkspaceIn(BaseModel):
     reply_format: dict = {}
     ai_rules: str = ""
     reply_delay_seconds: int = 420
+    openai_model: str = ""
+    gemini_model: str = ""
+    review_webhook_url: str = ""
+    reply_trigger_tag: str = ""
+    followup_trigger_tag: str = ""
+
+
+def _rws_scoped(ctx: AuthContext, rws_id: int) -> ReplyWorkspace:
+    """The reply space `rws_id`, or refused.
+
+    Reply spaces are per client workspace, so access is a workspace question and
+    not a role one — which is what lets a client configure their own connection
+    while still being refused every other client's. Callers that used to lean on
+    `require_master` for this must use it: without the workspace check, opening
+    an endpoint to clients opens it to *every* client's reply space.
+    """
+    w = ctx.db.get(ReplyWorkspace, rws_id)
+    if not w:
+        raise HTTPException(404, "Not found")
+    ctx.require_workspace(w.workspace_id)
+    return w
+
+
+def _webhook_url(w: ReplyWorkspace) -> str:
+    """The URL to paste into Instantly/Bison, decided here rather than in the UI.
+
+    The Setup screen used to build this from `window.location.origin`, which is
+    whatever host the browser happens to be on: the Vite dev server in
+    development, and the client host — presentation, not the API — for a client
+    configuring their own connection. Both hand back a URL that looks right and
+    silently delivers nothing, and the symptom is an inbox that simply stays
+    empty. The server knows the real public origin, so it says it.
+
+    Returned relative when `PUBLIC_BASE_URL` is unset (local dev); the caller
+    prefixes its own origin, which is correct exactly in that case.
+    """
+    root = (PUBLIC_BASE_URL or "").rstrip("/")
+    name = quote(w.name or "", safe="")
+    if (w.platform or "") == "bison":
+        return f"{root}/api/reply/webhooks/bison?reply_workspace={name}"
+    return f"{root}/api/reply/webhooks/instantly?workspace_name={name}"
 
 
 def _rws_out(w: ReplyWorkspace, reveal: bool = False):
@@ -154,14 +198,21 @@ def _rws_out(w: ReplyWorkspace, reveal: bool = False):
             "client_profile": w.client_profile or {}, "reply_format": w.reply_format or {},
             "ai_rules": w.ai_rules or "", "reply_delay_seconds": w.reply_delay_seconds,
             "api_key_set": bool(w.api_key_enc), "calendly_token_set": bool(w.calendly_token_enc),
-            "openai_key_set": bool(w.openai_key_enc), "gemini_key_set": bool(w.gemini_key_enc)}
+            "openai_key_set": bool(w.openai_key_enc), "gemini_key_set": bool(w.gemini_key_enc),
+            "openai_model": w.openai_model or "", "gemini_model": w.gemini_model or "",
+            "review_webhook_url": w.review_webhook_url or "",
+            "reply_trigger_tag": w.reply_trigger_tag or "",
+            "followup_trigger_tag": w.followup_trigger_tag or "",
+            "webhook_url": _webhook_url(w)}
 
 
 @router.get("/workspaces")
-def list_rws(workspace_id: int | None = None, ctx: AuthContext = Depends(require_master)):
-    q = ctx.db.query(ReplyWorkspace)
-    if workspace_id:
-        q = q.filter(ReplyWorkspace.workspace_id == workspace_id)
+def list_rws(workspace_id: int | None = None, ctx: AuthContext = Depends(get_ctx)):
+    """The reply spaces this identity may see. A master with no `workspace_id`
+    gets the whole org; a client gets their own, and nothing else — the filter is
+    `workspace_ids_for_query`, not the caller's word for it."""
+    q = ctx.db.query(ReplyWorkspace).filter(
+        ReplyWorkspace.workspace_id.in_(ctx.workspace_ids_for_query(workspace_id)))
     return [_rws_out(w) for w in q.order_by(ReplyWorkspace.name).all()]
 
 
@@ -181,10 +232,12 @@ def _best_reply_space(spaces):
     return max(spaces, key=score) if spaces else None
 
 
-@router.get("/workspaces/for/{workspace_id}")
-def reply_space_for(workspace_id: int, ctx: AuthContext = Depends(require_master)):
-    """The workspace's primary reply space — the one Setup edits. Returns the
-    most-configured space (so imported config shows), auto-provisioning if none."""
+def _primary_rws(ctx: AuthContext, workspace_id: int) -> ReplyWorkspace:
+    """The workspace's primary reply space, provisioning one if it has none.
+
+    Setup and Settings both edit "the" reply space, so they have to mean the same
+    row — otherwise a client would set their model on one space and their formats
+    on another, and only one of them would be the space the webhook routes to."""
     ctx.require_workspace(workspace_id)
     spaces = ctx.db.query(ReplyWorkspace).filter(ReplyWorkspace.workspace_id == workspace_id).all()
     if not spaces:
@@ -193,31 +246,37 @@ def reply_space_for(workspace_id: int, ctx: AuthContext = Depends(require_master
         provision_workspace(ctx.db, ctx.db.get(Workspace, workspace_id))
         ctx.db.commit()
         spaces = ctx.db.query(ReplyWorkspace).filter(ReplyWorkspace.workspace_id == workspace_id).all()
-    return _rws_out(_best_reply_space(spaces))
+    return _best_reply_space(spaces)
+
+
+@router.get("/workspaces/for/{workspace_id}")
+def reply_space_for(workspace_id: int, ctx: AuthContext = Depends(get_ctx)):
+    """The workspace's primary reply space — the one Setup edits. Returns the
+    most-configured space (so imported config shows), auto-provisioning if none."""
+    return _rws_out(_primary_rws(ctx, workspace_id))
 
 
 @router.get("/workspaces/{rws_id}")
-def get_rws(rws_id: int, ctx: AuthContext = Depends(require_master)):
-    w = ctx.db.get(ReplyWorkspace, rws_id)
-    if not w:
-        raise HTTPException(404, "Not found")
-    return _rws_out(w)
+def get_rws(rws_id: int, ctx: AuthContext = Depends(get_ctx)):
+    return _rws_out(_rws_scoped(ctx, rws_id))
 
 
 @router.get("/workspaces/{rws_id}/calendly-probe")
-def calendly_probe(rws_id: int, ctx: AuthContext = Depends(require_master)):
+def calendly_probe(rws_id: int, ctx: AuthContext = Depends(get_ctx)):
     """'Check Calendly availability' — shows what the system reads and would
     propose (event type + sample real slots), or the exact error."""
     from ..reply.calendly import probe
-    w = ctx.db.get(ReplyWorkspace, rws_id)
-    if not w:
-        raise HTTPException(404, "Not found")
-    ctx.require_workspace(w.workspace_id)
-    return probe(w)
+    return probe(_rws_scoped(ctx, rws_id))
 
 
 @router.post("/workspaces")
-def create_rws(body: RWorkspaceIn, ctx: AuthContext = Depends(require_master)):
+def create_rws(body: RWorkspaceIn, ctx: AuthContext = Depends(get_ctx)):
+    """Add an extra channel — a second platform or a separate follow-up space.
+
+    Open to the client for their own workspace: a client running Bison for cold
+    and Instantly for follow-up is describing their own sending setup, not ours.
+    `require_workspace` is what confines it; the create body names the workspace,
+    so that check is the whole boundary here."""
     ctx.require_workspace(body.workspace_id)
     if ctx.db.query(ReplyWorkspace).filter(ReplyWorkspace.name == body.name).first():
         raise HTTPException(409, "Reply-workspace name already exists")
@@ -229,10 +288,27 @@ def create_rws(body: RWorkspaceIn, ctx: AuthContext = Depends(require_master)):
 
 
 @router.put("/workspaces/{rws_id}")
-def update_rws(rws_id: int, body: RWorkspaceIn, ctx: AuthContext = Depends(require_master)):
-    w = ctx.db.get(ReplyWorkspace, rws_id)
-    if not w:
-        raise HTTPException(404, "Not found")
+def update_rws(rws_id: int, body: RWorkspaceIn, ctx: AuthContext = Depends(get_ctx)):
+    """Edit a reply space. Open to the client for their own (decision D8).
+
+    Two things the master-only version never had to guard, because a master
+    reassigning or renaming a space was a deliberate act:
+
+    - `workspace_id` is refused for a non-master. `_apply` copies it straight off
+      the body, so without this a client could hand their reply space to another
+      workspace — a cross-tenant write through an endpoint that passed its own
+      access check.
+    - `name` is the key the webhooks route on and is unique in the database, so a
+      collision is a 409 rather than an IntegrityError surfacing as a 500.
+    """
+    w = _rws_scoped(ctx, rws_id)
+    if not ctx.is_master and body.workspace_id != w.workspace_id:
+        raise HTTPException(403, "A reply space cannot be moved to another workspace")
+    ctx.require_workspace(body.workspace_id)
+    clash = (ctx.db.query(ReplyWorkspace)
+             .filter(ReplyWorkspace.name == body.name, ReplyWorkspace.id != w.id).first())
+    if clash:
+        raise HTTPException(409, "Reply-workspace name already exists")
     _apply(w, body)
     ctx.db.commit()
     return _rws_out(w)
@@ -242,7 +318,8 @@ def _apply(w: ReplyWorkspace, body: RWorkspaceIn):
     for f in ("name", "platform", "mode", "active", "base_url", "reply_followup_campaign_id",
               "website", "sender_name", "default_sender_email", "calendly_scheduling_url",
               "ai_provider", "ai_fallback", "client_profile", "reply_format", "ai_rules",
-              "reply_delay_seconds", "workspace_id"):
+              "reply_delay_seconds", "openai_model", "gemini_model", "review_webhook_url",
+              "reply_trigger_tag", "followup_trigger_tag", "workspace_id"):
         setattr(w, f, getattr(body, f))
     # secrets: None = keep existing; "" = clear; value = encrypt
     for plain, enc in (("api_key", "api_key_enc"), ("calendly_token", "calendly_token_enc"),
@@ -253,11 +330,12 @@ def _apply(w: ReplyWorkspace, body: RWorkspaceIn):
 
 
 @router.post("/workspaces/{rws_id}/duplicate")
-def duplicate_rws(rws_id: int, ctx: AuthContext = Depends(require_master)):
-    """Legacy duplicate-workspace: copies every config column, auto-numbers name."""
-    w = ctx.db.get(ReplyWorkspace, rws_id)
-    if not w:
-        raise HTTPException(404, "Not found")
+def duplicate_rws(rws_id: int, ctx: AuthContext = Depends(get_ctx)):
+    """Legacy duplicate-workspace: copies every config column, auto-numbers name.
+
+    The copy keeps the source's `workspace_id`, so a scoped source is a scoped
+    copy — there is no way to duplicate one client's channel into another's."""
+    w = _rws_scoped(ctx, rws_id)
     base = w.name
     n = 2
     while ctx.db.query(ReplyWorkspace).filter(ReplyWorkspace.name == f"{base} ({n})").first():
@@ -276,7 +354,7 @@ class BuildReplyFormatsIn(BaseModel):
 
 
 @router.post("/workspaces/{rws_id}/build-reply-formats")
-def build_reply_formats(rws_id: int, body: BuildReplyFormatsIn, ctx: AuthContext = Depends(require_master)):
+def build_reply_formats(rws_id: int, body: BuildReplyFormatsIn, ctx: AuthContext = Depends(get_ctx)):
     """Design the reply-management formats (response_types + follow-up ladder) with
     AI — the same idea as the outbound Formats builder, grounded in the SAME Client
     Brain. Describe how each reply type should be written; it builds the structured
@@ -285,10 +363,7 @@ def build_reply_formats(rws_id: int, body: BuildReplyFormatsIn, ctx: AuthContext
 
     from ..enrichment import ai
     from ..models.enrich import EnrichConfig
-    w = ctx.db.get(ReplyWorkspace, rws_id)
-    if not w:
-        raise HTTPException(404, "Not found")
-    ctx.require_workspace(w.workspace_id)
+    w = _rws_scoped(ctx, rws_id)
     if not ai.has_ai():
         raise HTTPException(422, "No OpenAI key set — connect AI before building reply formats.")
     ecfg = ctx.db.query(EnrichConfig).filter(EnrichConfig.workspace_id == w.workspace_id).first()
@@ -855,15 +930,12 @@ class TestThreadIn(BaseModel):
 
 
 @router.post("/test-thread")
-def test_thread(body: TestThreadIn, ctx: AuthContext = Depends(require_master)):
+def test_thread(body: TestThreadIn, ctx: AuthContext = Depends(get_ctx)):
     """Paste a thread → run the exact engine (profile, format, rules, provider)
     → return the decision + drafted reply + follow-ups. NOTHING is sent, saved,
     or reserved. Detects the model-didn't-run fallback."""
     from ..reply import engine as E
-    w = ctx.db.get(ReplyWorkspace, body.reply_workspace_id)
-    if not w:
-        raise HTTPException(404, "Reply workspace not found")
-    ctx.require_workspace(w.workspace_id)
+    w = _rws_scoped(ctx, body.reply_workspace_id)
     thread = [{"direction": "in", "text": body.thread.strip()}]
     # Same engine path production uses (generate_reply), so the drafted reply,
     # follow-ups, intent and decision here match what the live pipeline produces.
@@ -889,19 +961,66 @@ def test_thread(body: TestThreadIn, ctx: AuthContext = Depends(require_master)):
     }
 
 
-# ================================================================ global reply settings
+# ================================================================ reply settings
+#
+# One screen, two scopes.
+#
+# These nine values started as org-wide `app_settings` rows. That is fine while
+# only operators can reach them and wrong the moment a client can: every value is
+# a single value for the whole org, so one client setting the model or the API
+# key would set it for every other client. Rule 2 — multi-tenant, fail closed.
+#
+# So the scope follows the caller. A master with no workspace selected edits the
+# ORG row, exactly as before. Anyone scoped to a workspace — a client always is —
+# edits that workspace's own reply space, through the columns below. The screen
+# is the same screen either way; it renders what the response says its scope is.
 SETTING_KEYS = [
     ("openai_api_key", True), ("gemini_api_key", True), ("openai_model", False),
     ("gemini_model", False), ("review_webhook_url", False), ("default_bison_base_url", False),
     ("reply_delay_seconds", False), ("reply_trigger_tag", False), ("followup_trigger_tag", False),
 ]
 
+# settings key -> ReplyWorkspace column, for the workspace scope. Four of these
+# already existed as per-space columns and were being shadowed by an org row that
+# nothing read; the other three are new (see models/reply.py).
+WS_SETTING_COLS = {
+    "openai_model": "openai_model",
+    "gemini_model": "gemini_model",
+    "review_webhook_url": "review_webhook_url",
+    "default_bison_base_url": "base_url",
+    "reply_delay_seconds": "reply_delay_seconds",
+    "reply_trigger_tag": "reply_trigger_tag",
+    "followup_trigger_tag": "followup_trigger_tag",
+}
+WS_SECRET_COLS = {"openai_api_key": "openai_key_enc", "gemini_api_key": "gemini_key_enc"}
 
-@router.get("/settings")
-def get_settings(ctx: AuthContext = Depends(require_master)):
+# Saved, but nothing consumes them yet — there is no reader for a human-review
+# webhook or for the Bison trigger tags anywhere in the app. The screen says so
+# rather than implying a value that takes effect. Wiring them is real work with
+# real failure modes (an outbound POST in the send path); it is not a side effect
+# of moving a screen.
+WS_SETTINGS_INERT = ("review_webhook_url", "reply_trigger_tag", "followup_trigger_tag")
+
+
+def _settings_space(ctx: AuthContext, workspace_id: int | None):
+    """The reply space these settings belong to, or None for the org row.
+
+    None is reachable only by a master who has not picked a workspace. Everyone
+    else resolves to exactly one space, and an identity that spans several
+    workspaces has to say which — silently picking the first would write one
+    client's model onto another's."""
+    if ctx.is_master and workspace_id is None:
+        return None
+    ids = ctx.workspace_ids_for_query(workspace_id)
+    if len(ids) != 1:
+        raise HTTPException(422, "Pick one workspace — reply settings are per client workspace.")
+    return _primary_rws(ctx, ids[0])
+
+
+def _org_settings_out(ctx: AuthContext) -> dict:
     from ..models.settings import AppSetting
     rows = {s.key: s for s in ctx.db.query(AppSetting).all()}
-    out = {}
+    out = {"scope": "org", "scope_label": "", "inert": list(WS_SETTINGS_INERT)}
     for key, secret in SETTING_KEYS:
         s = rows.get(f"reply.{key}")
         if secret:
@@ -912,8 +1031,47 @@ def get_settings(ctx: AuthContext = Depends(require_master)):
     return out
 
 
+def _ws_settings_out(ctx: AuthContext, w: ReplyWorkspace) -> dict:
+    workspace = ctx.db.get(Workspace, w.workspace_id)
+    out = {"scope": "workspace", "scope_label": (workspace.name if workspace else ""),
+           "reply_space": w.name, "inert": list(WS_SETTINGS_INERT)}
+    for key, col in WS_SETTING_COLS.items():
+        value = getattr(w, col)
+        out[key] = "" if value is None else str(value)
+    for key, col in WS_SECRET_COLS.items():
+        out[key] = ""
+        out[f"{key}_set"] = bool(getattr(w, col))
+    return out
+
+
+@router.get("/settings")
+def get_settings(workspace_id: int | None = None, ctx: AuthContext = Depends(get_ctx)):
+    w = _settings_space(ctx, workspace_id)
+    return _org_settings_out(ctx) if w is None else _ws_settings_out(ctx, w)
+
+
 @router.put("/settings")
-def put_settings(body: dict, ctx: AuthContext = Depends(require_master)):
+def put_settings(body: dict, workspace_id: int | None = None, ctx: AuthContext = Depends(get_ctx)):
+    w = _settings_space(ctx, workspace_id)
+    if w is not None:
+        for key, col in WS_SETTING_COLS.items():
+            if key not in body:
+                continue
+            raw = body[key]
+            if col == "reply_delay_seconds":
+                try:
+                    setattr(w, col, int(str(raw).strip() or 0) or 420)
+                except ValueError:
+                    raise HTTPException(422, "Reply delay must be a whole number of seconds")
+            else:
+                setattr(w, col, str(raw or ""))
+        for key, col in WS_SECRET_COLS.items():
+            val = str(body.get(key) or "")
+            if val:                      # blank = keep the existing secret
+                setattr(w, col, encrypt(val))
+        ctx.db.commit()
+        return {"ok": True, "scope": "workspace"}
+
     from ..models.settings import AppSetting
     for key, secret in SETTING_KEYS:
         if key not in body:
@@ -995,3 +1153,142 @@ def approve_and_send(lead_id: int, body: SendIn | None = None, ctx: AuthContext 
         l.fup_added = True
     ctx.db.commit()
     return {"ok": True, "sent_via": l.platform, "follow_up": bool(follow_up_text)}
+
+
+# ================================================================ live sequence (client-readable)
+# The client's Email Sequences screen. Read-only by design and mirrored from the
+# sending platform rather than from our own `email_sequences` tables, because
+# Instantly/Bison is what actually sends: a page that disagrees with the
+# prospect's inbox has told the client something false.
+#
+# Two sources, deliberately: the ladder comes from the platform, the reply
+# behavior comes from our own config (we are the ones replying). Both read-only.
+def _reply_behavior(spaces: list) -> dict:
+    """What happens AFTER a prospect replies - our side, not the platform's.
+
+    Read across every space in the workspace because the follow-up ladder often
+    lives on a second space in `followup` mode; showing only the primary space's
+    config would tell the client they have no follow-ups when they do.
+    """
+    from ..reply.engine import auto_send_enabled
+
+    primary = _best_reply_space(spaces)
+    fmt = (primary.reply_format or {}) if primary else {}
+
+    followups = list(fmt.get("followups") or [])
+    if not followups:
+        for space in spaces:
+            found = ((space.reply_format or {}).get("followups") or [])
+            if found:
+                followups = list(found)
+                break
+
+    return {
+        "reply_delay_seconds": (primary.reply_delay_seconds if primary else 0) or 0,
+        "sender_name": (primary.sender_name if primary else "") or "",
+        "auto_send_enabled": auto_send_enabled(),
+        # The intent playbook: what kind of reply each type of answer receives.
+        "response_types": [{
+            "id": t.get("id") or "",
+            "intent": t.get("intent") or "",
+            "examples": t.get("examples") or [],
+            "auto_send": bool(t.get("auto_send")),
+        } for t in (fmt.get("response_types") or [])],
+        # The nudge ladder for prospects who go quiet.
+        "followups": [{
+            "label": f.get("label") or f"FUP {i + 1}",
+            "intent": f.get("intent") or "",
+            "max_words": f.get("max_words") or None,
+        } for i, f in enumerate(followups)],
+    }
+
+
+
+@router.get("/live-sequence")
+def live_sequence(workspace_id: int, ctx: AuthContext = Depends(get_ctx)):
+    """Everything the client's sequence screen renders. Never calls a platform
+    inline - it reads the last snapshot, so a slow or down third party costs
+    freshness and not the page."""
+    from ..reply import campaigns as C
+
+    ctx.require_workspace(workspace_id)
+    spaces = (ctx.db.query(ReplyWorkspace)
+              .filter(ReplyWorkspace.workspace_id == workspace_id).all())
+    if not spaces:
+        return {"campaigns": [], "behavior": None, "configured": False}
+
+    primary = _best_reply_space(spaces)
+    out = []
+    for space in spaces:
+        for snap in C.snapshots_for(ctx.db, space):
+            snap["reply_space"] = space.name
+            snap["mode"] = space.mode
+            out.append(snap)
+    # Live first, then by reach - the client's attention belongs on what is sending.
+    order = {"live": 0, "paused": 1, "draft": 2, "completed": 3}
+    out.sort(key=lambda c: (order.get(c["status"], 9), -(c.get("stats") or {}).get("sent", 0)))
+
+    return {
+        "configured": True,
+        "platform": (primary.platform if primary else ""),
+        "campaigns": out,
+        "behavior": _reply_behavior(spaces),
+        # Surfaced so the operator sees a half-working field mapping instead of
+        # a page that quietly renders zeroes.
+        "needs_mapping": sorted({u for c in out for u in (c.get("unmapped") or [])}),
+    }
+
+
+@router.post("/live-sequence/refresh")
+def refresh_live_sequence(workspace_id: int, ctx: AuthContext = Depends(require_master)):
+    """Pull fresh campaign structure from the platform for every reply space in
+    this workspace. Operator-only: it spends a third-party rate limit."""
+    from ..reply import campaigns as C
+
+    ctx.require_workspace(workspace_id)
+    spaces = (ctx.db.query(ReplyWorkspace)
+              .filter(ReplyWorkspace.workspace_id == workspace_id).all())
+    if not spaces:
+        raise HTTPException(404, "No reply space is set up for this workspace")
+    results = []
+    for space in spaces:
+        try:
+            res = C.snapshot_workspace(ctx.db, space)
+        except Exception as e:  # noqa: BLE001
+            res = {"ok": False, "error": str(e)[:300], "refreshed": 0}
+        results.append({"reply_space": space.name, **res})
+    return {"ok": any(r.get("ok") for r in results), "spaces": results}
+
+
+@router.get("/workspaces/{rws_id}/campaigns")
+def list_platform_campaigns(rws_id: int, ctx: AuthContext = Depends(require_master)):
+    """Campaigns visible to this space's API key - the picker for choosing which
+    ones the client screen mirrors."""
+    from ..reply import campaigns as C
+
+    space = ctx.db.get(ReplyWorkspace, rws_id)
+    if not space:
+        raise HTTPException(404, "Not found")
+    ctx.require_workspace(space.workspace_id)
+    rows, err = C.list_campaigns(space.platform or "instantly",
+                                 decrypt(space.api_key_enc) if space.api_key_enc else "",
+                                 space.base_url or "")
+    return {"campaigns": rows, "error": err,
+            "mirrored": list(getattr(space, "mirror_campaign_ids", None) or [])}
+
+
+class MirrorIn(BaseModel):
+    campaign_ids: list[str] = []
+
+
+@router.put("/workspaces/{rws_id}/campaigns")
+def set_mirrored_campaigns(rws_id: int, body: MirrorIn, ctx: AuthContext = Depends(require_master)):
+    """Choose which campaigns the client screen mirrors. Empty = mirror whatever
+    the key can list, capped."""
+    space = ctx.db.get(ReplyWorkspace, rws_id)
+    if not space:
+        raise HTTPException(404, "Not found")
+    ctx.require_workspace(space.workspace_id)
+    space.mirror_campaign_ids = [str(c).strip() for c in body.campaign_ids if str(c).strip()]
+    ctx.db.commit()
+    return {"ok": True, "mirrored": space.mirror_campaign_ids}

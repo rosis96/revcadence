@@ -149,6 +149,27 @@ def build_mime(conn: MailboxConnection, conv: DealConversation, to_email: str, s
     return msg, message_id, in_reply_to, references
 
 
+def deliver_mime(mailbox: MailboxConnection, msg: EmailMessage) -> str:
+    """Deliver an already-built MIME message through an existing mailbox.
+
+    This is the shared provider boundary for conversation mail and standalone
+    operational mail such as form invites. It deliberately introduces no new
+    provider: API-connected mailboxes keep their current path and credentialed
+    mailboxes continue through ``mailbox.transport.smtp_send``.
+    """
+    if mailbox.provider == "google_workspace":
+        from . import gmail_api
+        return gmail_api.gmail_send(mailbox.email, msg)
+    if mailbox.provider == "microsoft_graph":
+        from . import graph_api
+        return graph_api.graph_send(mailbox.email, msg)
+    if not mailbox.app_password_enc:
+        raise ValueError("The connected mailbox has no SMTP credential.")
+    secret = decrypt(mailbox.app_password_enc)
+    transport.smtp_send(mailbox.smtp_host, mailbox.smtp_port, mailbox.username, secret, msg)
+    return ""
+
+
 def send_message(db, conv: DealConversation, body_text: str, *, subject=None,
                  ai_generated=False, user_id=None):
     """Send an email THROUGH the connected mailbox, threaded onto the last message
@@ -170,12 +191,8 @@ def send_message(db, conv: DealConversation, body_text: str, *, subject=None,
         new_tid = gmail_api.gmail_send(mailbox.email, msg, thread_id=conv.provider_thread_id or "")
         if new_tid and not conv.provider_thread_id:
             conv.provider_thread_id = new_tid   # remember the thread for future replies
-    elif mailbox.provider == "microsoft_graph":
-        from . import graph_api
-        graph_api.graph_send(mailbox.email, msg)
     else:
-        secret = decrypt(mailbox.app_password_enc)
-        transport.smtp_send(mailbox.smtp_host, mailbox.smtp_port, mailbox.username, secret, msg)
+        deliver_mime(mailbox, msg)
 
     cm = ConversationMessage(
         conversation_id=conv.id, workspace_id=conv.workspace_id, deal_id=conv.deal_id,

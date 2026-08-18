@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Calendar, CheckSquare, FileText, Inbox as InboxIcon, Receipt, ScrollText,
-  CheckCircle2, Circle,
+  CheckCircle2, Circle, Gem,
 } from "lucide-react";
 import { useAuth } from "../auth";
 import { money, timeAgo } from "../api";
@@ -13,6 +13,7 @@ import {
   ActivityFeed, ErrorBox, PageHeader, Row, RowCard, Skeleton, StatCard,
   StatusPill, useApi,
 } from "../components";
+import { ADMIN_BASE } from "../clientspace/nav";
 
 const DOC_TONE = {
   draft: "gray", published: "blue", ready: "blue", sent: "blue", viewed: "amber",
@@ -27,6 +28,42 @@ const fmtTime = (iso) => (iso ? new Date(iso + (iso.endsWith("Z") ? "" : "Z"))
   .toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "");
 const fmtDue = (iso) => (iso ? new Date(iso + (iso.endsWith("Z") ? "" : "Z"))
   .toLocaleDateString([], { month: "short", day: "numeric" }) : "no due date");
+
+const LAUNCH_TONE = {
+  on_track: ["green", "On track"], blocked: ["red", "Blocked"], at_risk: ["amber", "At risk"],
+  live: ["blue", "Live"], not_started: ["gray", "Not started"],
+};
+const LAUNCH_SIDE = { us: "our side", client: "the client", both: "both sides" };
+
+// Client launches across every workspace — the cross-client view an operator
+// actually lives in. It belongs here rather than inside Client Space, because
+// Client Space is scoped to one client by definition and this question is
+// "which of them needs me today".
+function ClientLaunches({ setWorkspaceId, nav }) {
+  const { data } = useApi("/api/client-space/launches");
+  const rows = data?.launches || [];
+  const open = (row) => {
+    setWorkspaceId(String(row.workspace_id));
+    localStorage.setItem("rc_mode", "client_space");
+    nav(ADMIN_BASE);
+  };
+  return (
+    <RowCard title="Client launches" count={rows.length} className="span2" viewAll={ADMIN_BASE}
+      empty="No launches yet. Start one from a client's Launch Plan in Client Space.">
+      {rows.map((row) => {
+        const [tone, label] = LAUNCH_TONE[row.health] || LAUNCH_TONE.not_started;
+        const days = row.days_to_first_send;
+        return (
+          <Row key={row.workspace_id} icon={Gem} title={row.workspace_name}
+            sub={`${row.stage_label}${row.blocked_side ? ` · blocked on ${LAUNCH_SIDE[row.blocked_side]}` : ""}${
+              days === null || days === undefined ? "" : days >= 0 ? ` · ${days}d to first send` : ` · ${Math.abs(days)}d late`}`}
+            right={<StatusPill tone={tone}>{label}</StatusPill>}
+            onClick={() => open(row)} />
+        );
+      })}
+    </RowCard>
+  );
+}
 
 function GettingStarted({ wsParam, nav }) {
   const { data } = useApi("/api/setup/checklist", { workspace_id: wsParam });
@@ -69,7 +106,7 @@ function GettingStarted({ wsParam, nav }) {
 }
 
 export default function Dashboard() {
-  const { wsParam } = useAuth();
+  const { wsParam, setWorkspaceId } = useAuth();
   const nav = useNavigate();
   const { data, error, loading, reload } = useApi("/api/dashboard/command", { workspace_id: wsParam });
 
@@ -108,6 +145,8 @@ export default function Dashboard() {
       </div>
 
       <div className="cc-grid">
+        <ClientLaunches setWorkspaceId={setWorkspaceId} nav={nav} />
+
         <RowCard title="Today's meetings" count={(data.meetings_today || []).length}
           viewAll="/pipeline" empty="No meetings today. Enjoy the focus time.">
                     {(data.meetings_today || []).map((m) => (

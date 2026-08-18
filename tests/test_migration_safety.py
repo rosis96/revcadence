@@ -2,6 +2,7 @@
 
 Run: python -m tests.test_migration_safety
 """
+from contextlib import closing
 import os
 from pathlib import Path
 import sqlite3
@@ -12,8 +13,14 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 OLD_REVISION = "120b8ef2c964"
-HEAD_REVISION = "6d2bc12dbf30"
-NEW_TABLES = {"workspace_training_revisions", "workspace_evaluation_cases"}
+HEAD_REVISION = "d7f4a91c3e28"
+# Tables owned by migrations pending at OLD_REVISION. Every new table joins this
+# set, so "premigrate must not create what Alembic owns" keeps covering the
+# newest migration rather than only the one it was written against.
+NEW_TABLES = {"workspace_training_revisions", "workspace_evaluation_cases",
+              "client_launches", "launch_tasks",
+              "library_case_studies", "library_segments", "library_icp_tests",
+              "library_exclusions", "campaign_snapshots"}
 
 
 def run(db_path: Path, *command: str) -> None:
@@ -32,8 +39,11 @@ def run(db_path: Path, *command: str) -> None:
     )
 
 
+# `with sqlite3.connect(...)` manages the transaction, NOT the handle — on Windows
+# the still-open file keeps TemporaryDirectory from deleting the database and the
+# run fails during cleanup with every assertion already passed. closing() shuts it.
 def tables(db_path: Path) -> set[str]:
-    with sqlite3.connect(db_path) as connection:
+    with closing(sqlite3.connect(db_path)) as connection:
         return {
             row[0]
             for row in connection.execute(
@@ -43,7 +53,7 @@ def tables(db_path: Path) -> set[str]:
 
 
 def revision(db_path: Path) -> str:
-    with sqlite3.connect(db_path) as connection:
+    with closing(sqlite3.connect(db_path)) as connection:
         return connection.execute(
             "SELECT version_num FROM alembic_version"
         ).fetchone()[0]

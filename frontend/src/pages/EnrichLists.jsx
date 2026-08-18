@@ -1,9 +1,11 @@
 import { alertDialog, confirmDialog } from "../components";
 // Outbound → Lists: named lead lists per workspace (the old dashboard's Lists).
 import { useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { AnimatePresence } from "framer-motion";
+import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
+import { enrichBase } from "../clientspace/modules";
 import { Empty, ErrorBox, Modal, Spinner, useApi } from "../components";
 
 // Reuse the CSV machinery from the companies-enrichment page.
@@ -56,6 +58,9 @@ export function mapRows(csvRows) {
 export default function EnrichLists() {
   const { wsParam, me } = useAuth();
   const nav = useNavigate();
+  // Mounted at two bases — `/enrichment` for us, `/w/<slug>/enrichment` for the
+  // client — so a row click resolves from the URL this screen was opened at.
+  const base = enrichBase(useLocation().pathname);
   const { data, error, loading, reload } = useApi("/api/enrich-lists", { workspace_id: wsParam });
   const [modal, setModal] = useState(false);
   const [name, setName] = useState("");
@@ -80,7 +85,7 @@ export default function EnrichLists() {
         }
       }
       setModal(false); setName(""); pendingFile.current = null;
-      nav(`/enrichment/lists/${r.id}`);
+      nav(`${base}/lists/${r.id}`);
     } catch (err) { alertDialog(err.message); }
     setBusy(false);
   };
@@ -107,7 +112,7 @@ export default function EnrichLists() {
           <thead><tr><th>List</th><th>Leads</th><th>Created</th><th></th></tr></thead>
           <tbody>
             {data.map((l) => (
-              <tr key={l.id} className="click" onClick={() => nav(`/enrichment/lists/${l.id}`)}>
+              <tr key={l.id} className="click" onClick={() => nav(`${base}/lists/${l.id}`)}>
                 <td><b>{l.name}</b></td>
                 <td>{l.leads.toLocaleString()}</td>
                 <td style={{ color: "var(--muted)" }}>{new Date(l.created_at + "Z").toLocaleDateString()}</td>
@@ -119,8 +124,9 @@ export default function EnrichLists() {
           </tbody>
         </table>
       )}
+      <AnimatePresence>
       {modal && (
-        <Modal title="New list" onClose={() => setModal(false)}>
+        <Modal key="newlist" title="New list" onClose={() => setModal(false)}>
           <form onSubmit={createList}>
             <div className="field"><label>List name</label>
               <input value={name} onChange={(e) => setName(e.target.value)} required autoFocus /></div>
@@ -134,6 +140,7 @@ export default function EnrichLists() {
           </form>
         </Modal>
       )}
+      </AnimatePresence>
     </>
   );
 }

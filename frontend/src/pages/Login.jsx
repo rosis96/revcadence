@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Eye, EyeOff } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAuth } from "../auth";
+import { PasswordInput } from "../components";
 
 // The RevCadence wave mark (same as the sidebar logo).
 function Wave({ size = 132 }) {
@@ -21,7 +22,6 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const [forgot, setForgot] = useState(false);
   const [sent, setSent] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
   const emailRef = useRef(null);
 
   // Ensure the email field is ready for typing whenever the sign-in screen opens.
@@ -71,13 +71,7 @@ export default function Login() {
             <label>Email</label>
             <input ref={emailRef} type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus required />
             <label>Password</label>
-            <div className="password-control">
-              <input type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} required />
-              <button type="button" className="password-toggle" onClick={() => setShowPassword((visible) => !visible)}
-                aria-label={showPassword ? "Hide password" : "Show password"} title={showPassword ? "Hide password" : "Show password"}>
-                {showPassword ? <EyeOff size={19} /> : <Eye size={19} />}
-              </button>
-            </div>
+            <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} required />
             <div className="forgot-row">
               <button type="button" className="linkbtn" onClick={() => { setForgot(true); setError(""); }}>Forgot password?</button>
             </div>

@@ -4,9 +4,11 @@
 //  • Any Provider       → app password over SMTP/IMAP
 // The HTTPS paths work even where the host blocks SMTP/IMAP (Railway).
 import { useEffect, useState } from "react";
+import { AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { Mail, CheckCircle2, AlertCircle, Plug, Sparkles, ArrowRight, Copy, ShieldCheck } from "lucide-react";
 import { api } from "../api";
+import { useAppPath } from "../clientspace/appPath";
 import { useAuth } from "../auth";
 import { Badge, Button, ConfirmDialog, PageHeader, Spinner, useApi, useToast } from "../components";
 
@@ -18,6 +20,7 @@ const CARDS = [
 ];
 
 export default function MailboxConnect() {
+  const appTo = useAppPath();
   const { wsParam, me } = useAuth();
   const wsId = wsParam || (!me?.is_master ? me?.workspaces?.[0]?.id : null);
   const toast = useToast();
@@ -134,7 +137,7 @@ export default function MailboxConnect() {
             <div style={{ fontWeight: 600 }}>Importing your last 60 days of conversations…</div>
             <div style={{ fontSize: 12.5, color: "var(--muted)" }}>We're matching them to your contacts and deals. Known threads appear in the Revenue Inbox in a minute or two.</div>
           </div>
-          <Button icon={ArrowRight} onClick={() => nav("/revenue-inbox")}>Open Revenue Inbox</Button>
+          <Button icon={ArrowRight} onClick={() => nav(appTo("/revenue-inbox"))}>Open Revenue Inbox</Button>
         </div>
       )}
 
@@ -244,10 +247,12 @@ export default function MailboxConnect() {
                  : "Your password is encrypted at rest and only used to send/receive on your behalf. Nothing is sent automatically — the AI drafts, you approve."}</p>
       </div>
 
+      <AnimatePresence>
       {confirmDisc && (
-        <ConfirmDialog title="Disconnect mailbox" message={`Disconnect ${existing?.email}? You can reconnect it anytime.`}
+        <ConfirmDialog key="disc" title="Disconnect mailbox" message={`Disconnect ${existing?.email}? You can reconnect it anytime.`}
           confirmLabel="Disconnect" danger onConfirm={disconnect} onClose={() => setConfirmDisc(false)} />
       )}
+      </AnimatePresence>
     </div>
   );
 }

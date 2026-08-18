@@ -1,14 +1,17 @@
 // CRM → Clients: closed-won accounts (a Client Profile exists), on the shared DataTable.
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { AnimatePresence } from "framer-motion";
+import { Link, useNavigate } from "react-router-dom";
 import { Briefcase, Trash2 } from "lucide-react";
 import { api } from "../api";
+import { useAppPath } from "../clientspace/appPath";
 import { useAuth } from "../auth";
 import { Avatar, Badge, ConfirmDialog, DataTable, ErrorBox, PageHeader, StatusPill, useApi, useToast } from "../components";
 
 const ONB_TONE = { approved: "green", submitted: "blue", in_review: "amber", sent: "blue", not_started: "gray" };
 
 export default function Clients() {
+  const appTo = useAppPath();
   const { wsParam } = useAuth();
   const nav = useNavigate();
   const toast = useToast();
@@ -46,7 +49,7 @@ export default function Clients() {
       cell: ({ row }) => (
         <span style={{ fontSize: 12 }} onClick={(e) => e.stopPropagation()}>
           {row.original.blueprint_doc_id
-            ? <a href={`#/blueprints/${row.original.blueprint_doc_id}`}>Blueprint</a>
+            ? <Link to={appTo(`/blueprints/${row.original.blueprint_doc_id}`)}>Blueprint</Link>
             : <span style={{ color: "var(--muted)" }}>—</span>}
           {" · "}
           {row.original.agreement_doc_id ? "Agreement" : <span style={{ color: "var(--muted)" }}>no agreement</span>}
@@ -61,17 +64,19 @@ export default function Clients() {
       <DataTable
         id="clients" columns={columns} data={data || []} loading={loading}
         searchPlaceholder="Search clients…" getRowId={(r) => String(r.company_id)}
-        onRowClick={(r) => nav(`/companies/${r.company_id}/profile`)}
+        onRowClick={(r) => nav(appTo(`/companies/${r.company_id}/profile`))}
         bulkActions={[{ label: "Remove from Clients", icon: Trash2, onClick: (rows) => setConfirmRows(rows) }]}
         emptyIcon={Briefcase} emptyTitle="No clients yet"
         emptyHint="A client appears here when a deal moves to a Won stage (or you activate a company's profile)."
       />
+      <AnimatePresence>
       {confirmRows && (
-        <ConfirmDialog title="Remove from Clients"
+        <ConfirmDialog key="rm" title="Remove from Clients"
           message={`Remove ${confirmRows.length} account(s) from the Clients space? The company, its contacts and its deals stay — only the client profile is removed.`}
           confirmLabel="Remove" danger
           onConfirm={() => removeFromClients(confirmRows)} onClose={() => setConfirmRows(null)} />
       )}
+      </AnimatePresence>
     </>
   );
 }

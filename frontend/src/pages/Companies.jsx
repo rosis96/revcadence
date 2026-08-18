@@ -1,9 +1,11 @@
 // CRM → Companies. Shared DataTable + global shell (DESIGN_SYSTEM.md step 3).
 import { useMemo, useState } from "react";
+import { AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { Building2, Plus, Trash2 } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
+import { useAppPath } from "../clientspace/appPath";
 import {
   Avatar, Badge, Button, ConfirmDialog, DataTable, ErrorBox, Modal, PageHeader, fitTone, useApi, useToast,
 } from "../components";
@@ -107,6 +109,7 @@ export default function Companies() {
   const [filter, setFilter] = useState("__booked");
   const [confirmRows, setConfirmRows] = useState(null);
   const nav = useNavigate();
+  const appTo = useAppPath();
   const toast = useToast();
   const { data, error, loading, reload } = useApi("/api/companies", { workspace_id: wsParam });
 
@@ -147,22 +150,24 @@ export default function Companies() {
       <DataTable
         id="companies" columns={columns} data={shown} loading={loading}
         searchPlaceholder="Search companies…" getRowId={(r) => String(r.id)}
-        onRowClick={(r) => nav(`/companies/${r.id}`)}
+        onRowClick={(r) => nav(appTo(`/companies/${r.id}`))}
         bulkActions={[{ label: "Delete", icon: Trash2, onClick: (rows) => setConfirmRows(rows) }]}
         emptyIcon={Building2} emptyTitle="No companies"
         emptyHint="Create one or import via enrichment."
         emptyAction={<Button icon={Plus} onClick={() => setModal(true)}>New company</Button>}
       />
-      {modal && (
-        <NewCompanyModal workspaceId={wsParam} workspaces={me.workspaces} onClose={() => setModal(false)}
-          onCreated={(id) => { setModal(false); nav(`/companies/${id}`); }} />
-      )}
-      {confirmRows && (
-        <ConfirmDialog title="Delete companies"
-          message={`Delete ${confirmRows.length} company(ies) with all their contacts, deals, documents and profiles? This can't be undone.`}
-          confirmLabel="Delete" danger
-          onConfirm={() => bulkDelete(confirmRows)} onClose={() => setConfirmRows(null)} />
-      )}
+      <AnimatePresence>
+        {modal && (
+          <NewCompanyModal key="new" workspaceId={wsParam} workspaces={me.workspaces} onClose={() => setModal(false)}
+            onCreated={(id) => { setModal(false); nav(appTo(`/companies/${id}`)); }} />
+        )}
+        {confirmRows && (
+          <ConfirmDialog key="del" title="Delete companies"
+            message={`Delete ${confirmRows.length} company(ies) with all their contacts, deals, documents and profiles? This can't be undone.`}
+            confirmLabel="Delete" danger
+            onConfirm={() => bulkDelete(confirmRows)} onClose={() => setConfirmRows(null)} />
+        )}
+      </AnimatePresence>
     </>
   );
 }

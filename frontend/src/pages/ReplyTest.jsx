@@ -1,13 +1,17 @@
 // Reply Management → Test Thread: paste a thread, run the exact engine, review
 // the decision + drafted reply + follow-ups. Zero side effects (nothing sent).
+//
+// Mounted at two bases. `/api/reply/workspaces` is workspace-scoped, so the
+// space list a client sees here is their own — the screen does not need to know
+// which side is looking at it.
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { Badge, ErrorBox, Spinner, useApi } from "../components";
+import { Area, Badge, ErrorBox, Spinner, useApi } from "../components";
 import { Select } from "../components";
 
 export default function ReplyTest() {
-  const { wsParam, me } = useAuth();
+  const { wsParam } = useAuth();
   const { data: spaces } = useApi("/api/reply/workspaces", { workspace_id: wsParam });
   const [rwsId, setRwsId] = useState("");
   const [thread, setThread] = useState("");
@@ -26,8 +30,6 @@ export default function ReplyTest() {
     setBusy(false);
   };
 
-  if (!me.is_master) return <ErrorBox msg="Master access required." />;
-
   return (
     <div style={{ maxWidth: 1000 }}>
       <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 14 }}>
@@ -39,7 +41,7 @@ export default function ReplyTest() {
           {(spaces || []).map((s) => <option key={s.id} value={s.id}>{s.name} ({s.platform}/{s.mode})</option>)}
         </Select></div>
       <div className="field"><label>Email thread (paste the conversation — the prospect's latest reply matters most)</label>
-        <textarea rows={10} style={{ width: "100%" }} value={thread} onChange={(e) => setThread(e.target.value)} placeholder="Paste the full thread here…" /></div>
+        <Area size="lg" style={{ width: "100%" }} value={thread} onChange={(e) => setThread(e.target.value)} placeholder="Paste the full thread here…" /></div>
       <button className="btn" disabled={busy || !thread.trim() || !rwsId} onClick={run}>{busy ? "Generating…" : "Generate reply"}</button>
 
       {error && <div style={{ marginTop: 14 }}><ErrorBox msg={error} /></div>}

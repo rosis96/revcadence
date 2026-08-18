@@ -2,6 +2,7 @@ import { confirmDialog } from "../components";
 // Settings → Developers: API keys, request logs, webhook endpoints + deliveries,
 // and the client-facing API documentation. Shared components only.
 import { useMemo, useState } from "react";
+import { AnimatePresence } from "framer-motion";
 import { Copy, ExternalLink, KeyRound, Plus, RefreshCw, RotateCw, Trash2, Webhook } from "lucide-react";
 import { api, localDate, timeAgo } from "../api";
 import { useAuth } from "../auth";
@@ -96,8 +97,9 @@ function KeysTab() {
         emptyHint="Create a key to let a client system talk to the RevCadence API."
         emptyAction={<Button icon={Plus} onClick={() => setModal(true)}>Create key</Button>} />
 
+      <AnimatePresence>
       {modal && (
-        <Modal title="Create API key" onClose={() => setModal(false)}>
+        <Modal key="create" title="Create API key" onClose={() => setModal(false)}>
           <div className="field"><label>Name</label>
             <input value={form.name} placeholder="e.g. HubSpot bridge, Zapier"
               onChange={(e) => setForm({ ...form, name: e.target.value })} autoFocus /></div>
@@ -121,15 +123,16 @@ function KeysTab() {
           </div>
         </Modal>
       )}
-      {secret && <SecretModal {...secret} onClose={() => setSecret(null)} />}
+      {secret && <SecretModal key="secret" {...secret} onClose={() => setSecret(null)} />}
       {revoke && (
-        <ConfirmDialog danger title={`Revoke "${revoke.name}"?`}
+        <ConfirmDialog key="revoke" danger title={`Revoke "${revoke.name}"?`}
           message="Every system using this key loses access immediately."
           confirmLabel="Revoke"
           onConfirm={async () => { await api(`/api/devapi/keys/${revoke.id}/revoke`, { method: "POST" }); toast("Key revoked"); reload(); }}
           onClose={() => setRevoke(null)} />
       )}
-      {logsFor && <RequestLogs k={logsFor} onClose={() => setLogsFor(null)} />}
+      {logsFor && <RequestLogs key="logs" k={logsFor} onClose={() => setLogsFor(null)} />}
+      </AnimatePresence>
     </>
   );
 }
@@ -215,8 +218,9 @@ function HooksTab() {
         ))}
       </div>
 
+      <AnimatePresence>
       {modal && (
-        <Modal title="Add webhook endpoint" onClose={() => setModal(false)}>
+        <Modal key="hook" title="Add webhook endpoint" onClose={() => setModal(false)}>
           <div className="field"><label>Endpoint URL</label>
             <input value={form.url} placeholder="https://your-system.com/webhooks/revcadence"
               onChange={(e) => setForm({ ...form, url: e.target.value })} autoFocus /></div>
@@ -237,7 +241,8 @@ function HooksTab() {
           </div>
         </Modal>
       )}
-      {secret && <SecretModal {...secret} onClose={() => setSecret(null)} />}
+      {secret && <SecretModal key="secret" {...secret} onClose={() => setSecret(null)} />}
+      </AnimatePresence>
     </>
   );
 }

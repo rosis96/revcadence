@@ -1,9 +1,10 @@
-import { confirmDialog } from "../components";
+import { Area, confirmDialog } from "../components";
 // Settings → Integrations → CRM: connect an external CRM, configure sync
 // direction / entities / mappings / conflict policy, test, run, and monitor.
 // The Generic webhook/API provider is production-ready; native adapters are
 // listed but clearly marked until their real integrations ship.
 import { useState } from "react";
+import { AnimatePresence } from "framer-motion";
 import { Cable, Play, Plug, RefreshCw, Trash2 } from "lucide-react";
 import { api, timeAgo } from "../api";
 import { useAuth } from "../auth";
@@ -100,10 +101,10 @@ function ConnForm({ meta, initial, onSaved, onClose }) {
           ))}
         </div></div>
       <div className="field"><label>Field mappings (JSON: {"{entity: {local: external}}"})</label>
-        <textarea rows={3} value={maps} onChange={(e) => setMaps(e.target.value)}
+        <Area size="md" value={maps} onChange={(e) => setMaps(e.target.value)}
           style={{ fontFamily: "monospace", fontSize: 11.5 }} /></div>
       <div className="field"><label>Stage mappings (JSON: {"{local stage: external stage}"})</label>
-        <textarea rows={3} value={stages} onChange={(e) => setStages(e.target.value)}
+        <Area size="md" value={stages} onChange={(e) => setStages(e.target.value)}
           style={{ fontFamily: "monospace", fontSize: 11.5 }} /></div>
       <div className="actions">
         <Button variant="ghost" onClick={onClose}>Cancel</Button>
@@ -185,11 +186,13 @@ export default function CrmSync() {
         ))}
       </div>
 
+      <AnimatePresence>
       {modal && (
-        <ConnForm meta={meta} initial={modal === "new" ? null : modal}
+        <ConnForm key="conn" meta={meta} initial={modal === "new" ? null : modal}
           onSaved={() => { setModal(null); reload(); toast("Connection saved"); }}
           onClose={() => setModal(null)} />
       )}
+      </AnimatePresence>
     </>
   );
 }

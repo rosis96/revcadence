@@ -2,12 +2,13 @@
 // Premium redesign (Linear/Attio/Clay). Frontend-only — all data, filtering,
 // and pagination logic is preserved exactly.
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Database, Download, Upload, Search, Filter, ArrowUpDown, Columns3, Bookmark,
   Rows3, MoreHorizontal, CheckCircle2, ShieldCheck, Sparkles, Target,
 } from "lucide-react";
 import { useAuth } from "../auth";
+import { enrichBase } from "../clientspace/modules";
 import { ErrorBox, Metric, PageHeader, SkeletonRows, StatusBadge, useApi } from "../components";
 
 // view key → [label, dot color]  (preserves existing filter keys)
@@ -27,6 +28,9 @@ const icpTone = (d) => (d === "ICP" ? "green" : d === "Non-ICP" ? "amber" : "ind
 const initials = (s) => (s || "?").trim().slice(0, 2).toUpperCase();
 
 export default function EnrichDatabase() {
+  // Mounted at two bases — `/enrichment` for us, `/w/<slug>/enrichment` for the
+  // client — so links resolve from the URL this screen was opened at.
+  const base = enrichBase(useLocation().pathname);
   const { wsParam, me } = useAuth();
   const nav = useNavigate();
   const wsId = wsParam || (!me.is_master ? me.workspaces[0]?.id : null);
@@ -57,7 +61,7 @@ export default function EnrichDatabase() {
       <button className="hbtn ghost" title="Export the current view (per-list export lives on each List)" disabled>
         <Download size={16} /> Export
       </button>
-      <button className="hbtn primary" onClick={() => nav("/enrichment")} title="Create a list and import a CSV">
+      <button className="hbtn primary" onClick={() => nav(base)} title="Create a list and import a CSV">
         <Upload size={16} /> Import leads
       </button>
     </>
@@ -171,7 +175,7 @@ export default function EnrichDatabase() {
                     ? "Import a lead list to begin enriching, verifying, and qualifying prospects."
                     : "No leads match this filter yet. Run enrichment or switch views."}</p>
                   <div className="ea">
-                    <button className="hbtn primary" onClick={() => nav("/enrichment")}><Upload size={16} /> Import leads</button>
+                    <button className="hbtn primary" onClick={() => nav(base)}><Upload size={16} /> Import leads</button>
                     <button className="hbtn ghost" onClick={() => setView("all")}>View all leads</button>
                   </div>
                 </div>

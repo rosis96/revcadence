@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { AnimatePresence } from "framer-motion";
+import { Link, useNavigate } from "react-router-dom";
 import { Plus, Rows3 } from "lucide-react";
 import { api, money, timeAgo } from "../api";
 import { useAuth } from "../auth";
+import { useAppPath } from "../clientspace/appPath";
 import {
   Badge, Button, DataTable, Drawer, ErrorBox, Modal, MoneyEst, PageHeader, Spinner, Tabs,
   Timeline, useApi,
@@ -114,6 +116,7 @@ function NewLeadModal({ onClose, onCreated, workspaceId, stages }) {
 }
 
 function DealDrawer({ dealId, onClose, onChanged }) {
+  const appTo = useAppPath();
   const nav = useNavigate();
   const { data: d, error, loading, reload } = useApi(`/api/deals/${dealId}`);
   const { data: ags } = useApi(`/api/agreements`, { deal_id: dealId });
@@ -126,7 +129,7 @@ function DealDrawer({ dealId, onClose, onChanged }) {
   };
   const newAgreement = async () => {
     setBusy(true);
-    try { const a = await api("/api/agreements/generate", { method: "POST", body: { deal_id: Number(dealId) } }); nav(`/agreements/${a.id}`); }
+    try { const a = await api("/api/agreements/generate", { method: "POST", body: { deal_id: Number(dealId) } }); nav(appTo(`/agreements/${a.id}`)); }
     catch (e) { alertDialog(e.message); }
     setBusy(false);
   };
@@ -144,7 +147,7 @@ function DealDrawer({ dealId, onClose, onChanged }) {
                 {d.stages.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </Select>
             </div>
-            <div className="k">Company</div><div>{d.company ? <a href={`#/companies/${d.company.id}`}>{d.company.name}</a> : "—"}</div>
+            <div className="k">Company</div><div>{d.company ? <Link to={appTo(`/companies/${d.company.id}`)}>{d.company.name}</Link> : "—"}</div>
             <div className="k">Contact</div><div>{d.contact ? `${d.contact.name} · ${d.contact.email}` : "—"}</div>
             <div className="k">Lead intent</div><div>{d.lead_intent ? <Badge tone="indigo">{d.lead_intent}</Badge> : "—"}</div>
             <div className="k">Status</div><div>{d.status_label || "—"}</div>
@@ -152,7 +155,7 @@ function DealDrawer({ dealId, onClose, onChanged }) {
             <div className="k">Close date</div><div>{d.close_date || "—"}</div>
           </div>
           {d.description && <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>{d.description}</p>}
-          <button className="btn" style={{ width: "100%", marginBottom: 12 }} onClick={() => nav(`/deals/${dealId}`)}>
+          <button className="btn" style={{ width: "100%", marginBottom: 12 }} onClick={() => nav(appTo(`/deals/${dealId}`))}>
             Open deal record (Conversation, Timeline, Docs) →</button>
           <div style={{ display: "flex", alignItems: "center", margin: "10px 0 6px" }}>
             <h3 style={{ fontSize: 13, flex: 1, margin: 0 }}>Agreement</h3>
@@ -160,7 +163,7 @@ function DealDrawer({ dealId, onClose, onChanged }) {
           </div>
           {(ags || []).length === 0 && <div style={{ fontSize: 12, color: "var(--muted)" }}>No agreement yet for this deal.</div>}
           {(ags || []).map((ag) => (
-            <div key={ag.id} className="click" onClick={() => nav(`/agreements/${ag.id}`)}
+            <div key={ag.id} className="click" onClick={() => nav(appTo(`/agreements/${ag.id}`))}
                  style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 0", fontSize: 12.5 }}>
               <span>✍</span><span style={{ flex: 1 }}>{ag.number} · v{ag.version}</span>
               <Badge tone={ag.status === "executed" ? "green" : "blue"}>{ag.status}</Badge>
@@ -185,6 +188,7 @@ export default function Pipeline() {
   const [dragOver, setDragOver] = useState(null);
   const [modal, setModal] = useState(false);
   const wsId = wsParam || (!me?.is_master ? me?.workspaces?.[0]?.id : null);
+  const appTo = useAppPath();
   const stages = useMemo(() => (board || []).map((col) => col.stage), [board]);
 
   const onDrop = async (e, stage) => {
@@ -238,7 +242,7 @@ export default function Pipeline() {
         <DataTable
           id="deals" columns={dealColumns} data={allDeals}
           searchPlaceholder="Search deals…" getRowId={(r) => String(r.id)}
-          onRowClick={(r) => nav(`/deals/${r.id}`)}
+          onRowClick={(r) => nav(appTo(`/deals/${r.id}`))}
           emptyIcon={Rows3} emptyTitle="No deals yet"
           emptyHint="Add a lead or promote one from reply management."
         />
@@ -258,7 +262,7 @@ export default function Pipeline() {
             {col.deals.map((d) => (
               <div key={d.id} className="dealcard" draggable
                    onDragStart={(e) => e.dataTransfer.setData("dealId", String(d.id))}
-                   onClick={() => nav(`/deals/${d.id}`)}>
+                   onClick={() => nav(appTo(`/deals/${d.id}`))}>
                 <div className="nm">{d.name || d.company_name || "Untitled deal"}</div>
                 <div className="co">{d.company_name}{d.contact_name ? ` · ${d.contact_name}` : ""}</div>
                 <div className="row">
@@ -273,11 +277,15 @@ export default function Pipeline() {
         ))}
       </div>
       )}
-      {openDeal && <DealDrawer dealId={openDeal} onClose={() => setOpenDeal(null)} onChanged={reload} />}
+      <AnimatePresence>
+      {openDeal && <DealDrawer key="deal" dealId={openDeal} onClose={() => setOpenDeal(null)} onChanged={reload} />}
+      </AnimatePresence>
+      <AnimatePresence>
       {modal && (
-        <NewLeadModal workspaceId={wsId} stages={stages} onClose={() => setModal(false)}
-                      onCreated={(id) => { setModal(false); reload(); nav(`/deals/${id}`); }} />
+        <NewLeadModal key="newlead" workspaceId={wsId} stages={stages} onClose={() => setModal(false)}
+                      onCreated={(id) => { setModal(false); reload(); nav(appTo(`/deals/${id}`)); }} />
       )}
+      </AnimatePresence>
     </>
   );
 }

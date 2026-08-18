@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { motion } from "framer-motion";
+import { X } from "lucide-react";
 import { api, money } from "./api";
+import { backdropMotion, currentOrigin, dialogMotion, drawerMotion, isTopOverlay } from "./ui/motion";
 
 /* Phase 0 design system: all new primitives live in src/ui/ and are re-exported
    here so pages keep a single import path. */
@@ -104,21 +107,57 @@ export function Drawer({ title, onClose, children, className = "" }) {
   }, [onClose]);
   return (
     <>
-      <div className="drawer-bg" onClick={onClose} />
-      <div className={`drawer ${className}`}>
+      <motion.div className="drawer-bg" onClick={onClose} {...backdropMotion} />
+      <motion.div className={`drawer ${className}`} {...drawerMotion}>
         <button className="close" onClick={onClose}>✕</button>
         <h2>{title}</h2>
         {children}
-      </div>
+      </motion.div>
     </>
   );
 }
 
-export function Modal({ title, onClose, children }) {
+// `originRef` makes the dialog grow out of the control that opened it instead of
+// appearing from nowhere — the button stays the subject and the eye follows it to
+// the centre. Omit it and the dialog simply scales up in place, so every existing
+// call site keeps working unchanged.
+// Exit animation needs an <AnimatePresence> around the call site; without one the
+// enter still plays and unmount is immediate.
+export function Modal({ title, onClose, originRef, closeButton = false, children }) {
+  // Measured once, on open — that is exactly the position we want to fly from.
+  // Falls back to the last pointer press so a dialog opened without a ref still
+  // grows from where the user clicked rather than from nowhere.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const motionProps = useMemo(() => dialogMotion(originRef?.current || currentOrigin()), []);
+  // A popup opened from inside the dialog (icon picker, Select menu) portals ABOVE
+  // it, so a click meant to dismiss the popup would otherwise also close the dialog
+  // underneath. One click closes the popup; the next closes the dialog.
+  const backdropDown = (e) => {
+    if (e.target !== e.currentTarget) return;
+    if (document.querySelector(".inline-popup")) return;
+    onClose();
+  };
+  // Esc closes. Owned here rather than at each call site so a modal that forgets
+  // to wire it is not a modal you cannot dismiss from the keyboard — and gated
+  // on being the top layer so one keypress never closes two.
+  const shell = useRef(null);
+  useEffect(() => {
+    const h = (e) => { if (e.key === "Escape" && isTopOverlay(shell.current)) onClose?.(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
   return (
-    <div className="modal" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="box"><h2>{title}</h2>{children}</div>
-    </div>
+    <motion.div ref={shell} className="modal" onMouseDown={backdropDown} {...backdropMotion}>
+      <motion.div className="box" {...motionProps}>
+        {closeButton && (
+          <motion.button type="button" className="modal-x" aria-label="Close" onClick={onClose}
+            whileHover={{ rotate: 180 }} transition={{ type: "spring", stiffness: 260, damping: 20 }}>
+            <X size={18} strokeWidth={2} />
+          </motion.button>
+        )}
+        {title && <h2>{title}</h2>}{children}
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -144,10 +183,10 @@ export function Timeline({ items }) {
     g.rows.push(a);
   }
   return (
-    <div className="tl-groups">
+    <div className="rc-tl-groups">
       {groups.map((g, gi) => (
-        <div key={gi} className="tl-group">
-          <div className="tl-daylabel">{g.label}</div>
+        <div key={gi} className="rc-tl-group">
+          <div className="rc-tl-daylabel">{g.label}</div>
           <ul className="timeline">
             {g.rows.map((a, i) => (
               <li key={a.id ?? i}>

@@ -2,12 +2,14 @@
 // on the left, live document preview on the right, signing timeline, versions,
 // countersign, PDFs. Executed versions stay locked. Shared components only.
 import { useEffect, useState } from "react";
+import { AnimatePresence } from "framer-motion";
 import { useNavigate, useParams } from "react-router-dom";
 import { Download, FileSignature, GitBranch, Link2, Receipt, Send } from "lucide-react";
 import { api, download, timeAgo } from "../api";
+import { useAppPath } from "../clientspace/appPath";
 import { useAuth } from "../auth";
 import {
-  Badge, Breadcrumbs, Button, ErrorBox, Modal, RowCard, SaveIndicator, Spinner,
+  Area, Badge, Breadcrumbs, Button, ErrorBox, Modal, RowCard, SaveIndicator, Spinner,
   StatusPill, StatusSteps, VersionList, useApi, useAutoSave, useToast,
 } from "../components";
 
@@ -32,6 +34,7 @@ function publicUrl(slug) {
 const fmtMoney = (cur, n) => (n == null || n === "" ? null : `${cur || "USD"} ${Number(n).toLocaleString()}`);
 
 export default function AgreementDetail() {
+  const appTo = useAppPath();
   const { id } = useParams();
   const nav = useNavigate();
   const { me } = useAuth();
@@ -71,11 +74,11 @@ export default function AgreementDetail() {
   const setSection = (i, body) => setA({ ...a, sections: a.sections.map((s, j) => (j === i ? { ...s, body } : s)) });
   const setField = (k, v) => setA({ ...a, fields: { ...a.fields, [k]: v } });
   const setFee = (k, v) => setA({ ...a, fields: { ...a.fields, fees: { ...fees, [k]: v } } });
-  const newVersion = () => api(`/api/agreements/${id}/version`, { method: "POST" }).then((nv) => nav(`/agreements/${nv.id}`));
+  const newVersion = () => api(`/api/agreements/${id}/version`, { method: "POST" }).then((nv) => nav(appTo(`/agreements/${nv.id}`)));
 
   return (
     <>
-      <Breadcrumbs items={[{ label: "Blueprints & Agreements", href: "/blueprints" }, { label: a.number || "Agreement" }]} />
+      <Breadcrumbs items={[{ label: "Blueprints & Agreements", href: appTo("/blueprints") }, { label: a.number || "Agreement" }]} />
       <div className="page-head">
         <div style={{ flex: 1, minWidth: 0 }}>
           <input className="doc-title" value={a.title} disabled={!editable} placeholder="Agreement title"
@@ -95,7 +98,7 @@ export default function AgreementDetail() {
           {a.status === "executed" &&
             <Button icon={Receipt} loading={busy === "inv"} onClick={async () => {
               setBusy("inv");
-              try { const inv = await api(`/api/agreements/${id}/invoice`, { method: "POST", body: {} }); nav(`/invoices/${inv.id}`); }
+              try { const inv = await api(`/api/agreements/${id}/invoice`, { method: "POST", body: {} }); nav(appTo(`/invoices/${inv.id}`)); }
               catch (e) { toast(e.message, "bad"); }
               setBusy("");
             }}>Create invoice</Button>}
@@ -142,8 +145,7 @@ export default function AgreementDetail() {
             {a.sections.map((s, i) => (
               <div className="doc-sec" key={s.key}>
                 <label>{s.label}</label>
-                <textarea rows={Math.min(12, Math.max(2, (s.body || "").split("\n").length))}
-                  disabled={!editable} value={s.body} onChange={(e) => setSection(i, e.target.value)} />
+                <Area size="lg" disabled={!editable} value={s.body} onChange={(e) => setSection(i, e.target.value)} />
               </div>
             ))}
           </div>
@@ -189,7 +191,7 @@ export default function AgreementDetail() {
               <VersionList versions={(versions || []).map((v) => ({
                 label: `v${v.version} · ${v.status.replaceAll("_", " ")}`, at: v.updated_at || v.created_at,
                 current: v.id === a.id, id: v.id,
-              }))} onOpen={(v) => nav(`/agreements/${v.id}`)} currentLabel="open" />
+              }))} onOpen={(v) => nav(appTo(`/agreements/${v.id}`))} currentLabel="open" />
             </div>
           </RowCard>
 
@@ -203,8 +205,9 @@ export default function AgreementDetail() {
         </div>
       </div>
 
+      <AnimatePresence>
       {counter && (
-        <Modal title="Countersign & execute" onClose={() => setCounter(false)}>
+        <Modal key="counter" title="Countersign & execute" onClose={() => setCounter(false)}>
           <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 0 }}>
             The client has signed. Countersigning executes the agreement, locks the version,
             generates the executed PDF, and moves the deal to Closed Won.</p>
@@ -220,6 +223,7 @@ export default function AgreementDetail() {
           </div>
         </Modal>
       )}
+      </AnimatePresence>
     </>
   );
 }

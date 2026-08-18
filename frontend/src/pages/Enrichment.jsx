@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { api, getToken } from "../api";
 import { useAuth } from "../auth";
@@ -191,10 +192,12 @@ export default function Enrichment() {
         )}
       </div>
 
+      <AnimatePresence>
       {modal && (
-        <NewCompanyModal workspaceId={wsParam} workspaces={me.workspaces} onClose={() => setModal(false)}
+        <NewCompanyModal key="newco" workspaceId={wsParam} workspaces={me.workspaces} onClose={() => setModal(false)}
                          onCreated={() => { setModal(false); reload(); }} />
       )}
+      </AnimatePresence>
     </>
   );
 }

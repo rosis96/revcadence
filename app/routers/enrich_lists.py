@@ -351,6 +351,10 @@ def reoon_balance(workspace_id: int | None = None, ctx: AuthContext = Depends(ge
     if workspace_id:
         from ..crypto import decrypt
         from ..enrichment.pipeline import _config
+        # Unchecked before this: any signed-in account could name any workspace
+        # and get that workspace's credit balance back, billed against their key.
+        # It never returned the key itself, which is why it went unnoticed.
+        ctx.require_workspace(workspace_id)
         cfg = _config(ctx.db, workspace_id)
         if cfg.reoon_api_key_enc:
             key = decrypt(cfg.reoon_api_key_enc) or key
@@ -721,10 +725,20 @@ class TrainingEvaluationRunIn(BaseModel):
     case_names: list[str] = Field(default_factory=list)
 
 
-def _training_admin(workspace_id: int, ctx: AuthContext):
+def _training_workspace(workspace_id: int, ctx: AuthContext):
+    """The workspace whose training bridge is being read or written.
+
+    This used to additionally demand owner/admin. It no longer does: the bridge
+    edits one workspace's own brain, and a client owning their brain is the point
+    of the client workspace. What it still demands is that the workspace is
+    theirs and in this org — those two checks are the whole boundary now, so
+    neither may be dropped.
+
+    Every safety the bridge already had stays: an apply snapshots the prior state
+    into `WorkspaceTrainingRevision` before writing, rollback restores it, and
+    `evaluate` still refuses to spend without `confirm_spend`.
+    """
     ctx.require_workspace(workspace_id)
-    if not ctx.is_master:
-        raise HTTPException(403, "Workspace training imports and rollback require owner/admin access.")
     workspace = ctx.db.get(Workspace, workspace_id)
     if workspace is None or workspace.org_id != ctx.org_id:
         raise HTTPException(404, "Workspace not found.")
@@ -858,7 +872,7 @@ def add_format_feedback(workspace_id: int, format_name: str, body: FormatFeedbac
 @router.get("/config/{workspace_id}/training/export")
 def export_training_package(workspace_id: int, ctx: AuthContext = Depends(get_ctx)):
     """Export only sanitized writing/training configuration—never operational data."""
-    workspace = _training_admin(workspace_id, ctx)
+    workspace = _training_workspace(workspace_id, ctx)
     from ..enrichment.pipeline import _config
     from ..enrichment.training import export_bundle
 
@@ -870,7 +884,7 @@ def export_training_package(workspace_id: int, ctx: AuthContext = Depends(get_ct
 @router.post("/config/{workspace_id}/training/preview")
 def preview_training_package(workspace_id: int, body: TrainingPackageIn,
                              ctx: AuthContext = Depends(get_ctx)):
-    workspace = _training_admin(workspace_id, ctx)
+    workspace = _training_workspace(workspace_id, ctx)
     from ..enrichment.pipeline import _config
     from ..enrichment.training import (
         normalize_bundle,
@@ -899,7 +913,7 @@ def preview_training_package(workspace_id: int, body: TrainingPackageIn,
 @router.post("/config/{workspace_id}/training/apply")
 def apply_training_package(workspace_id: int, body: TrainingPackageIn,
                            ctx: AuthContext = Depends(get_ctx)):
-    workspace = _training_admin(workspace_id, ctx)
+    workspace = _training_workspace(workspace_id, ctx)
     from ..enrichment.pipeline import _config
     from ..enrichment.training import (
         apply_config_state,
@@ -951,7 +965,7 @@ def apply_training_package(workspace_id: int, body: TrainingPackageIn,
 
 @router.get("/config/{workspace_id}/training/revisions")
 def training_revisions(workspace_id: int, ctx: AuthContext = Depends(get_ctx)):
-    _training_admin(workspace_id, ctx)
+    _training_workspace(workspace_id, ctx)
     rows = (
         ctx.db.query(WorkspaceTrainingRevision)
         .filter(WorkspaceTrainingRevision.workspace_id == workspace_id)
@@ -978,7 +992,7 @@ def run_training_evaluation(workspace_id: int, body: TrainingEvaluationRunIn,
     This is deliberately explicit because it spends OpenAI tokens. It never
     changes leads or the workspace training configuration.
     """
-    _training_admin(workspace_id, ctx)
+    _training_workspace(workspace_id, ctx)
     if not body.confirm_spend:
         raise HTTPException(422, "Set confirm_spend=true after confirming the live AI cost.")
     from ..enrichment.pipeline import _config, _write_copy
@@ -1045,7 +1059,7 @@ def run_training_evaluation(workspace_id: int, body: TrainingEvaluationRunIn,
 @router.post("/config/{workspace_id}/training/rollback/{revision_id}")
 def rollback_training_package(workspace_id: int, revision_id: int,
                               ctx: AuthContext = Depends(get_ctx)):
-    workspace = _training_admin(workspace_id, ctx)
+    workspace = _training_workspace(workspace_id, ctx)
     from ..enrichment.pipeline import _config
     from ..enrichment.training import (
         apply_config_state,

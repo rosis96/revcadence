@@ -82,7 +82,22 @@ def main():
     }).json()["token"]
     r = client.get(f"/api/enrich-lists/config/{ws_id}/training/export",
                    headers=headers(client_token))
-    check("client cannot export training package", r.status_code == 403, r.text)
+    check("client exports their own training package", r.status_code == 200, r.text)
+    check("the client's export is the same package, with no secret in it",
+          r.json()["config"]["reading_level"] == "b2 business"
+          and r.json()["safety"]["contains_credentials"] is False
+          and "reoon_api_key" not in str(r.json()).lower(), r.text[:200])
+
+    other = client.post("/api/admin/workspaces", headers=headers(owner),
+                        json={"name": "Someone Else"}).json()
+    r = client.get(f"/api/enrich-lists/config/{other['id']}/training/export",
+                   headers=headers(client_token))
+    check("client cannot export another workspace's training package",
+          r.status_code == 403, r.text)
+    r = client.get(f"/api/enrich-lists/config/{other['id']}/training/revisions",
+                   headers=headers(client_token))
+    check("client cannot read another workspace's training revisions",
+          r.status_code == 403, r.text)
 
     proposed = {
         "schema": "revcadence.workspace-training",

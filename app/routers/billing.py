@@ -35,7 +35,8 @@ def _out(s: Subscription):
 def billing_summary(ctx: AuthContext = Depends(require_master)):
     """MRR + status rollup + a row per client workspace (subscription created on
     first view so every workspace appears)."""
-    workspaces = (ctx.db.query(Workspace).filter(Workspace.org_id == ctx.org_id)
+    workspaces = (ctx.db.query(Workspace)
+                  .filter(Workspace.org_id == ctx.org_id, Workspace.archived_at.is_(None))
                   .order_by(Workspace.name).all())
     rows, mrr, counts = [], 0.0, {k: 0 for k in SUB_STATUSES}
     now = datetime.utcnow()

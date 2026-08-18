@@ -1,20 +1,76 @@
 /* RevCadence UI library (Phase 0 of DESIGN_SYSTEM.md).
    Every reusable primitive lives here; components.jsx re-exports this module.
    Names deliberately do NOT clash with legacy exports in components.jsx. */
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, Inbox as InboxIcon, Search, X } from "lucide-react";
+import { isValidElement, useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
+import { ToastContainer, toast as toastify } from "react-toastify";
+import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, Eye, EyeOff, Inbox as InboxIcon, Search, X } from "lucide-react";
+import { backdropMotion, currentOrigin, dialogMotion, isTopOverlay } from "./motion";
+import { useTheme } from "../theme";
 export { confirmDialog, promptDialog, alertDialog, GlobalDialogs } from "./dialogs";
 export { Select } from "./Select";
 export { InlinePopup } from "./InlinePopup";
+export { Area, Field as FormField, FieldGrid, Num, Section, StickyBar, Text, Url } from "./form";
 import { Select } from "./Select";
 
 /* ---------------------------------------------------------------- Button */
-export function Button({ variant = "primary", size = "md", loading = false, icon: Icon, children, className = "", ...rest }) {
+// How each icon moves on hover, keyed by what the icon IS. An arrow slides
+// because it points somewhere; a trash can shakes; a counter-clockwise arrow
+// turns counter-clockwise. Read off the icon's own displayName rather than
+// passed in, so a button gets the right motion by choosing the right icon and
+// there is no second thing to keep in sync. Anything unmapped slides.
+const ICON_MOTION = {
+  ArrowRight: "a-slide", ChevronRight: "a-slide", ArrowUpRight: "a-send",
+  Send: "a-send", Mail: "a-send",
+  RotateCcw: "a-spin", RotateCw: "a-spin-cw", RefreshCw: "a-spin-cw",
+  Check: "a-pop", CheckCircle: "a-pop",
+  Plus: "a-turn", X: "a-turn",
+  Trash: "a-trash", Trash2: "a-trash",
+  Power: "a-pulse", Download: "a-drop", Upload: "a-lift",
+};
+
+// The icon leads the label, and it is the button's only hover response — it
+// moves — so nothing here needs a shadow or a colour that shifts. `icon` takes
+// a component (`icon={Send}`) or a ready-made element, for marks that are not
+// icons at all, like the folder on "Create".
+export function Button({ variant = "primary", size = "md", loading = false, icon: Icon,
+  children, className = "", ...rest }) {
+  const px = size === "sm" ? 14 : 16;
+  const iconSpacingMotion = Icon
+    ? "group transition-[gap] duration-200 ease-out hover:gap-3 focus-visible:gap-3 motion-reduce:transition-none"
+    : "";
+  // A white spinner is invisible on every variant but primary.
+  const spinner = <span className={`ui-btn-spin${variant === "primary" ? "" : " dark"}`} />;
+  const mark = !Icon ? null : isValidElement(Icon) ? Icon : (
+    <Icon size={px} className={`ui-btn-ico ${ICON_MOTION[Icon.displayName] || "a-slide"}`} />
+  );
   return (
-    <button className={`ui-btn ${variant} ${size} ${className}`} disabled={loading || rest.disabled} {...rest}>
-      {loading ? <span className="ui-btn-spin" /> : Icon && <Icon size={size === "sm" ? 14 : 16} />}
+    <button className={`ui-btn ${variant} ${size} ${iconSpacingMotion} ${className}`} disabled={loading || rest.disabled} {...rest}>
+      {loading ? spinner : mark}
       {children}
     </button>
+  );
+}
+
+/* ---------------------------------------------------------------- FolderMark
+   A folder, drawn rather than imported: a back panel with a tab, three sheets,
+   and two front halves of the same colour. Hovering whatever contains it lifts
+   the folder, skews the halves apart and raises the sheets between them.
+
+   All of the movement is CSS — this is only the shape. It themes off custom
+   properties, so the same mark works on a page and on a filled button. */
+export function FolderMark({ className = "" }) {
+  return (
+    <span className={`folder ${className}`} aria-hidden="true">
+      <span className="folder-in">
+        <span className="folder-back" />
+        <span className="folder-paper p1" />
+        <span className="folder-paper p2" />
+        <span className="folder-paper p3" />
+        <span className="folder-flap l" />
+        <span className="folder-flap r" />
+      </span>
+    </span>
   );
 }
 export function IconButton({ icon: Icon, label, size = 16, className = "", ...rest }) {
@@ -22,7 +78,28 @@ export function IconButton({ icon: Icon, label, size = 16, className = "", ...re
 }
 
 /* ---------------------------------------------------------------- Inputs */
-export const TextInput = (props) => <input type="text" {...props} />;
+export const Input = (props) => <input {...props} />;
+export const TextInput = (props) => <Input type="text" {...props} />;
+
+/* A password field you can read back.
+   Typing a password you cannot see is how a wrong one gets submitted twice, and
+   it is worst exactly where it matters most — a destructive confirm, or a value
+   pasted from a manager. The toggle is the same control the sign-in screen has
+   always had; it lives here now so there is one of it rather than a copy per
+   screen. `shown` is local state and never leaves the component. */
+export function PasswordInput({ className = "", ...rest }) {
+  const [shown, setShown] = useState(false);
+  const label = shown ? "Hide password" : "Show password";
+  return (
+    <div className={`password-control ${className}`}>
+      <input type={shown ? "text" : "password"} {...rest} />
+      <button type="button" className="password-toggle" onClick={() => setShown((v) => !v)}
+        aria-label={label} aria-pressed={shown} title={label} tabIndex={-1}>
+        {shown ? <EyeOff size={19} /> : <Eye size={19} />}
+      </button>
+    </div>
+  );
+}
 export function SearchInput({ value, onChange, placeholder = "Search…", kbd, className = "", ...rest }) {
   return (
     <div className={`dt-search ${className}`}>
@@ -149,11 +226,28 @@ export function FilterPanel({ groups, values, onChange, onClear }) {
   );
 }
 
-/* ---------------------------------------------------------------- ConfirmDialog */
-export function ConfirmDialog({ title, message, confirmLabel = "Confirm", danger = false, onConfirm, onClose }) {
+/* ---------------------------------------------------------------- ConfirmDialog
+   Animates in AND out. The exit needs an <AnimatePresence> around the call site
+   — without one the enter still plays and the unmount is instant. */
+export function ConfirmDialog({ title, message, confirmLabel = "Confirm", danger = false, closeButton = false, onConfirm, onClose }) {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const motionProps = useState(() => dialogMotion(currentOrigin()))[0];
+  const shell = useRef(null);
+  useEffect(() => {
+    const h = (e) => { if (e.key === "Escape" && isTopOverlay(shell.current)) onClose(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
   return (
-    <div className="modal" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="box" style={{ width: 420 }}>
+    <motion.div ref={shell} className="modal" onMouseDown={(e) => e.target === e.currentTarget && onClose()} {...backdropMotion}>
+      <motion.div className="box relative" style={{ width: 420 }} {...motionProps}>
+        {closeButton && (
+          <motion.button type="button" aria-label="Close" onClick={onClose}
+            className="absolute right-[22px] top-[22px] inline-flex size-7 items-center justify-center border-0 bg-transparent p-0 text-[color:var(--text)]"
+            whileHover={{ rotate: 180 }} transition={{ type: "spring", stiffness: 260, damping: 20 }}>
+            <X size={18} strokeWidth={2} />
+          </motion.button>
+        )}
         <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
           {danger && <span className="cd-warn"><AlertTriangle size={18} /></span>}
           <div>
@@ -162,39 +256,48 @@ export function ConfirmDialog({ title, message, confirmLabel = "Confirm", danger
           </div>
         </div>
         <div className="actions">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          {!closeButton && <Button variant="ghost" onClick={onClose}>Cancel</Button>}
           <Button variant={danger ? "danger" : "primary"} onClick={() => { onConfirm(); onClose(); }}>{confirmLabel}</Button>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
-/* ---------------------------------------------------------------- Toast */
-const ToastCtx = createContext(null);
-export function ToastProvider({ children }) {
-  const [toasts, setToasts] = useState([]);
-  const push = useCallback((msg, tone = "ok") => {
-    const id = Date.now() + Math.random();
-    setToasts((t) => [...t, { id, msg, tone }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000);
-  }, []);
-  return (
-    <ToastCtx.Provider value={push}>
-      {children}
-      <div className="toasts">
-        {toasts.map((t) => (
-          <div key={t.id} className={`toast ${t.tone}`}>
-            <span className="tdot" />{t.msg}
-            <button onClick={() => setToasts((x) => x.filter((y) => y.id !== t.id))}><X size={13} /></button>
-          </div>
-        ))}
-      </div>
-    </ToastCtx.Provider>
-  );
+/* ---------------------------------------------------------------- Toast
+
+   One toast mechanism, not two. react-toastify owns rendering and lifetime
+   (mounted once as <Toasts/> at the app root); `notify` and `useToast` are the
+   only ways to reach it. The `useToast()` shape — `toast(msg, tone)` — is kept
+   deliberately: it is called from ~30 screens, and changing the signature would
+   be a rename with no behaviour behind it.
+
+   Tones map to toastify's types: "" / "ok" → success, "bad" → error,
+   "warn" → warning, "info" → info. */
+const TOAST_FN = { ok: toastify.success, bad: toastify.error, warn: toastify.warn, info: toastify.info };
+
+export function notify(msg, tone = "ok") {
+  return (TOAST_FN[tone] || toastify.success)(msg);
 }
 export function useToast() {
-  return useContext(ToastCtx) || (() => {});
+  return notify;
+}
+// Kept so the app root reads the same as before; the provider no longer holds
+// state, because toastify does.
+export function ToastProvider({ children }) { return children; }
+
+/** Mounted ONCE, at the app root. Bottom-left, and following the app's theme. */
+export function Toasts() {
+  const { isDark: dark } = useTheme();
+  return (
+    <ToastContainer position="bottom-left" autoClose={4000} newestOnTop closeOnClick
+      pauseOnFocusLoss={false} draggable={false} theme={dark ? "dark" : "light"}
+      icon={false} closeButton={({ closeToast }) => (
+        <button className="Toastify__close-button" onClick={closeToast} aria-label="Dismiss">
+          <X size={13} />
+        </button>
+      )} />
+  );
 }
 
 /* ---------------------------------------------------------------- Breadcrumbs / ActivityFeed */

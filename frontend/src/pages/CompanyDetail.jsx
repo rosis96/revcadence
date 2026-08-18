@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { AnimatePresence } from "framer-motion";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, money } from "../api";
-import { Badge, Breadcrumbs, Button, ConfirmDialog, ErrorBox, JourneyTimeline, Modal, PageHeader, RowCard, Spinner, Timeline, fitTone, scoreTone, useApi, useToast } from "../components";
+import { useAppPath } from "../clientspace/appPath";
+import { Area, Badge, Breadcrumbs, Button, ConfirmDialog, ErrorBox, JourneyTimeline, Modal, PageHeader, RowCard, Spinner, Timeline, fitTone, scoreTone, useApi, useToast } from "../components";
 import { StatusPill } from "./Companies";
 import { alertDialog } from "../components";
 
@@ -15,6 +17,7 @@ function publicUrl(slug) {
 const docIcon = { blueprint: "▤", agreement: "✍", proposal: "▧" };
 
 export default function CompanyDetail() {
+  const appTo = useAppPath();
   const { id } = useParams();
   const nav = useNavigate();
   const { data: c, error, loading, reload } = useApi(`/api/companies/${id}`);
@@ -67,7 +70,7 @@ export default function CompanyDetail() {
     catch (e) { alertDialog(e.message); }
   };
   const removeCompany = async () => {
-    try { await api(`/api/companies/${id}`, { method: "DELETE" }); toast("Company deleted"); nav("/companies"); }
+    try { await api(`/api/companies/${id}`, { method: "DELETE" }); toast("Company deleted"); nav(appTo("/companies")); }
     catch (e) { toast(e.message, "bad"); }
   };
   // Build a blueprint straight from a Fathom call transcript for THIS company.
@@ -77,7 +80,7 @@ export default function CompanyDetail() {
     try {
       const doc = await api("/api/blueprints/from-transcript", { method: "POST",
         body: { workspace_id: c.workspace_id, company_id: c.id, transcript } });
-      nav(`/blueprints/${doc.id}`);
+      nav(appTo(`/blueprints/${doc.id}`));
     } catch (e) { alertDialog(e.message); }
     setBusy("");
   };
@@ -96,7 +99,7 @@ export default function CompanyDetail() {
     try {
       const doc = await api("/api/blueprints/upload", { method: "POST",
         body: { workspace_id: c.workspace_id, company_id: c.id, title: upTitle || null, html: upHtml } });
-      nav(`/blueprints/${doc.id}`);
+      nav(appTo(`/blueprints/${doc.id}`));
     } catch (e) { alertDialog(e.message); }
     setBusy("");
   };
@@ -106,7 +109,7 @@ export default function CompanyDetail() {
       const deal = (c.deals || [])[0];
       const ag = await api("/api/agreements/generate", { method: "POST",
         body: { workspace_id: c.workspace_id, company_id: c.id, deal_id: deal ? deal.id : null } });
-      nav(`/agreements/${ag.id}`);
+      nav(appTo(`/agreements/${ag.id}`));
     } catch (e) { alertDialog(e.message); }
     setBusy("");
   };
@@ -115,7 +118,7 @@ export default function CompanyDetail() {
     try {
       const inv = await api("/api/invoices", { method: "POST",
         body: { workspace_id: c.workspace_id, company_id: c.id } });
-      nav(`/invoices/${inv.id}`);
+      nav(appTo(`/invoices/${inv.id}`));
     } catch (e) { alertDialog(e.message); }
     setBusy("");
   };
@@ -128,7 +131,7 @@ export default function CompanyDetail() {
   const enrichmentRows = Object.entries(c.enrichment || {}).filter(([k]) => k !== "last_crawl");
   return (
     <>
-      <Breadcrumbs items={[{ label: "Companies", href: "/companies" }, { label: c.name }]} />
+      <Breadcrumbs items={[{ label: "Companies", href: appTo("/companies") }, { label: c.name }]} />
       <PageHeader
         title={<span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
           {c.name}
@@ -141,7 +144,7 @@ export default function CompanyDetail() {
             <Button variant="ghost" onClick={reload}>Refresh</Button>
             <Button variant="secondary" onClick={() => setEdit({ name: c.name, website: c.website || "", industry: c.industry || "", location: c.location || "" })}>Edit</Button>
             <Button variant="secondary" loading={busy === "enrich"} onClick={enrich}>Enrich</Button>
-            <Button variant="secondary" onClick={() => nav(`/companies/${id}/profile`)}>Client Profile</Button>
+            <Button variant="secondary" onClick={() => nav(appTo(`/companies/${id}/profile`))}>Client Profile</Button>
             <Button onClick={() => setFathom(true)}>Blueprint from transcript</Button>
             <Button variant="secondary" onClick={() => setUpload(true)}>Upload blueprint</Button>
             <Button variant="danger" onClick={() => setConfirmDel(true)}>Delete</Button>
@@ -155,8 +158,9 @@ export default function CompanyDetail() {
       </RowCard>
 
 
+      <AnimatePresence>
       {edit && (
-        <Modal title={`Edit ${c.name}`} onClose={() => setEdit(null)}>
+        <Modal key="edit" title={`Edit ${c.name}`} onClose={() => setEdit(null)}>
           <div className="field"><label>Name</label>
             <input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></div>
           <div className="field"><label>Website</label>
@@ -173,12 +177,12 @@ export default function CompanyDetail() {
       )}
 
       {fathom && (
-        <Modal title={`Build a blueprint for ${c.name}`} onClose={() => setFathom(false)}>
+        <Modal key="fathom" title={`Build a blueprint for ${c.name}`} onClose={() => setFathom(false)}>
           <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 0 }}>
             Paste the Fathom call transcript (or summary). Every section is generated from what was discussed;
             pricing is only used if it came up on the call. You can edit and publish on the next screen.</p>
           <div className="field"><label>Fathom transcript</label>
-            <textarea rows={12} style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
+            <Area size="lg" style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
                       value={transcript} onChange={(e) => setTranscript(e.target.value)}
                       placeholder="Paste transcript here…" autoFocus /></div>
           <div className="actions">
@@ -190,7 +194,7 @@ export default function CompanyDetail() {
       )}
 
       {upload && (
-        <Modal title={`Upload a custom blueprint for ${c.name}`} onClose={() => setUpload(false)}>
+        <Modal key="upload" title={`Upload a custom blueprint for ${c.name}`} onClose={() => setUpload(false)}>
           <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 0 }}>
             Bring your own page — upload an HTML file (or paste the markup) you built outside the system.
             It gets its own slug and public link, and publishes exactly like a generated blueprint.</p>
@@ -202,7 +206,7 @@ export default function CompanyDetail() {
             {upFileName && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>Loaded: {upFileName} ({upHtml.length.toLocaleString()} chars)</div>}
           </div>
           <div className="field"><label>…or paste HTML</label>
-            <textarea rows={8} style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
+            <Area size="lg" style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
                       value={upHtml} onChange={(e) => { setUpHtml(e.target.value); setUpFileName(""); }}
                       placeholder="<!doctype html> …" /></div>
           <div className="actions">
@@ -212,6 +216,7 @@ export default function CompanyDetail() {
           </div>
         </Modal>
       )}
+      </AnimatePresence>
 
       <div className="grid" style={{ gridTemplateColumns: "1.2fr .8fr", alignItems: "start" }}>
         <div>
@@ -249,7 +254,7 @@ export default function CompanyDetail() {
                           <a className="btn ghost sm" href={url} target="_blank" rel="noreferrer">Open ↗</a>
                         </>
                       )}
-                      <button className="btn ghost sm" onClick={() => nav(`/blueprints/${d.id}`)}>Edit</button>
+                      <button className="btn ghost sm" onClick={() => nav(appTo(`/blueprints/${d.id}`))}>Edit</button>
                     </div>
                   );
                 })}
@@ -267,7 +272,7 @@ export default function CompanyDetail() {
             ) : (
               <div className="card" style={{ padding: 0 }}>
                 {ags.map((ag, i) => (
-                  <div key={ag.id} className="click" onClick={() => nav(`/agreements/${ag.id}`)}
+                  <div key={ag.id} className="click" onClick={() => nav(appTo(`/agreements/${ag.id}`))}
                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderTop: i ? "1px solid var(--line,#eee)" : "none" }}>
                     <span style={{ fontSize: 15 }}>✍</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -291,7 +296,7 @@ export default function CompanyDetail() {
             ) : (
               <div className="card" style={{ padding: 0 }}>
                 {invs.map((iv, i) => (
-                  <div key={iv.id} className="click" onClick={() => nav(`/invoices/${iv.id}`)}
+                  <div key={iv.id} className="click" onClick={() => nav(appTo(`/invoices/${iv.id}`))}
                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderTop: i ? "1px solid var(--line,#eee)" : "none" }}>
                     <span style={{ fontSize: 15 }}>▧</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -354,7 +359,7 @@ export default function CompanyDetail() {
             <table className="tbl" style={{ marginTop: 8 }}><tbody>
               {c.deals.length === 0 && <tr><td className="empty">No deals yet — add one to set a value and put this account on the pipeline.</td></tr>}
               {c.deals.map((d) => (
-                <tr key={d.id} className="click" onClick={() => nav(`/deals/${d.id}`)}>
+                <tr key={d.id} className="click" onClick={() => nav(appTo(`/deals/${d.id}`))}>
                   <td><b>{d.name || "Untitled"}</b>
                     <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
                       {d.stage_name || "—"}{d.lead_intent ? ` · ${d.lead_intent}` : ""}</div></td>
@@ -374,12 +379,12 @@ export default function CompanyDetail() {
                       {c.client_profile.onboarding_status}</Badge>
                     <span style={{ fontSize: 12, color: "var(--muted)" }}>{c.client_profile.completeness}% complete</span>
                   </div>
-                  <button className="btn ghost sm" onClick={() => nav(`/companies/${id}/profile`)}>Open profile →</button>
+                  <button className="btn ghost sm" onClick={() => nav(appTo(`/companies/${id}/profile`))}>Open profile →</button>
                 </>
               ) : (
                 <div style={{ fontSize: 13, color: "var(--muted)" }}>
                   No profile yet — created automatically on Closed Won, or&nbsp;
-                  <a href="#" onClick={(e) => { e.preventDefault(); nav(`/companies/${id}/profile`); }}>open to activate</a>.
+                  <a href="#" onClick={(e) => { e.preventDefault(); nav(appTo(`/companies/${id}/profile`)); }}>open to activate</a>.
                 </div>
               )}
             </div>
@@ -387,8 +392,9 @@ export default function CompanyDetail() {
         </div>
       </div>
 
+      <AnimatePresence>
       {dealForm && (
-        <Modal title="New deal" onClose={() => setDealForm(null)}>
+        <Modal key="deal" title="New deal" onClose={() => setDealForm(null)}>
           <div className="field"><label>Deal name</label>
             <input value={dealForm.name} placeholder={`${c.name} — deal`}
               onChange={(e) => setDealForm({ ...dealForm, name: e.target.value })} autoFocus /></div>
@@ -404,7 +410,7 @@ export default function CompanyDetail() {
       )}
 
       {contactForm && (
-        <Modal title="Add contact" onClose={() => setContactForm(null)}>
+        <Modal key="contact" title="Add contact" onClose={() => setContactForm(null)}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <div className="field"><label>First name</label>
               <input value={contactForm.first_name} onChange={(e) => setContactForm({ ...contactForm, first_name: e.target.value })} autoFocus /></div>
@@ -425,11 +431,12 @@ export default function CompanyDetail() {
       )}
 
       {confirmDel && (
-        <ConfirmDialog title="Delete company"
+        <ConfirmDialog key="del" title="Delete company"
           message={`Delete "${c.name}" and all its contacts, deals, documents and profile? This can't be undone.`}
           confirmLabel="Delete" danger
           onConfirm={removeCompany} onClose={() => setConfirmDel(false)} />
       )}
+      </AnimatePresence>
     </>
   );
 }

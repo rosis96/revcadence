@@ -2,6 +2,7 @@
 // one-time reset link (#/reset/{token}).
 import { useState } from "react";
 import { useParams } from "react-router-dom";
+import { PasswordInput } from "../components";
 
 function Wave({ size = 120 }) {
   return (
@@ -23,7 +24,7 @@ export default function ResetPassword() {
   const submit = async (e) => {
     e.preventDefault();
     setError("");
-    if (p1.length < 12) { setError("Password must be at least 12 characters."); return; }
+    if (p1.length < 6) { setError("Password must be at least 6 characters."); return; }
     if (p1 !== p2) { setError("Passwords don't match."); return; }
     setBusy(true);
     try {
@@ -54,9 +55,10 @@ export default function ResetPassword() {
         ) : (
           <form onSubmit={submit}>
             <label>New password</label>
-            <input type="password" value={p1} onChange={(e) => setP1(e.target.value)} autoFocus required placeholder="at least 12 characters" />
+            <PasswordInput value={p1} onChange={(e) => setP1(e.target.value)} autoFocus required
+              placeholder="at least 6 characters" />
             <label>Confirm password</label>
-            <input type="password" value={p2} onChange={(e) => setP2(e.target.value)} required />
+            <PasswordInput value={p2} onChange={(e) => setP2(e.target.value)} required />
             <button className="btn" disabled={busy} style={{ width: "100%", marginTop: 4 }}>{busy ? "Saving…" : "Update password"}</button>
           </form>
         )}

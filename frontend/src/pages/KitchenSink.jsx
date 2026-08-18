@@ -1,6 +1,7 @@
 /* /dev/kitchen-sink — every design-system component in every state.
    Dev QA page: if a component drifts visually, it shows up here first. */
 import { useMemo, useState } from "react";
+import { AnimatePresence } from "framer-motion";
 import { Download, Mail, Plus, Trash2 } from "lucide-react";
 import {
   ActivityFeed, Avatar, Badge, Breadcrumbs, Button, Card, ConfirmDialog, DataTable,
@@ -156,15 +157,21 @@ export default function KitchenSink() {
         />
       </section>
 
-      {drawer && <Drawer title="Drawer title" onClose={() => setDrawer(false)}>
+      <AnimatePresence>
+      {drawer && <Drawer key="drawer" title="Drawer title" onClose={() => setDrawer(false)}>
         <p style={{ color: "var(--muted)", fontSize: 13.5 }}>Right-side drawer: the default for quick views. 480px, Esc to close.</p>
       </Drawer>}
-      {modal && <Modal title="Modal title" onClose={() => setModal(false)}>
+      </AnimatePresence>
+      <AnimatePresence>
+      {modal && <Modal key="modal" title="Modal title" onClose={() => setModal(false)}>
         <p style={{ color: "var(--muted)", fontSize: 13.5 }}>Use sparingly; prefer the Drawer.</p>
         <div className="actions"><Button variant="ghost" onClick={() => setModal(false)}>Close</Button></div>
       </Modal>}
-      {confirm && <ConfirmDialog danger title="Delete 3 contacts?" message="This can't be undone. The contacts and their activity history will be removed."
+      </AnimatePresence>
+      <AnimatePresence>
+      {confirm && <ConfirmDialog key="confirm" danger title="Delete 3 contacts?" message="This can't be undone. The contacts and their activity history will be removed."
         confirmLabel="Delete" onConfirm={() => toast("Deleted", "bad")} onClose={() => setConfirm(false)} />}
+      </AnimatePresence>
     </>
   );
 }

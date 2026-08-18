@@ -21,6 +21,10 @@ class ReplyWorkspace(Base):
     api_key_enc = Column(Text, default="")                    # encrypted
     base_url = Column(Text, default="")                       # Bison base URL
     reply_followup_campaign_id = Column(String(255), default="")
+    # Which platform campaigns the client-facing sequence screen mirrors.
+    # Empty = mirror whatever this key can list (capped). Explicit ids let an
+    # operator show only the campaigns that belong to this client.
+    mirror_campaign_ids = Column(JSON, default=list)
 
     website = Column(Text, default="")
     sender_name = Column(Text, default="")
@@ -32,6 +36,18 @@ class ReplyWorkspace(Base):
     ai_fallback = Column(Boolean, default=False)
     openai_key_enc = Column(Text, default="")                 # per-ws override, encrypted
     gemini_key_enc = Column(Text, default="")
+    # Per-workspace overrides for what used to live only in the org-wide
+    # `app_settings` rows. They moved here when Reply Settings became a client
+    # screen: one client editing the model or the keys for every other client in
+    # the org is the cross-tenant write rule 2 exists to prevent. Blank = inherit
+    # (env for the models, see reply/engine.build_ai_cfg).
+    openai_model = Column(String(120), default="")
+    gemini_model = Column(String(120), default="")
+    # Stored, not yet acted on — no reader exists for either today. See the note
+    # in routers/reply.py::_ws_settings_out before wiring one.
+    review_webhook_url = Column(Text, default="")
+    reply_trigger_tag = Column(String(120), default="")
+    followup_trigger_tag = Column(String(120), default="")
 
     client_profile = Column(JSON, default=dict)
     reply_format = Column(JSON, default=dict)                 # response_types[] + followups schema

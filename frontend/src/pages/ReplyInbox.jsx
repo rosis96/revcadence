@@ -1,8 +1,9 @@
-import { confirmDialog } from "../components";
+import { Area, confirmDialog } from "../components";
 // Reply Management → Inbox (DESIGN_SYSTEM.md step 5). Gmail-feel, three panes:
 // conversation list · thread + composer · AI panel. Status tabs across the top.
 // Same backend as before; pinning is a local flag (no engine changes).
 import { useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence } from "framer-motion";
 import { Ban, Check, Download, MoreHorizontal, PanelRightOpen, Pencil, Pin, PinOff,
   RefreshCw, Send, Sparkles, Tag, Trash2, X } from "lucide-react";
 import { api, getToken, timeAgo } from "../api";
@@ -346,7 +347,7 @@ function Thread({ id, pinned, onPin, aiOpen, onToggleAi, onChanged }) {
                 <Button size="sm" icon={Sparkles} loading={busy === "ai"} disabled={!!busy} onClick={draftAI}>Draft with AI</Button>
               </div>
             )}
-            <textarea value={body} onChange={(e) => setDraft(e.target.value)} placeholder="Review, edit, then approve…" />
+            <Area size="md" value={body} onChange={(e) => setDraft(e.target.value)} placeholder="Review, edit, then approve…" />
             <div className="row">
               <Button icon={Send} loading={busy === "send"} disabled={!!busy || !(body || "").trim()} onClick={send}>Approve &amp; Send</Button>
               <Button variant="secondary" loading={busy === "save"} disabled={!!busy} onClick={save}>Save draft</Button>
@@ -366,7 +367,7 @@ function Thread({ id, pinned, onPin, aiOpen, onToggleAi, onChanged }) {
                 Can't send through Instantly: the webhook didn't include the reply target.
               </div>
             )}
-            <textarea value={followup} onChange={(e) => setFollowup(e.target.value)} placeholder="Write a follow-up… (sent via the same thread)" />
+            <Area size="md" value={followup} onChange={(e) => setFollowup(e.target.value)} placeholder="Write a follow-up… (sent via the same thread)" />
             <div className="row">
               <Button icon={Send} loading={busy === "fup"} disabled={!followup.trim() || !!busy} onClick={sendFollowup}>Send follow-up</Button>
               <span style={{ flex: 1 }} />
@@ -420,8 +421,10 @@ function Thread({ id, pinned, onPin, aiOpen, onToggleAi, onChanged }) {
         </div>
       )}
 
-      {edit && <EditLeadModal id={id} form={edit} setForm={setEdit} onClose={() => setEdit(null)}
+      <AnimatePresence>
+      {edit && <EditLeadModal key="edit" id={id} form={edit} setForm={setEdit} onClose={() => setEdit(null)}
         onSaved={() => { setEdit(null); reload(); onChanged(); toast("Lead updated & synced to CRM"); }} />}
+      </AnimatePresence>
     </>
   );
 }

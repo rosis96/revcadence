@@ -1,12 +1,12 @@
 """CRM endpoints on the unified object model. Every read/write goes through the
 workspace scope — a client user physically cannot see another workspace's data."""
-import os
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from .. import config
 from ..auth import AuthContext, get_ctx, scoped
 from ..models.crm import Activity, Company, Contact, Deal, Stage
 
@@ -675,7 +675,7 @@ def digest_preview(workspace_id: int, hours: int = 24, ctx: AuthContext = Depend
     s = (w.settings or {}) if w else {}
     d = build_digest(ctx.db, workspace_id, hours=hours)
     text = digest_text(s.get("digest_client_name") or (w.name if w else ""), d,
-                       os.getenv("PUBLIC_BASE_URL", ""))
+                       config.client_workspace_url(w.slug if w else ""))
     return {**d, "text": text}
 
 
@@ -721,7 +721,7 @@ def send_test_digest(workspace_id: int, hours: int = 24, ctx: AuthContext = Depe
         raise HTTPException(422, "No Slack webhook set for this workspace.")
     d = build_digest(ctx.db, workspace_id, hours=hours)
     text = digest_text(s.get("digest_client_name") or (w.name if w else ""), d,
-                       os.getenv("PUBLIC_BASE_URL", ""))
+                       config.client_workspace_url(w.slug if w else ""))
     ok = send_slack_digest(hook, text)
     return {"sent": ok, "text": text}
 

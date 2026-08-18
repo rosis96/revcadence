@@ -2,14 +2,16 @@
 // bill-to + line items on the left, totals/status/actions/timeline on the right.
 // Auto-save while draft; issue → payment → paid lifecycle. Shared components only.
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { AnimatePresence } from "framer-motion";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { Download, Link2, Mail, Plus, Send, X } from "lucide-react";
 import { api, download, timeAgo } from "../api";
+import { useAppPath } from "../clientspace/appPath";
 import {
   Badge, Breadcrumbs, Button, ErrorBox, Modal, RowCard, SaveIndicator, Spinner,
   StatusPill, StatusSteps, useApi, useAutoSave, useToast,
 } from "../components";
-import { Select } from "../components";
+import { Area, Select } from "../components";
 
 const TONE = { draft: "gray", issued: "blue", viewed: "amber", partially_paid: "amber", paid: "green", overdue: "red", void: "gray" };
 const LIFE = [
@@ -27,6 +29,7 @@ function publicUrl(slug) {
 }
 
 export default function InvoiceDetail() {
+  const appTo = useAppPath();
   const { id } = useParams();
   const nav = useNavigate();
   const toast = useToast();
@@ -81,7 +84,7 @@ export default function InvoiceDetail() {
 
   return (
     <>
-      <Breadcrumbs items={[{ label: "Invoices", href: "/invoices" }, { label: inv.number }]} />
+      <Breadcrumbs items={[{ label: "Invoices", href: appTo("/invoices") }, { label: inv.number }]} />
       <div className="page-head">
         <div style={{ flex: 1, minWidth: 0 }}>
           <h1 style={{ fontSize: 22, fontWeight: 650, display: "flex", alignItems: "center", gap: 10 }}>
@@ -94,8 +97,8 @@ export default function InvoiceDetail() {
           </h1>
           <p style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <StatusPill tone={TONE[inv.status] || "gray"}>{inv.status.replaceAll("_", " ")}</StatusPill>
-            {inv.agreement_id && <a href={`#/agreements/${inv.agreement_id}`} style={{ fontSize: 12.5 }}>Agreement →</a>}
-            {inv.company_id && <a href={`#/companies/${inv.company_id}`} style={{ fontSize: 12.5 }}>Company →</a>}
+            {inv.agreement_id && <Link to={appTo(`/agreements/${inv.agreement_id}`)} style={{ fontSize: 12.5 }}>Agreement →</Link>}
+            {inv.company_id && <Link to={appTo(`/companies/${inv.company_id}`)} style={{ fontSize: 12.5 }}>Company →</Link>}
             <SaveIndicator state={editable ? saveState : "idle"} />
           </p>
         </div>
@@ -174,9 +177,9 @@ export default function InvoiceDetail() {
                 <input type="number" disabled={!editable} value={inv.discount_amount ?? 0} onChange={(e) => setInv({ ...inv, discount_amount: Number(e.target.value) })} /></div>
             </div>
             <div className="field"><label>Payment instructions</label>
-              <textarea rows={2} disabled={!editable} value={inv.payment_instructions || ""} onChange={(e) => setInv({ ...inv, payment_instructions: e.target.value })} /></div>
+              <Area size="md" disabled={!editable} value={inv.payment_instructions || ""} onChange={(e) => setInv({ ...inv, payment_instructions: e.target.value })} /></div>
             <div className="field" style={{ marginBottom: 0 }}><label>Notes</label>
-              <textarea rows={2} disabled={!editable} value={inv.notes || ""} onChange={(e) => setInv({ ...inv, notes: e.target.value })} /></div>
+              <Area size="md" disabled={!editable} value={inv.notes || ""} onChange={(e) => setInv({ ...inv, notes: e.target.value })} /></div>
           </div>
         </div>
 
@@ -217,8 +220,9 @@ export default function InvoiceDetail() {
         </div>
       </div>
 
+      <AnimatePresence>
       {payOpen && (
-        <Modal title="Record payment" onClose={() => setPayOpen(false)}>
+        <Modal key="pay" title="Record payment" onClose={() => setPayOpen(false)}>
           <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 0 }}>
             Enter the total amount received so far ({cur}). This updates the status — no payment processor is connected.</p>
           <div className="field"><label>Amount paid ({cur})</label>
@@ -229,6 +233,7 @@ export default function InvoiceDetail() {
           </div>
         </Modal>
       )}
+      </AnimatePresence>
     </>
   );
 }

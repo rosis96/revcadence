@@ -3,11 +3,13 @@
 // Agreement · Invoice · Tasks · Files · Notes. Overview answers "what's happening
 // with this deal right now?" without opening another tab.
 import { useEffect, useRef, useState } from "react";
+import { AnimatePresence } from "framer-motion";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Send, Sparkles, RefreshCw, Mail, Plus, Check, Trash2, Download, FileText, FileSignature, Receipt, PanelRightClose } from "lucide-react";
 import { api, download, emailText, localDate, money, splitQuoted, timeAgo } from "../api";
+import { useAppPath } from "../clientspace/appPath";
 import {
-  Avatar, Badge, Breadcrumbs, Button, ErrorBox, Modal, Spinner, StatusPill, Timeline,
+  Area, Avatar, Badge, Breadcrumbs, Button, ErrorBox, Modal, Spinner, StatusPill, Timeline,
   useApi, useToast,
 } from "../components";
 
@@ -86,6 +88,7 @@ function RecordNav({ leaf, setTab }) {
 }
 
 export default function DealRecord() {
+  const appTo = useAppPath();
   const { id } = useParams();
   const nav = useNavigate();
   const { data: d, error, loading } = useApi(`/api/deals/${id}`);
@@ -100,14 +103,14 @@ export default function DealRecord() {
   return (
     <div className={`deal-record ${isWorkspace ? "is-workspace" : ""}`}>
       <div className="deal-record-head">
-        <Breadcrumbs items={[{ label: "Pipeline", href: "/pipeline" }, { label: d.name || "Deal" }]} />
+        <Breadcrumbs items={[{ label: "Pipeline", href: appTo("/pipeline") }, { label: d.name || "Deal" }]} />
         <div className="page-head" style={{ marginBottom: 10 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <h1 style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-.01em" }}>{d.name || "Untitled deal"}</h1>
             <p style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               {d.stage && <StatusPill tone="blue">{d.stage.name}</StatusPill>}
               <span style={{ fontWeight: 700 }}>{money(d.value)}</span>
-              {d.company && <Link to={`/companies/${d.company.id}`} style={{ fontSize: 12.5 }}>{d.company.name} →</Link>}
+              {d.company && <Link to={appTo(`/companies/${d.company.id}`)} style={{ fontSize: 12.5 }}>{d.company.name} →</Link>}
             </p>
           </div>
         </div>
@@ -134,6 +137,7 @@ export default function DealRecord() {
 
 // ---------------------------------------------------------------- Overview
 function OverviewTab({ dealId, deal, nav, setTab }) {
+  const appTo = useAppPath();
   const { data: b, loading } = useApi(`/api/deals/${dealId}/conversation/briefing`);
   if (loading || !b) return <Spinner />;
   const recent = (deal.timeline || []).slice(0, 6);
@@ -161,7 +165,7 @@ function OverviewTab({ dealId, deal, nav, setTab }) {
             <Fact k="Stage" v={b.stage} />
             <Fact k="Deal value" v={money(deal.value)} />
             <Fact k="Expected close" v={deal.close_date || "—"} />
-            <Fact k="Company">{deal.company ? <Link to={`/companies/${deal.company.id}`}>{deal.company.name}</Link> : "—"}</Fact>
+            <Fact k="Company">{deal.company ? <Link to={appTo(`/companies/${deal.company.id}`)}>{deal.company.name}</Link> : "—"}</Fact>
             <Fact k="Primary contact" v={b.contact ? b.contact.name || b.contact.email : "—"} />
             <Fact k="Last contact" v={b.last_contact_days == null ? "—" : `${b.last_contact_days}d ago`} />
             <Fact k="Intent"><Badge tone={INTENT_TONE[b.intent] || "gray"}>{b.intent}</Badge></Fact>
@@ -203,6 +207,7 @@ function Fact({ k, v, children }) {
 
 // ---------------------------------------------------------------- doc lists
 function DocTab({ endpoint, params, to, empty, nav, label }) {
+  const appTo = useAppPath();
   const { data, loading } = useApi(endpoint, params);
   if (loading) return <Spinner />;
   const rows = data || [];
@@ -210,7 +215,7 @@ function DocTab({ endpoint, params, to, empty, nav, label }) {
     <div className="card" style={{ padding: 0 }}>
       {rows.length === 0 && <div className="rc-empty" style={{ padding: 24 }}>{empty}</div>}
       {rows.map((x, i) => (
-        <div key={x.id} className="click" onClick={() => nav(`/${to}/${x.id}`)}
+        <div key={x.id} className="click" onClick={() => nav(appTo(`/${to}/${x.id}`))}
           style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderTop: i ? "1px solid var(--border)" : "none" }}>
           <div style={{ flex: 1, fontSize: 13.5, fontWeight: 600 }}>{label(x)}</div>
           <span style={{ color: "var(--muted)" }}>→</span>
@@ -305,7 +310,7 @@ function NotesTab({ dealId }) {
   return (
     <div className="card" style={{ padding: 18 }}>
       <div style={{ marginBottom: 14 }}>
-        <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="Internal note (not shared with the client)…" style={{ width: "100%", minHeight: 70 }} />
+        <Area size="md" value={body} onChange={(e) => setBody(e.target.value)} placeholder="Internal note (not shared with the client)…" style={{ width: "100%" }} />
         <div style={{ marginTop: 8 }}><Button icon={Plus} loading={busy} onClick={add}>Add note</Button></div>
       </div>
       {rows.length === 0 && <div style={{ color: "var(--muted)", fontSize: 13 }}>No notes yet.</div>}
@@ -321,6 +326,7 @@ function NotesTab({ dealId }) {
 
 // ---------------------------------------------------------------- Conversation
 function ConversationTab({ dealId, deal, contact, setTab }) {
+  const appTo = useAppPath();
   const toast = useToast();
   const { data, loading, error, reload, refresh } = useApi(`/api/deals/${dealId}/conversation`);
   const [draft, setDraft] = useState("");
@@ -416,7 +422,7 @@ function ConversationTab({ dealId, deal, contact, setTab }) {
           <div className="conv-banner warn">
             <Mail size={16} />
             <span style={{ flex: 1 }}>Connect a mailbox to send from your own address, in the same thread.</span>
-            <Link className="btn sm" to="/settings/email">Connect email</Link>
+            <Link className="btn sm" to={appTo("/settings/email")}>Connect email</Link>
           </div>
         )}
         {connected && (
@@ -441,7 +447,7 @@ function ConversationTab({ dealId, deal, contact, setTab }) {
         </div>
 
         <div className="ib-compose conv-composer">
-          <textarea value={draft} onChange={(e) => setDraft(e.target.value)} aria-label="Reply message"
+          <Area size="md" value={draft} onChange={(e) => setDraft(e.target.value)} aria-label="Reply message"
             placeholder={connected ? "Reply in the same thread…" : "Connect a mailbox to send…"} />
           <div className="row">
             <Button icon={Send} loading={busy === "send"} disabled={!connected || !!busy} onClick={send}>Send in thread</Button>
@@ -454,10 +460,11 @@ function ConversationTab({ dealId, deal, contact, setTab }) {
 
       {!focus && <LeadContextPanel deal={deal} conv={conv} contact={contact} setTab={setTab} onCollapse={() => setFocus(true)} />}
 
+      <AnimatePresence>
       {plan && (
-        <Modal title="Follow-up sequence" onClose={() => setPlan(null)}>
+        <Modal key="plan" title="Follow-up sequence" onClose={() => setPlan(null)}>
           <div className="field"><label>What should the follow-ups say?</label>
-            <textarea rows={3} value={plan.guidance}
+            <Area size="md" value={plan.guidance}
               placeholder="e.g. Reference the Revenue Blueprint, keep it warm and brief, and by the last one ask for a quick call."
               onChange={(e) => setPlan({ ...plan, guidance: e.target.value })} /></div>
           <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
@@ -482,7 +489,7 @@ function ConversationTab({ dealId, deal, contact, setTab }) {
                       onChange={(e) => { const items = [...plan.items]; items[i] = { ...it, days: Number(e.target.value) || 0 }; setPlan({ ...plan, items }); }} />
                     <span style={{ fontSize: 12, color: "var(--muted)" }}>days after the previous email</span>
                   </div>
-                  <textarea rows={5} value={it.body} style={{ width: "100%" }}
+                  <Area size="md" value={it.body} style={{ width: "100%" }}
                     onChange={(e) => { const items = [...plan.items]; items[i] = { ...it, body: e.target.value }; setPlan({ ...plan, items }); }} />
                 </div>
               ))}
@@ -496,12 +503,14 @@ function ConversationTab({ dealId, deal, contact, setTab }) {
           </div>
         </Modal>
       )}
+      </AnimatePresence>
     </div>
   );
 }
 
 // Persistent right-side lead context. Collapses to full-width focus mode.
 function LeadContextPanel({ deal, conv, contact, setTab, onCollapse }) {
+  const appTo = useAppPath();
   const co = deal?.company;
   const Row = ({ k, v }) => (v ? (
     <div className="lcp-row"><span className="lcp-k">{k}</span><span className="lcp-v">{v}</span></div>
@@ -525,7 +534,7 @@ function LeadContextPanel({ deal, conv, contact, setTab, onCollapse }) {
       </div>
       <div className="lcp-sec">
         <div className="lcp-title">Company</div>
-        {co ? <Row k="Name" v={<Link to={`/companies/${co.id}`}>{co.name}</Link>} /> : <div className="lcp-empty">Not linked</div>}
+        {co ? <Row k="Name" v={<Link to={appTo(`/companies/${co.id}`)}>{co.name}</Link>} /> : <div className="lcp-empty">Not linked</div>}
         <Row k="Website" v={co?.website} />
         <Row k="Industry" v={co?.industry} />
       </div>

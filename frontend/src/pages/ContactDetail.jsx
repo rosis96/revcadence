@@ -8,7 +8,8 @@ import {
   MapPin, Phone, Plus,
 } from "lucide-react";
 import { api } from "../api";
-import { Avatar, Button, ErrorBox, Spinner, useApi, useToast } from "../components";
+import { useAppPath } from "../clientspace/appPath";
+import { Area, Avatar, Button, ErrorBox, Spinner, useApi, useToast } from "../components";
 
 const CAL = "https://calendly.com/rosis/new-meeting";
 const dnum = (iso) => (iso ? new Date(iso) : null);
@@ -22,6 +23,7 @@ const matchTab = (tab, k = "") =>
   tab === "all" ? true : tab === "meetings" ? /meeting/.test(k) : tab === "emails" ? /email|reply/.test(k) : /note/.test(k);
 
 export default function ContactDetail() {
+  const appTo = useAppPath();
   const { id } = useParams();
   const nav = useNavigate();
   const toast = useToast();
@@ -82,7 +84,7 @@ export default function ContactDetail() {
     <>
       <div className="page-head">
         <div style={{ flex: 1, minWidth: 0 }}>
-          <button onClick={() => nav("/contacts")} style={{ border: 0, background: "none", color: "var(--blue-ink,#1d4ed8)", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, padding: 0, marginBottom: 8 }}>
+          <button onClick={() => nav(appTo("/contacts"))} style={{ border: 0, background: "none", color: "var(--blue-ink,#1d4ed8)", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5, fontSize: 13, padding: 0, marginBottom: 8 }}>
             <ArrowLeft size={15} /> Contacts</button>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <Avatar name={c.name || c.email} size={40} />
@@ -108,7 +110,7 @@ export default function ContactDetail() {
 
           {tab === "notes" && (
             <div className="card" style={{ padding: 16 }}>
-              <textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder={`Write a note about ${c.name || "this contact"}...`}
+              <Area size="md" value={note} onChange={(e) => setNote(e.target.value)} placeholder={`Write a note about ${c.name || "this contact"}...`}
                 style={{ width: "100%", font: "inherit", fontSize: 14, border: "1px solid var(--line-2,#d5d9e2)", borderRadius: 8, padding: 10, resize: "vertical" }} />
               <div style={{ textAlign: "right", marginTop: 8 }}><Button size="sm" icon={Plus} onClick={addNote} disabled={!note.trim()}>Add note</Button></div>
             </div>

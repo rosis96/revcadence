@@ -8,8 +8,10 @@ from fastapi import FastAPI
 
 from . import config
 from .db import engine, init_db
-from .routers import (admin, agreements, auth, billing, client, crm, deal_workspace, devapi, enrich,
-                      enrich_lists, inbound, invoices, jobs, mailbox, oauth, onboarding, public, reply, search)
+from .routers import (admin, agreements, auth, billing, client, client_space, crm, deal_workspace,
+                      devapi, enrich, enrich_lists, forms, forms_public, inbound, invoices, jobs,
+                      library, mailbox, oauth, onboarding, public, reply, search, sequences,
+                      workspace_docs)
 
 app = FastAPI(title=config.APP_NAME, version=config.VERSION)
 
@@ -82,6 +84,12 @@ app.include_router(invoices.router)
 app.include_router(mailbox.router)
 app.include_router(oauth.router)
 app.include_router(deal_workspace.router)
+app.include_router(workspace_docs.router)
+app.include_router(forms.router)
+app.include_router(forms_public.router)
+app.include_router(sequences.router)
+app.include_router(client_space.router)
+app.include_router(library.router)
 app.include_router(public.router)
 
 # ---------------------------------------------------------------- blueprint host
@@ -92,12 +100,22 @@ app.include_router(public.router)
 import os as _os  # noqa: E402
 
 _BLUEPRINT_HOSTS = tuple(h.strip().lower() for h in _os.getenv("BLUEPRINT_HOSTS", "").split(",") if h.strip())
+_CLIENT_HOSTS = config.CLIENT_HOSTS
 _AGREEMENT_HOSTS = tuple(h.strip().lower() for h in _os.getenv("AGREEMENT_HOSTS", "").split(",") if h.strip())
 _INVOICE_HOSTS = tuple(h.strip().lower() for h in _os.getenv("INVOICE_HOSTS", "").split(",") if h.strip())
 _RESERVED_SEG = {"", "api", "assets", "healthz", "docs", "redoc", "openapi.json",
                  "p", "agreement", "invoice", "favicon.ico", "robots.txt", "sitemap.xml",
                  "favicon-16x16.png", "favicon-32x32.png", "apple-touch-icon.png",
                  "android-chrome-192x192.png", "android-chrome-512x512.png", "site.webmanifest"}
+
+
+def _spa_index():
+    """The built React app. `_DIST` and FileResponse are defined further down the
+    module; both exist by the time a request reaches this."""
+    from fastapi.responses import FileResponse as _FileResponse
+    from .routers import public as _pub
+    index = _os.path.join(_DIST, "index.html")
+    return _FileResponse(index) if _os.path.isfile(index) else _pub._404
 
 
 @app.middleware("http")
@@ -134,6 +152,16 @@ async def _public_host_router(request, call_next):
                 return _pub._render_blueprint(path)
             if not path:
                 return _pub._404
+        elif _is("app.", _CLIENT_HOSTS):
+            # The client app serves real paths — app.revcadence.com/w/acme-inc —
+            # so a pasted link or a hard refresh arrives as a GET this API has no
+            # route for. Hand back the SPA and let its router resolve it. Without
+            # this every link we email works until the client reloads the page.
+            #
+            # `_RESERVED_SEG` is the same list the public hosts above use, so
+            # /api, /assets, /healthz and the icons keep reaching their handlers.
+            if segs and segs[0] not in _RESERVED_SEG:
+                return _spa_index()
     # POST to a signing endpoint on the agreement host must still reach the router
     if _is("agreement.", _AGREEMENT_HOSTS) and request.method == "POST":
         return await call_next(request)

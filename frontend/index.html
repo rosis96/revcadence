@@ -3,6 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Cascade layer order, declared here because it has to be declared
+         somewhere Tailwind will not rewrite. src/tailwind.css states the same
+         order, but Tailwind v4 consumes that statement and re-emits its own —
+         leaving the real order to fall out of which layer happens to appear
+         first in the bundle. That works today and would break silently the day
+         an import moves. The first declaration in the document wins, and this
+         is it: `app` (styles.css) before `utilities`, so a Tailwind class beats
+         the stylesheet it is meant to override. -->
+    <style>@layer theme, base, vendor, app, components, utilities;</style>
     <script>
       try {
         const theme = localStorage.getItem("rc_theme") === "dark" ? "dark" : "light";

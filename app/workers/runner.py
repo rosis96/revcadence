@@ -117,6 +117,7 @@ def run_one(db, job) -> None:
 
 _MAILBOX_POLL_SECONDS = int(os.getenv("MAILBOX_POLL_SECONDS", "120"))
 _FOLLOWUP_TICK_SECONDS = int(os.getenv("FOLLOWUP_TICK_SECONDS", "300"))
+_CAMPAIGN_TICK_SECONDS = int(os.getenv("CAMPAIGN_TICK_SECONDS", "3600"))
 
 
 def run_followups(db):
@@ -128,6 +129,28 @@ def run_followups(db):
             print(f"[worker] autopilot follow-ups sent: {r['sent']} (skipped {r.get('skipped', 0)})")
     except Exception as e:  # noqa: BLE001
         print(f"[worker] follow-up runner error: {e}")
+
+
+def refresh_campaign_snapshots(db):
+    """Re-mirror every reply space's live campaign ladder. Hourly by default: the
+    client screen reads snapshots only, so this is the sole thing keeping it
+    current, and a sending ladder does not change minute to minute."""
+    from ..models.reply import ReplyWorkspace
+    from ..reply import campaigns as C
+    spaces = (db.query(ReplyWorkspace)
+              .filter(ReplyWorkspace.active == True)  # noqa: E712
+              .all())
+    done = 0
+    for space in spaces:
+        if not space.api_key_enc:
+            continue
+        try:
+            done += int((C.snapshot_workspace(db, space) or {}).get("refreshed") or 0)
+        except Exception as e:  # noqa: BLE001
+            db.rollback()
+            print(f"[worker] campaign snapshot error space={space.name}: {e}")
+    if done:
+        print(f"[worker] campaign snapshots refreshed: {done}")
 
 
 def poll_mailboxes(db):
@@ -152,13 +175,16 @@ def send_daily_digests(db):
     """Once a day: post each opted-in workspace its executive briefing to Slack."""
     from ..digest import build_digest, digest_text, send_slack_digest
     from ..models.identity import Workspace
-    for w in db.query(Workspace).all():
+    for w in db.query(Workspace).filter(Workspace.archived_at.is_(None)).all():
         s = w.settings or {}
         if not (s.get("digest_enabled") and s.get("slack_webhook")):
             continue
         try:
             d = build_digest(db, w.id, hours=24)
-            text = digest_text(s.get("digest_client_name") or w.name, d, os.getenv("PUBLIC_BASE_URL", ""))
+            # The digest is about one workspace, so its link opens that
+            # workspace rather than whatever the reader last had selected.
+            text = digest_text(s.get("digest_client_name") or w.name, d,
+                               config.client_workspace_url(w.slug))
             send_slack_digest(s["slack_webhook"], text)
         except Exception as e:  # noqa: BLE001
             print(f"[worker] digest error ws={w.id}: {e}")
@@ -186,6 +212,7 @@ def main():
     print(f"[worker] job concurrency = {JOB_CONCURRENCY}")
     last_mailbox_poll = 0.0
     last_followup_tick = 0.0
+    last_campaign_tick = 0.0
     last_digest_date = None
     executor = ThreadPoolExecutor(max_workers=JOB_CONCURRENCY, thread_name_prefix="job")
     active: dict = {}   # Future -> job_id, the jobs running right now
@@ -201,6 +228,9 @@ def main():
             if time.time() - last_followup_tick >= _FOLLOWUP_TICK_SECONDS:
                 run_followups(db)
                 last_followup_tick = time.time()
+            if time.time() - last_campaign_tick >= _CAMPAIGN_TICK_SECONDS:
+                refresh_campaign_snapshots(db)
+                last_campaign_tick = time.time()
             _now = datetime.utcnow()
             if _now.hour >= _DIGEST_HOUR_UTC and last_digest_date != _now.date():
                 send_daily_digests(db)

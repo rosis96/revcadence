@@ -1,16 +1,18 @@
-import { alertDialog, confirmDialog, promptDialog } from "../components";
+import { Area, alertDialog, confirmDialog, promptDialog } from "../components";
 // Enrichment list (DESIGN_SYSTEM.md step 4). Apollo Find-People philosophy:
 // sticky left filter rail with live full-list counts, instant server-side
 // filtering, one shared DataTable (server pagination), quick profile Drawer.
 // All engine behavior (jobs, runs, clears, select-all-in-view) is unchanged.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { AnimatePresence } from "framer-motion";
+import { useLocation, useParams } from "react-router-dom";
 import {
   AlertTriangle, AtSign, CheckCircle2, Download, ExternalLink, Eye,
   FileSearch, Globe2, Image as ImageIcon, Play, Quote, ShieldCheck,
   Sparkles, Square, Target, Trash2, Upload, Users,
 } from "lucide-react";
 import { api, getToken } from "../api";
+import { enrichBase } from "../clientspace/modules";
 import {
   Badge, Breadcrumbs, Button, DataTable, Drawer, ErrorBox, FilterPanel,
   Modal, PageHeader, Spinner, useApi, useDebounced, useToast,
@@ -89,6 +91,9 @@ export default function EnrichListDetail() {
   const [icpText, setIcpText] = useState("");
   const [icpBusy, setIcpBusy] = useState(false);
   const espParam = espSel.join(",");
+  // The Lists crumb has to point at the base this screen was opened at, or a
+  // client clicking it lands on the operator path and gets bounced home.
+  const base = enrichBase(useLocation().pathname);
   const { data, error, loading, reload, refresh } = useApi(`/api/enrich-lists/${id}/leads`,
     { view, page, q, page_size: 50, esp: espParam });
   const { data: reoon } = useApi(data
@@ -372,7 +377,7 @@ export default function EnrichListDetail() {
 
   return (
     <>
-      <Breadcrumbs items={[{ label: "Lists", href: "/enrichment" }, { label: data.list.name }]} />
+      <Breadcrumbs items={[{ label: "Lists", href: base }, { label: data.list.name }]} />
       <PageHeader title={data.list.name}
         desc={`${data.chips.all.toLocaleString()} leads · Reoon ${reoon?.demo ? "demo" : (reoon?.credits != null ? `${reoon.credits.toLocaleString()} credits` : "connected")}`}
         actions={
@@ -486,8 +491,9 @@ export default function EnrichListDetail() {
         </div>
       </div>
 
+      <AnimatePresence>
       {openLead && (
-        <Drawer title={openLead.name || openLead.email} className="research-drawer"
+        <Drawer key="lead" title={openLead.name || openLead.email} className="research-drawer"
           onClose={() => { setOpenLead(null); setShowAllEvidence(false); }}>
           <div className="rd-hero">
             <div>
@@ -663,20 +669,22 @@ export default function EnrichListDetail() {
           )}
         </Drawer>
       )}
+      </AnimatePresence>
 
+      <AnimatePresence>
       {icpOpen && (
-        <Modal title="ICP filter for this list" onClose={() => setIcpOpen(false)}>
+        <Modal key="icp" title="ICP filter for this list" onClose={() => setIcpOpen(false)}>
           <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 520, maxWidth: 620 }}>
             <div style={{ fontSize: 13, color: "var(--muted)" }}>
               This ICP applies only to <b>{data.list.name}</b>, so each list can target a different
               segment. Leave it blank to fall back to the workspace ICP. Describe <b>who the companies
               are</b> (the kind of business you want), not who they serve.
             </div>
-            <textarea
+            <Area size="lg"
               value={icpText}
               onChange={(e) => setIcpText(e.target.value)}
               placeholder={"e.g. B2B SaaS and digital agencies, 10-200 employees, selling paid services to other businesses. Plain prose or ICP JSON both work."}
-              style={{ width: "100%", minHeight: 190, fontSize: 13, lineHeight: 1.5, fontFamily: "inherit", padding: 10 }}
+              style={{ width: "100%", fontSize: 13, lineHeight: 1.5, fontFamily: "inherit", padding: 10 }}
             />
             <div className="card" style={{ padding: "10px 12px", background: "var(--ok-soft)", border: "1px solid var(--ok-border)", fontSize: 12.5, color: "var(--ok-text)" }}>
               Always on for every list: non-profits, charities, churches, and donation
@@ -700,9 +708,11 @@ export default function EnrichListDetail() {
           </div>
         </Modal>
       )}
+      </AnimatePresence>
 
+      <AnimatePresence>
       {dedupeOpen && (
-        <Modal title="Remove duplicates by email" onClose={() => setDedupeOpen(false)}>
+        <Modal key="dedupe" title="Remove duplicates by email" onClose={() => setDedupeOpen(false)}>
           <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 440 }}>
             <label style={{ fontSize: 13 }}>
               Compare against list
@@ -742,6 +752,7 @@ export default function EnrichListDetail() {
           </div>
         </Modal>
       )}
+      </AnimatePresence>
     </>
   );
 }

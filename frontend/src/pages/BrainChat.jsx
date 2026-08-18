@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Send, Sparkles } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { ErrorBox, PageHeader, useToast } from "../components";
+import { Area, ErrorBox, PageHeader, useToast } from "../components";
 
 export default function BrainChat() {
   const { wsParam, me } = useAuth();
@@ -15,15 +15,9 @@ export default function BrainChat() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const endRef = useRef(null);
-  const taRef = useRef(null);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, busy]);
-  // auto-grow the input with its content (up to a max), then scroll — like Claude/ChatGPT
-  useEffect(() => {
-    const el = taRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 320)}px`;
-  }, [input]);
+  // The composer is a fixed three rows and scrolls past that, like every other
+  // textarea in the app — the hand-rolled auto-grow that used to live here is gone.
 
   if (!wsId) return <ErrorBox msg="Pick a specific workspace (top-left) — the brain is per client workspace." />;
 
@@ -112,7 +106,7 @@ export default function BrainChat() {
   ];
 
   return (
-    <>
+    <div className="brain-page">
       <PageHeader title="Ask the brain" desc="Teach company knowledge → update the brain · describe a variable → build that format · describe fit criteria → update ICP."
         actions={<div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
           <button className="btn ghost" disabled={busy || !messages.length} onClick={saveAsRule}
@@ -124,47 +118,51 @@ export default function BrainChat() {
           <button className="btn" disabled={busy || !messages.length} onClick={saveToBrain}
             style={{ display: "flex", alignItems: "center", gap: 6 }} title="Save company knowledge (case studies, services, metrics)"><Sparkles size={15} /> Save to brain</button>
         </div>} />
-      <div className="card" style={{ padding: 0, display: "flex", flexDirection: "column", height: "70vh", overflow: "hidden" }}>
-        <div style={{ flex: 1, overflowY: "auto", padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
-          {messages.length === 0 && (
-            <div style={{ margin: "auto", textAlign: "center", maxWidth: 460 }}>
-              <Sparkles size={26} style={{ color: "var(--primary)" }} />
-              <div style={{ fontWeight: 600, marginTop: 8 }}>Ask anything about this client — or teach it something new.</div>
-              <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 4, marginBottom: 12 }}>
-                It answers from the Client Brain. To <b>train it</b>, paste material (case studies, services, metrics)
-                and click <b>Save to brain</b>. New facts are added, corrections update saved fields, and extra
-                details enrich the matching case study or problem. The section buttons build only that section.</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {suggestions.map((s) => (
-                  <button key={s} className="btn ghost sm" style={{ textAlign: "left" }} onClick={() => setInput(s)}>{s}</button>
-                ))}
+      <div className="brain-chat">
+        <div className="brain-scroll">
+          <div className="brain-col">
+            {messages.length === 0 && (
+              <div style={{ margin: "auto", textAlign: "center", maxWidth: 460 }}>
+                <Sparkles size={26} style={{ color: "var(--primary)" }} />
+                <div style={{ fontWeight: 600, marginTop: 8 }}>Ask anything about this client — or teach it something new.</div>
+                <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 4, marginBottom: 12 }}>
+                  It answers from the Client Brain. To <b>train it</b>, paste material (case studies, services, metrics)
+                  and click <b>Save to brain</b>. New facts are added, corrections update saved fields, and extra
+                  details enrich the matching case study or problem. The section buttons build only that section.</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {suggestions.map((s) => (
+                    <button key={s} className="btn ghost sm" style={{ textAlign: "left" }} onClick={() => setInput(s)}>{s}</button>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-          {messages.map((m, i) => (
-            <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "78%" }}>
-              <div style={{
-                padding: "10px 13px", borderRadius: 12, fontSize: 13.5, lineHeight: 1.5, whiteSpace: "pre-wrap",
-                background: m.role === "user" ? "var(--primary)" : "var(--card-2)", color: m.role === "user" ? "#fff" : "var(--text)",
-              }}>{m.content}</div>
-              {m.learned?.length ? (
-                <div style={{ fontSize: 11, color: "var(--ok-text)", marginTop: 3 }}>✓ brain updated: {m.learned.join(", ")}</div>
-              ) : null}
-            </div>
-          ))}
-          {busy && <div style={{ alignSelf: "flex-start", fontSize: 12.5, color: "var(--muted)" }}>Thinking…</div>}
-          <div ref={endRef} />
+            )}
+            {messages.map((m, i) => (
+              <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "78%" }}>
+                <div style={{
+                  padding: "10px 13px", borderRadius: 12, fontSize: 13.5, lineHeight: 1.5, whiteSpace: "pre-wrap",
+                  background: m.role === "user" ? "var(--primary)" : "var(--card-2)", color: m.role === "user" ? "#fff" : "var(--text)",
+                }}>{m.content}</div>
+                {m.learned?.length ? (
+                  <div style={{ fontSize: 11, color: "var(--ok-text)", marginTop: 3 }}>✓ brain updated: {m.learned.join(", ")}</div>
+                ) : null}
+              </div>
+            ))}
+            {busy && <div style={{ alignSelf: "flex-start", fontSize: 12.5, color: "var(--muted)" }}>Thinking…</div>}
+            <div ref={endRef} />
+          </div>
         </div>
-        <div style={{ borderTop: "1px solid var(--border)", padding: 12, display: "flex", gap: 8, alignItems: "flex-end" }}>
-          <textarea ref={taRef} rows={1} value={input} onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-            placeholder="Ask about the client, draft outreach, or paste a new case study to save…"
-            style={{ flex: 1, resize: "none", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)",
-              fontSize: 13.5, lineHeight: 1.5, minHeight: 44, maxHeight: 320, overflowY: "auto", fontFamily: "inherit" }} />
-          <button className="btn" disabled={busy || !input.trim()} onClick={send}
-            style={{ display: "flex", alignItems: "center", gap: 6 }}><Send size={15} /> Send</button>
+        <div className="brain-composer">
+          <div>
+            <Area size="sm" value={input} onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+              placeholder="Ask about the client, draft outreach, or paste a new case study to save…"
+              style={{ flex: 1, padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)",
+                fontSize: 13.5, lineHeight: 1.5, fontFamily: "inherit" }} />
+            <button className="btn" disabled={busy || !input.trim()} onClick={send}
+              style={{ display: "flex", alignItems: "center", gap: 6 }}><Send size={15} /> Send</button>
+          </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }

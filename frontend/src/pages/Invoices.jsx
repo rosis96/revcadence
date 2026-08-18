@@ -2,9 +2,11 @@
 // plus a standalone "New invoice" form (client, amount, dates) so an invoice can
 // be created without an executed agreement.
 import { useMemo, useState } from "react";
+import { AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { Plus, Receipt, Trash2 } from "lucide-react";
 import { api } from "../api";
+import { useAppPath } from "../clientspace/appPath";
 import { useAuth } from "../auth";
 import { Button, ConfirmDialog, DataTable, ErrorBox, Modal, PageHeader, StatusPill, useApi, useToast } from "../components";
 import { Select } from "../components";
@@ -16,6 +18,7 @@ const fmtDate = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDate
 const NEW = () => ({ billed: "", desc: "Outbound Lead Generation Service", qty: 1, price: "", currency: "USD", issue: todayISO(), terms: "30", customDays: 30 });
 
 export default function Invoices() {
+  const appTo = useAppPath();
   const { wsParam } = useAuth();
   const nav = useNavigate();
   const toast = useToast();
@@ -46,7 +49,7 @@ export default function Invoices() {
       });
       toast(`Created ${r.number}`);
       setOpen(false); setF(NEW());
-      nav(`/invoices/${r.id}`);
+      nav(appTo(`/invoices/${r.id}`));
     } catch (e) { toast(e.message, "bad"); }
     finally { setBusy(false); }
   };
@@ -90,14 +93,15 @@ export default function Invoices() {
       <DataTable
         id="invoices" columns={columns} data={data || []} loading={loading}
         searchPlaceholder="Search invoices…" getRowId={(r) => String(r.id)}
-        onRowClick={(r) => nav(`/invoices/${r.id}`)}
+        onRowClick={(r) => nav(appTo(`/invoices/${r.id}`))}
         bulkActions={[{ label: "Delete", icon: Trash2, onClick: (rows) => setConfirmRows(rows) }]}
         emptyIcon={Receipt} emptyTitle="No invoices yet"
         emptyHint="Click New invoice to create one."
       />
 
+      <AnimatePresence>
       {open && (
-        <Modal title="New invoice" onClose={() => setOpen(false)}>
+        <Modal key="newinv" title="New invoice" onClose={() => setOpen(false)}>
           <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 460, maxWidth: 520 }}>
             <div style={fld}>
               <label style={lab}>Billed to (client)</label>
@@ -144,13 +148,16 @@ export default function Invoices() {
           </div>
         </Modal>
       )}
+      </AnimatePresence>
 
+      <AnimatePresence>
       {confirmRows && (
-        <ConfirmDialog title="Delete invoices"
+        <ConfirmDialog key="delinv" title="Delete invoices"
           message={`Permanently delete ${confirmRows.length} invoice(s)? This can't be undone.`}
           confirmLabel="Delete" danger
           onConfirm={() => deleteInvoices(confirmRows)} onClose={() => setConfirmRows(null)} />
       )}
+      </AnimatePresence>
     </>
   );
 }

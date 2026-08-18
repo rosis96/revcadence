@@ -14,3 +14,14 @@ from .mailbox import DealConversation, ConversationMessage, RevenueInboxItem  # 
 from .billing import Subscription  # noqa: F401
 from .devapi import (ApiKey, ApiRequestLog, IdempotencyRecord, WebhookEndpoint,  # noqa: F401
                      WebhookDelivery, SyncConnection, SyncMapping)  # noqa: F401
+from .workspace_docs import (Block, BoardAsset, BoardPresence, Comment, Page,  # noqa: F401
+                             PageTemplate, PageVersion, WhiteboardPromotion)  # noqa: F401
+from .forms import (Form, FormAnswer, FormInvite, FormQuestion, FormResponse,  # noqa: F401
+                    FormSection, FormUpload, FormVersion)  # noqa: F401
+from .sequences import (EmailAngle, EmailSequence, EmailSequenceApproval,  # noqa: F401
+                        EmailSequenceStep, EmailSequenceTemplate,
+                        EmailSequenceVariant)  # noqa: F401
+from .client_space import ClientLaunch, LaunchTask  # noqa: F401
+from .library import (LibraryCaseStudy, LibraryExclusion, LibraryIcpTest,  # noqa: F401
+                      LibrarySegment)
+from .campaigns import CampaignSnapshot  # noqa: F401

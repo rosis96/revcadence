@@ -41,7 +41,8 @@ def provision_workspace(db, workspace) -> dict:
 def backfill_all(db) -> int:
     from .models.identity import Workspace
     n = 0
-    for w in db.query(Workspace).all():
+    # Archived workspaces are on their way out, not waiting for parts.
+    for w in db.query(Workspace).filter(Workspace.archived_at.is_(None)).all():
         res = provision_workspace(db, w)
         if any(res.values()):
             n += 1

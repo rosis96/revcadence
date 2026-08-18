@@ -2,6 +2,7 @@ import { alertDialog } from "../components";
 // CRM → Onboarding: create a client's onboarding link, track status/progress,
 // review what they submitted + the auto-generated checklist.
 import { useState } from "react";
+import { AnimatePresence } from "framer-motion";
 import { Copy, Link2, Plus } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
@@ -44,7 +45,6 @@ export default function Onboarding() {
   const [open, setOpen] = useState(null);
   const [copied, setCopied] = useState("");
 
-  if (!me.is_master) return <ErrorBox msg="Master access required." />;
 
   const create = async () => {
     try {
@@ -89,8 +89,9 @@ export default function Onboarding() {
         </div>
       )}
 
+      <AnimatePresence>
       {creating && (
-        <Modal title="New onboarding link" onClose={() => setCreating(false)}>
+        <Modal key="create" title="New onboarding link" onClose={() => setCreating(false)}>
           {!newLink ? (
             <>
               <div className="field"><label>Client workspace</label>
@@ -114,7 +115,10 @@ export default function Onboarding() {
           )}
         </Modal>
       )}
-      {open && <DetailModal id={open} onClose={() => setOpen(null)} />}
+      </AnimatePresence>
+      <AnimatePresence>
+      {open && <DetailModal key="detail" id={open} onClose={() => setOpen(null)} />}
+      </AnimatePresence>
     </>
   );
 }

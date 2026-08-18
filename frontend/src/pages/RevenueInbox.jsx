@@ -2,10 +2,12 @@
 // participant WITH a lead we already know, not yet tied to a deal. Attach each to
 // the right deal with one click — it becomes that deal's Conversation.
 import { useState } from "react";
+import { AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { Mail, X, ArrowRight, RefreshCw, Download, Inbox as InboxIcon, ChevronDown } from "lucide-react";
 import { api, emailText, localDateTime, splitQuoted, timeAgo } from "../api";
 import { useAuth } from "../auth";
+import { useAppPath } from "../clientspace/appPath";
 import { Avatar, Badge, Button, Empty, ErrorBox, Modal, PageHeader, Spinner, useApi, useToast } from "../components";
 import { Select } from "../components";
 
@@ -34,6 +36,7 @@ export default function RevenueInbox() {
   const { wsParam } = useAuth();
   const nav = useNavigate();
   const toast = useToast();
+  const appTo = useAppPath();
   const { data, loading, error, reload } = useApi("/api/revenue-inbox", { workspace_id: wsParam });
   const [busy, setBusy] = useState(0);
   const [pick, setPick] = useState({});   // itemId -> chosen deal_id
@@ -88,14 +91,14 @@ export default function RevenueInbox() {
     setBusy(item.id);
     try { const r = await api(`/api/revenue-inbox/${item.id}/attach`, { method: "POST", body: { deal_id: Number(dealId) } });
       toast("Attached to the deal conversation"); reload();
-      nav(`/deals/${r.deal_id}`);
+      nav(appTo(`/deals/${r.deal_id}`));
     } catch (e) { toast(e.message, "bad"); }
     setBusy(0);
   };
   const createDeal = async (item) => {
     setBusy(item.id);
     try { const r = await api(`/api/revenue-inbox/${item.id}/create-deal`, { method: "POST" });
-      toast("Deal created — follow up in the thread"); nav(`/deals/${r.deal_id}`); }
+      toast("Deal created — follow up in the thread"); nav(appTo(`/deals/${r.deal_id}`)); }
     catch (e) { toast(e.message, "bad"); }
     setBusy(0);
   };
@@ -161,7 +164,7 @@ export default function RevenueInbox() {
             {/* actions */}
             <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "10px 16px", borderTop: "1px solid var(--border,#e6e9ef)", flexWrap: "wrap" }}>
               {it.attached_deal ? (
-                <Button icon={ArrowRight} onClick={() => nav(`/deals/${it.attached_deal.id}`)}>Open deal · {it.attached_deal.name}</Button>
+                <Button icon={ArrowRight} onClick={() => nav(appTo(`/deals/${it.attached_deal.id}`))}>Open deal · {it.attached_deal.name}</Button>
               ) : it.deals.length > 0 ? (
                 <>
                   <Select size="sm" value={pick[it.id] || it.deals[0].id} onChange={(e) => setPick({ ...pick, [it.id]: e.target.value })}>
@@ -183,8 +186,9 @@ export default function RevenueInbox() {
         })}
       </div>
 
+      <AnimatePresence>
       {browse && (
-        <Modal title="Import from mailbox" onClose={() => setBrowse(null)}>
+        <Modal key="browse" title="Import from mailbox" onClose={() => setBrowse(null)}>
           <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 0 }}>
             Conversations in <b>{browse.mailbox || "your mailbox"}</b>. Filter by a Gmail label or search, then import.
             Threads with a known lead are tagged — those are your pipeline contacts.</p>
@@ -239,6 +243,7 @@ export default function RevenueInbox() {
           </div>
         </Modal>
       )}
+      </AnimatePresence>
     </>
   );
 }

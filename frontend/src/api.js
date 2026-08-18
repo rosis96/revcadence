@@ -1,6 +1,7 @@
 // API client: same-origin by default (FastAPI serves the built app);
 // VITE_API_BASE overrides for local dev against a remote backend.
-const BASE = import.meta.env.VITE_API_BASE || "";
+export const API_BASE = import.meta.env.VITE_API_BASE || "";
+const BASE = API_BASE;
 
 export function getToken() { return localStorage.getItem("rc_token") || ""; }
 export function setToken(t) { t ? localStorage.setItem("rc_token", t) : localStorage.removeItem("rc_token"); }
@@ -8,20 +9,70 @@ export function setToken(t) { t ? localStorage.setItem("rc_token", t) : localSto
 let onUnauthorized = () => {};
 export function setUnauthorizedHandler(fn) { onUnauthorized = fn; }
 
-export async function api(path, { method = "GET", body, params } = {}) {
+// "Preview as client" is a request header rather than a per-call argument, so
+// every screen inside Client Space — including ones written later — is answered
+// with the client's field of view without each page remembering to ask. The
+// server treats it as a narrowing filter only: it can never grant access.
+let clientPreview = false;
+export function setClientPreview(on) { clientPreview = !!on; }
+export function isClientPreview() { return clientPreview; }
+
+let refreshPromise = null;
+export function refreshSession() {
+  if (!refreshPromise) {
+    const url = new URL(BASE + "/api/auth/refresh", window.location.origin);
+    const token = getToken();
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    refreshPromise = fetch(url, { method: "POST", headers, credentials: "include" })
+      .then(async (res) => {
+        if (!res.ok) return "";
+        const data = await res.json();
+        if (!data.token) return "";
+        setToken(data.token);
+        return data.token;
+      })
+      .catch(() => "")
+      .finally(() => { refreshPromise = null; });
+  }
+  return refreshPromise;
+}
+
+export async function api(path, { method = "GET", body, params, auth = true, retryAuth = true } = {}) {
   const url = new URL(BASE + path, window.location.origin);
   if (params) Object.entries(params).forEach(([k, v]) => {
     if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, v);
   });
   const headers = { "Content-Type": "application/json" };
-  const token = getToken();
+  const token = auth ? getToken() : "";
   if (token) headers["Authorization"] = `Bearer ${token}`;
-  const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
-  if (res.status === 401) { setToken(""); onUnauthorized(); throw new Error("Session expired — please log in again"); }
+  if (clientPreview) headers["X-Client-Preview"] = "1";
+  const res = await fetch(url, {
+    method, headers, credentials: "include", body: body ? JSON.stringify(body) : undefined,
+  });
+  if (res.status === 401 && auth) {
+    const current = getToken();
+    if (retryAuth && current && current !== token) {
+      // A newer login/refresh won a race with this request. Retry with it; an
+      // old in-flight 401 must never erase a newer session.
+      return api(path, { method, body, params, auth, retryAuth: false });
+    }
+    if (retryAuth && current === token) {
+      const refreshed = await refreshSession();
+      if (refreshed) return api(path, { method, body, params, auth, retryAuth: false });
+    }
+    // Clear only the credential that actually failed. This protects a login in
+    // another tab from an older request completing late.
+    if (getToken() === token) setToken("");
+    onUnauthorized();
+    throw new Error("Session expired — please log in again");
+  }
   if (!res.ok) {
     let detail = `${res.status}`;
     try { detail = (await res.json()).detail || detail; } catch { /* noop */ }
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    const error = new Error(typeof detail === "string" ? detail : (detail?.message || JSON.stringify(detail)));
+    error.status = res.status;
+    error.detail = detail;
+    throw error;
   }
   return res.json();
 }

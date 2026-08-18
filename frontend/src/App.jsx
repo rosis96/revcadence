@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { HashRouter, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { BrowserRouter, HashRouter, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   LayoutGrid, ListChecks, Database, CircleUser, Target, AlignLeft, CheckCheck, FileText,
@@ -8,12 +8,17 @@ import {
   LogOut, Search, ClipboardList, Radar, Briefcase, Bell, KeyRound, Plug, BarChart3, Sparkles, Sun, Moon,
 } from "lucide-react";
 import { AuthProvider, useAuth } from "./auth";
+import { IS_CLIENT_HOST, routePath } from "./host";
+import ClientApp from "./client/ClientShell";
+import clientSpaceRoutes from "./clientspace/routes";
+import { ADMIN_BASE, navGroups } from "./clientspace/nav";
 import { ThemeProvider, ThemeToggleButton, useTheme } from "./theme";
-import { CommandPalette, GlobalDialogs, InlinePopup, Select, ToastProvider, useApi } from "./components";
+import { CommandPalette, GlobalDialogs, InlinePopup, Select, ToastProvider, Toasts, useApi } from "./components";
 import KitchenSink from "./pages/KitchenSink";
 import Developers from "./pages/Developers";
 import CrmSync from "./pages/CrmSync";
 import Login from "./pages/Login";
+import ChangePassword from "./pages/ChangePassword";
 import Dashboard from "./pages/Dashboard";
 import Reports from "./pages/Reports";
 import Billing from "./pages/Billing";
@@ -54,11 +59,30 @@ import Admin from "./pages/Admin";
 import Onboarding from "./pages/Onboarding";
 import OnboardingForm from "./pages/OnboardingForm";
 import ResetPassword from "./pages/ResetPassword";
+import DocsRoute from "./docs/DocsRoute";
 
-// MODES: the four sections. Pick a mode → the sidebar shows ONLY that section.
+const Forms = lazy(() => import("./pages/Forms"));
+const FormBuilder = lazy(() => import("./pages/FormBuilder"));
+const FormPreview = lazy(() => import("./pages/FormPreview"));
+const FormResponses = lazy(() => import("./pages/FormResponses"));
+const FormPage = lazy(() => import("./forms/FormPage"));
+const Sequences = lazy(() => import("./pages/Sequences"));
+const LazyRoute = ({ children }) => <Suspense fallback={<div className="center" style={{ minHeight: "40vh" }}><div className="spinner" /></div>}>{children}</Suspense>;
+
+// MODES: the sections. Pick a mode → the sidebar shows ONLY that section.
 // Master Dashboard + System are always present. Each section is self-contained.
+//
+// Client Space sits first because it is the only module shared with the client,
+// and a mode may declare `groups` — labelled, collapsible sets rendered with the
+// same treatment as Build and System. Its items come from clientspace/nav so the
+// operator's list and the client's own sidebar cannot drift apart.
 const I = 18;
 const MODES = {
+  client_space: {
+    label: "Client Space",
+    nav: navGroups(ADMIN_BASE)[0][1],
+    groups: navGroups(ADMIN_BASE).slice(1),
+  },
   outbound: {
     label: "Outbound",
     nav: [
@@ -85,6 +109,8 @@ const MODES = {
       ["/pipeline", "Pipeline", Rows3],
       ["/reports", "Reports", BarChart3],
       ["/revenue-inbox", "Revenue Inbox", Inbox],
+      ["/workspace/docs", "Shared Documents", FileText],
+      ["/sequences", "Email Sequences", Mail],
       ["/blueprints", "Blueprints & Agreements", FileText],
       ["/invoices", "Invoices", ClipboardList],
       ["/clients", "Clients", Briefcase],
@@ -116,11 +142,47 @@ const BUILD_BY_MODE = {
     ["/enrichment/profile", "Client Profile", CircleUser],
   ],
   inbound: [],
+  // Client Space carries its own groups; there is nothing to "build" behind it
+  // that is not already a screen inside it.
+  client_space: [],
 };
 const BUILD_ALL = Object.values(BUILD_BY_MODE).flat();
-const SYSTEM_NAV = [["/activity", "Activity", ActivityIcon], ["/jobs", "Jobs", Cog], ["/settings", "Settings", Wrench],
+// Forms lives here, not under a client module: the builder is an org-level tool
+// we own. A form is written once and duplicated per client; the client is chosen
+// when an invite is sent, not when the questions are written.
+const SYSTEM_NAV = [["/forms", "Forms", ListChecks], ["/activity", "Activity", ActivityIcon],
+  ["/jobs", "Jobs", Cog], ["/settings", "Settings", Wrench],
   ["/settings/developers", "Developers", KeyRound], ["/settings/crm", "CRM Integrations", Plug]];
 const NavIcon = ({ ic: Ic }) => <span className="icon"><Ic size={I} /></span>;
+// One collapsible sidebar group. Build, System and every module group render
+// through it, so "same collapse behaviour as the existing groups" is the same
+// component rather than a resemblance that drifts.
+function NavGroup({ label, open, onToggle, children }) {
+  return (
+    <>
+      <button className="group-btn" onClick={onToggle} aria-expanded={open}>
+        <span>{label}</span>
+        <motion.span className="group-chevron" animate={{ rotate: open ? 0 : -90 }} transition={{ duration: 0.2, ease: "easeOut" }}>
+          <ChevronDown size={14} />
+        </motion.span>
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div className="sidebar-subnav" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}>
+            {children}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
+  );
+}
+// Collapsed module groups persist, the way the client's own rail does. An absent
+// key means open, so a group added later shows up instead of hiding inside
+// somebody's stale preference.
+const CS_OPEN_KEY = "rc_module_nav_open";
+const readGroupOpen = () => {
+  try { return JSON.parse(localStorage.getItem(CS_OPEN_KEY)) || {}; } catch { return {}; }
+};
 // The wordmark is now mark-only and lives at the far end of the top bar, where it
 // doubles as the system-status control.
 const RcWave = () => (
@@ -164,10 +226,22 @@ function Sidebar() {
     .filter(([, m]) => m.nav.length > 0);
   const modeMap = Object.fromEntries(modeEntries);
   const [mode, setModeRaw] = useState(localStorage.getItem("rc_mode") || "outbound");
-  const activeMode = modeMap[mode] ? mode : (modeEntries[0]?.[0] || "crm");
+  const loc = useLocation();
+  // Client Space is reachable by link from Master Dashboard, which is
+  // cross-module — so arriving at one of its screens selects it in the switcher.
+  // Scoped to this module on purpose: every other module keeps the stored-mode
+  // behaviour it has always had.
+  const inClientSpace = loc.pathname === ADMIN_BASE || loc.pathname.startsWith(`${ADMIN_BASE}/`);
+  // A workspace row opens its configuration at Client Profile. Keep the sidebar
+  // on the owning module so its dropdown and highlighted destination agree with
+  // the page that just opened.
+  const routeMode = loc.pathname === "/enrichment/profile" ? "outbound" : null;
+  const storedMode = modeMap[mode] ? mode : (modeEntries[0]?.[0] || "crm");
+  const activeMode = inClientSpace && modeMap.client_space
+    ? "client_space"
+    : routeMode && modeMap[routeMode] ? routeMode : storedMode;
   const buildItems = BUILD_BY_MODE[activeMode] || [];   // config scoped to the current mode
   const nav = useNavigate();
-  const loc = useLocation();
   const setMode = (m) => {
     localStorage.setItem("rc_mode", m);
     setModeRaw(m);
@@ -179,6 +253,23 @@ function Sidebar() {
   const [buildOpen, setBuildOpen] = useState(() => inGroup(BUILD_ALL));
   const [systemOpen, setSystemOpen] = useState(() =>
     inGroup(SYSTEM_NAV) || loc.pathname.startsWith("/admin") || loc.pathname.startsWith("/billing"));
+  const modeGroups = modeMap[activeMode].groups || [];
+  const [groupOpen, setGroupOpen] = useState(readGroupOpen);
+  useEffect(() => {
+    if (routeMode && mode !== routeMode) {
+      localStorage.setItem("rc_mode", routeMode);
+      setModeRaw(routeMode);
+    }
+  }, [mode, routeMode]);
+  useEffect(() => {
+    if (inGroup(BUILD_ALL)) setBuildOpen(true);
+  }, [loc.pathname]);
+  const isGroupOpen = (label) => groupOpen[label] !== false;
+  const toggleGroup = (label) => setGroupOpen((prev) => {
+    const next = { ...prev, [label]: !isGroupOpen(label) };
+    try { localStorage.setItem(CS_OPEN_KEY, JSON.stringify(next)); } catch { /* storage can be disabled */ }
+    return next;
+  });
   const [menu, setMenu] = useState(false);
   const profileRef = useRef(null);
   const initials = (me.user.name || me.user.email).slice(0, 2).toUpperCase();
@@ -199,44 +290,30 @@ function Sidebar() {
         {modeMap[activeMode].nav.map(([to, label, ic]) => (
           <NavLink key={to} to={to} end={to.split("/").length <= 2}><NavIcon ic={ic} /><span>{label}</span></NavLink>
         ))}
+        {modeGroups.map(([label, items]) => (
+          <NavGroup key={label} label={label} open={isGroupOpen(label)} onToggle={() => toggleGroup(label)}>
+            {items.map(([to, text, ic]) => (
+              <NavLink key={to} to={to} end={to.split("/").length <= 2}><NavIcon ic={ic} /><span>{text}</span></NavLink>
+            ))}
+          </NavGroup>
+        ))}
         {!isClient && (
           <>
             {buildItems.length > 0 && (
-              <>
-                <button className="group-btn" onClick={() => setBuildOpen((v) => !v)} aria-expanded={buildOpen}>
-                  <span>Build · {modeMap[activeMode].label}</span>
-                  <motion.span className="group-chevron" animate={{ rotate: buildOpen ? 0 : -90 }} transition={{ duration: 0.2, ease: "easeOut" }}>
-                    <ChevronDown size={14} />
-                  </motion.span>
-                </button>
-                <AnimatePresence initial={false}>
-                  {buildOpen && (
-                    <motion.div className="sidebar-subnav" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}>
-                      {buildItems.map(([to, label, ic]) => (
-                        <NavLink key={to} to={to} end={to.split("/").length <= 2}><NavIcon ic={ic} /><span>{label}</span></NavLink>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </>
+              <NavGroup label={`Build · ${modeMap[activeMode].label}`} open={buildOpen}
+                onToggle={() => setBuildOpen((v) => !v)}>
+                {buildItems.map(([to, label, ic]) => (
+                  <NavLink key={to} to={to} end={to.split("/").length <= 2}><NavIcon ic={ic} /><span>{label}</span></NavLink>
+                ))}
+              </NavGroup>
             )}
-            <button className="group-btn" onClick={() => setSystemOpen((v) => !v)} aria-expanded={systemOpen}>
-              <span>System</span>
-              <motion.span className="group-chevron" animate={{ rotate: systemOpen ? 0 : -90 }} transition={{ duration: 0.2, ease: "easeOut" }}>
-                <ChevronDown size={14} />
-              </motion.span>
-            </button>
-            <AnimatePresence initial={false}>
-              {systemOpen && (
-                <motion.div className="sidebar-subnav" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}>
-                  {SYSTEM_NAV.map(([to, label, ic]) => (
-                    <NavLink key={to} to={to}><NavIcon ic={ic} /><span>{label}</span></NavLink>
-                  ))}
-                  {me.is_master && <NavLink to="/billing"><NavIcon ic={BarChart3} /><span>Billing</span></NavLink>}
-                  {me.is_master && <NavLink to="/admin"><NavIcon ic={ShieldCheck} /><span>Admin</span></NavLink>}
-                </motion.div>
-              )}
-            </AnimatePresence>
+            <NavGroup label="System" open={systemOpen} onToggle={() => setSystemOpen((v) => !v)}>
+              {SYSTEM_NAV.map(([to, label, ic]) => (
+                <NavLink key={to} to={to}><NavIcon ic={ic} /><span>{label}</span></NavLink>
+              ))}
+              {me.is_master && <NavLink to="/billing"><NavIcon ic={BarChart3} /><span>Billing</span></NavLink>}
+              {me.is_master && <NavLink to="/admin"><NavIcon ic={ShieldCheck} /><span>Admin</span></NavLink>}
+            </NavGroup>
           </>
         )}
       </nav>
@@ -351,12 +428,26 @@ function Protected() {
   const loc = useLocation();
   if (loading) return <div className="center" style={{ minHeight: "100vh" }}><div className="spinner" /></div>;
   if (!me) return <><ThemeToggleButton className="theme-float" /><Login /></>;
-  // Belt-and-suspenders: a client typing a hidden URL is sent back to their dashboard.
-  if (me.role === "client" && !clientAllowed(loc.pathname)) return <Shell><Navigate to="/" replace /></Shell>;
+  // An account still on the temporary password from its invite gets this screen
+  // and nothing else. It is not the guard — the server refuses every other route
+  // — it is the only screen that can do anything useful until the change is made.
+  if (me.must_change_password) return <><ThemeToggleButton className="theme-float" /><ChangePassword /></>;
+  // The client workspace is its own shell — sidebar only, no top bar. Clients land
+  // there and never leave it (its catch-all route absorbs every other path).
+  // Masters and members can open #/w to see exactly what the client sees.
+  //
+  // On the client host that is the *only* thing served. An operator who signs in
+  // at app.revcadence.com gets the client's view of the client's workspace, which
+  // is what that address means; the operator app is at the engine host. This is
+  // presentation, not a permission — the server decides what either of them can
+  // read, and it decides it the same way on both hosts.
+  if (IS_CLIENT_HOST || me.role === "client"
+      || loc.pathname === "/w" || loc.pathname.startsWith("/w/")) return <ClientApp />;
   return (
     <Shell>
       <Routes>
         <Route path="/" element={<Dashboard />} />
+        {clientSpaceRoutes(ADMIN_BASE)}
         <Route path="/pipeline" element={<Pipeline />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/deals/:id" element={<DealRecord />} />
@@ -386,12 +477,19 @@ function Protected() {
         <Route path="/reply/setup" element={<ReplySetup />} />
         <Route path="/reply/workspaces" element={<ReplyWorkspaces />} />
         <Route path="/inbound" element={<InboundVisitors />} />
+        <Route path="/workspace/docs" element={<DocsRoute />} />
+        <Route path="/workspace/docs/:pageId" element={<DocsRoute />} />
+        <Route path="/sequences" element={<LazyRoute><Sequences /></LazyRoute>} />
         <Route path="/blueprints" element={<Blueprints />} />
         <Route path="/blueprints/:id" element={<BlueprintDetail />} />
         <Route path="/agreements/:id" element={<AgreementDetail />} />
         <Route path="/invoices" element={<Invoices />} />
         <Route path="/invoices/:id" element={<InvoiceDetail />} />
         <Route path="/onboarding" element={<Onboarding />} />
+        <Route path="/forms" element={<LazyRoute><Forms /></LazyRoute>} />
+        <Route path="/forms/:id/edit" element={<LazyRoute><FormBuilder /></LazyRoute>} />
+        <Route path="/forms/:id/preview" element={<LazyRoute><FormPreview /></LazyRoute>} />
+        <Route path="/forms/:id/responses" element={<LazyRoute><FormResponses /></LazyRoute>} />
         <Route path="/activity" element={<ActivityPage />} />
         <Route path="/jobs" element={<Jobs />} />
         <Route path="/settings" element={<Settings />} />
@@ -407,9 +505,21 @@ function Protected() {
 }
 
 // Public routes render OUTSIDE the auth gate (the onboarding form + password reset).
+//
+// Read through `routePath()`: on the engine host the route lives in the hash, on
+// the client host it is a real path, and these three branches have to fire in
+// both places or a form link opens the login screen.
 function Root() {
-  const hash = window.location.hash || "";
-  if (hash.startsWith("#/onboard/")) {
+  const hash = routePath();
+  if (hash.startsWith("/f/")) {
+    return (
+      <Routes>
+        <Route path="/f/:token" element={<LazyRoute><FormPage /></LazyRoute>} />
+        <Route path="*" element={<LazyRoute><FormPage /></LazyRoute>} />
+      </Routes>
+    );
+  }
+  if (hash.startsWith("/onboard/")) {
     return (
       <Routes>
         <Route path="/onboard/:token" element={<><ThemeToggleButton className="theme-float" /><OnboardingForm /></>} />
@@ -417,7 +527,7 @@ function Root() {
       </Routes>
     );
   }
-  if (hash.startsWith("#/reset/")) {
+  if (hash.startsWith("/reset/")) {
     return (
       <Routes>
         <Route path="/reset/:token" element={<><ThemeToggleButton className="theme-float" /><ResetPassword /></>} />
@@ -432,8 +542,18 @@ function Root() {
   );
 }
 
+// The engine host keeps the hash router — every link we have already sent, and
+// every bookmark an operator has, is a `#/…` one. The client host gets real
+// paths, which is the whole point of it: see frontend/src/host.js, and
+// `_public_host_router` in app/main.py for the server-side half that makes a
+// hard refresh on one of those paths return the app instead of a 404.
+const Router = IS_CLIENT_HOST ? BrowserRouter : HashRouter;
+
+// <Toasts/> is mounted ONCE, here, above the router: every screen — the operator
+// app, the client shell, login, and the public form/reset routes — shares the
+// one container, so a toast fired during a route change is not lost with it.
 export default function App() {
   return (
-    <ThemeProvider><HashRouter><Root /></HashRouter></ThemeProvider>
+    <ThemeProvider><Router><Root /></Router><Toasts /></ThemeProvider>
   );
 }

@@ -1,8 +1,9 @@
 // Billing (master only) — track each client's subscription and see MRR.
 // Manual today (edit plan/price/status); Stripe-ready underneath.
 import { useState } from "react";
+import { AnimatePresence } from "framer-motion";
 import { api, money } from "../api";
-import { Badge, ErrorBox, Modal, PageHeader, Spinner, StatCard, useApi, useToast } from "../components";
+import { Area, Badge, ErrorBox, Modal, PageHeader, Spinner, StatCard, useApi, useToast } from "../components";
 import { Select } from "../components";
 
 const STATUSES = ["none", "trialing", "active", "past_due", "canceled"];
@@ -43,7 +44,7 @@ function EditModal({ row, onClose, onSaved }) {
           <input type="date" style={{ width: "100%", marginTop: 4 }} value={f.current_period_end}
             onChange={(e) => set("current_period_end", e.target.value)} /></label>
         <label style={{ fontSize: 13 }}>Notes
-          <textarea rows={2} style={{ width: "100%", marginTop: 4 }} value={f.notes} onChange={(e) => set("notes", e.target.value)} /></label>
+          <Area size="sm" style={{ width: "100%", marginTop: 4 }} value={f.notes} onChange={(e) => set("notes", e.target.value)} /></label>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button className="btn ghost" onClick={onClose}>Cancel</button>
           <button className="btn" disabled={busy} onClick={save}>Save</button>
@@ -88,7 +89,9 @@ export default function Billing() {
         </tbody>
       </table>
 
-      {edit && <EditModal row={edit} onClose={() => setEdit(null)} onSaved={reload} />}
+      <AnimatePresence>
+        {edit && <EditModal key="edit" row={edit} onClose={() => setEdit(null)} onSaved={reload} />}
+      </AnimatePresence>
     </>
   );
 }

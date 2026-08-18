@@ -16,7 +16,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from ..auth import AuthContext, require_master
+from ..auth import AuthContext, get_ctx
 from ..crypto import encrypt
 from ..db import get_db
 from ..models.onboarding import MailboxConnection, Onboarding
@@ -215,7 +215,7 @@ class CreateIn(BaseModel):
 
 
 @router.post("")
-def create_onboarding(body: CreateIn, request: Request, ctx: AuthContext = Depends(require_master)):
+def create_onboarding(body: CreateIn, request: Request, ctx: AuthContext = Depends(get_ctx)):
     ctx.require_workspace(body.workspace_id)
     o = Onboarding(workspace_id=body.workspace_id, token=secrets.token_urlsafe(24))
     ctx.db.add(o)
@@ -225,7 +225,7 @@ def create_onboarding(body: CreateIn, request: Request, ctx: AuthContext = Depen
 
 
 @router.get("")
-def list_onboardings(workspace_id: int | None = None, ctx: AuthContext = Depends(require_master)):
+def list_onboardings(workspace_id: int | None = None, ctx: AuthContext = Depends(get_ctx)):
     ws_ids = ctx.workspace_ids_for_query(workspace_id)
     from ..models.identity import Workspace
     rows = ctx.db.query(Onboarding).filter(Onboarding.workspace_id.in_(ws_ids)).order_by(Onboarding.id.desc()).all()
@@ -241,7 +241,7 @@ def list_onboardings(workspace_id: int | None = None, ctx: AuthContext = Depends
 
 
 @router.get("/{oid}")
-def onboarding_detail(oid: int, ctx: AuthContext = Depends(require_master)):
+def onboarding_detail(oid: int, ctx: AuthContext = Depends(get_ctx)):
     o = ctx.db.get(Onboarding, oid)
     if not o:
         raise HTTPException(404, "Not found")

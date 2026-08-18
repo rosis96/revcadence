@@ -1,14 +1,42 @@
+// Workspace Training — the controlled bridge for importing a training package.
+//
+// Same layout primitives as the other four config screens (ui/form.jsx), so the
+// Build nav reads as one set of pages rather than five. Everything here is
+// previewed before it applies and versioned after, and the screen's job is to
+// make that sequence obvious.
 import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, Download, History, ShieldCheck, UploadCloud } from "lucide-react";
+// CheckCircle2 marks a passing evaluation; UploadCloud heads the import section.
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { ErrorBox, Spinner } from "../components";
-import { confirmDialog, alertDialog } from "../components";
+import {
+  Area, Button, confirmDialog, ErrorBox, FieldGrid, FormField as Field, Section,
+  Spinner, StatCard, Text, useToast,
+} from "../components";
 
-const card = { padding: 18, marginBottom: 14 };
+const SAMPLE = JSON.stringify({
+  schema: "revcadence.workspace-training",
+  schema_version: 1,
+  config: { reading_level: "b2 business", rules: "One global rule per line." },
+  evaluation_cases: [{
+    name: "Approved Unbox benchmark",
+    company: "Unbox",
+    website: "https://unboxpd.com/",
+    facts: {},
+    expected_outputs: {
+      personalized_first_line: {
+        example: "Approved output…",
+        required_terms: ["Monstatek", "$2.8 million"],
+      },
+    },
+    notes: "Use the evidence packet captured during research.",
+    active: true,
+  }],
+}, null, 2);
 
 export default function TrainingBridge() {
   const { wsParam, me } = useAuth();
+  const toast = useToast();
   const wsId = wsParam || (!me.is_master ? me.workspaces[0]?.id : null);
   const [bundle, setBundle] = useState(null);
   const [text, setText] = useState("");
@@ -17,11 +45,10 @@ export default function TrainingBridge() {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [evaluation, setEvaluation] = useState(null);
-  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   const refresh = useCallback(async () => {
-    if (!wsId || !me.is_master) return;
+    if (!wsId) return;
     try {
       const [nextBundle, nextRevisions] = await Promise.all([
         api(`/api/enrich-lists/config/${wsId}/training/export`),
@@ -30,11 +57,10 @@ export default function TrainingBridge() {
       setBundle(nextBundle);
       setRevisions(nextRevisions);
     } catch (e) { setError(e.message); }
-  }, [wsId, me.is_master]);
+  }, [wsId]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  if (!me.is_master) return <ErrorBox msg="Workspace Training is restricted to owners and administrators." />;
   if (!wsId) return <ErrorBox msg="Choose one workspace before opening Workspace Training." />;
   if (error) return <ErrorBox msg={error} />;
   if (!bundle) return <Spinner />;
@@ -45,20 +71,21 @@ export default function TrainingBridge() {
     a.href = URL.createObjectURL(blob);
     a.download = `${(bundle.workspace?.name || "workspace").replace(/\s+/g, "-").toLowerCase()}-training.json`;
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+    toast("Training package exported");
   };
 
   const previewPackage = async () => {
-    setBusy(true); setMessage(""); setPreview(null);
+    setBusy(true); setPreview(null);
     try {
       const parsed = JSON.parse(text);
       const result = await api(`/api/enrich-lists/config/${wsId}/training/preview`, {
         method: "POST", body: { package: parsed, note },
       });
       setPreview(result);
-      setMessage(result.changes.length
+      toast(result.changes.length
         ? `Preview ready: ${result.changes.length} section${result.changes.length === 1 ? "" : "s"} will change.`
         : "This package already matches the workspace.");
-    } catch (e) { setMessage(""); alertDialog(e.message); }
+    } catch (e) { toast(e.message, "bad"); }
     setBusy(false);
   };
 
@@ -75,9 +102,10 @@ export default function TrainingBridge() {
           note: note || "Workspace Training import",
         },
       });
-      setText(""); setPreview(null); setMessage("Training package applied. A rollback point was saved.");
+      setText(""); setPreview(null);
+      toast("Training package applied — a rollback point was saved.");
       await refresh();
-    } catch (e) { alertDialog(e.message); }
+    } catch (e) { toast(e.message, "bad"); }
     setBusy(false);
   };
 
@@ -86,175 +114,136 @@ export default function TrainingBridge() {
     setBusy(true);
     try {
       await api(`/api/enrich-lists/config/${wsId}/training/rollback/${revision.id}`, { method: "POST" });
-      setPreview(null); setMessage(`Restored training snapshot v${revision.version}.`);
+      setPreview(null);
+      toast(`Restored training snapshot v${revision.version}.`);
       await refresh();
-    } catch (e) { alertDialog(e.message); }
+    } catch (e) { toast(e.message, "bad"); }
     setBusy(false);
   };
 
+  const activeCases = bundle.evaluation_cases?.filter((x) => x.active !== false).length || 0;
+
   const runEvaluation = async () => {
-    const count = bundle.evaluation_cases?.filter((x) => x.active !== false).length || 0;
-    if (!count) return;
-    if (!await confirmDialog(`Run up to ${Math.min(count, 5)} golden case(s) through the live writer? This uses OpenAI tokens but does not modify leads or training.`)) return;
+    if (!activeCases) return;
+    if (!await confirmDialog(`Run up to ${Math.min(activeCases, 5)} golden case(s) through the live writer? This uses OpenAI tokens but does not modify leads or training.`)) return;
     setBusy(true); setEvaluation(null);
     try {
       const result = await api(`/api/enrich-lists/config/${wsId}/training/evaluate`, {
         method: "POST", body: { confirm_spend: true, case_names: [] },
       });
       setEvaluation(result);
-      setMessage(`Evaluation finished: ${result.passed}/${result.cases} cases passed, average score ${result.average_score}.`);
-    } catch (e) { alertDialog(e.message); }
+      toast(`Evaluation finished: ${result.passed}/${result.cases} cases passed, average score ${result.average_score}.`);
+    } catch (e) { toast(e.message, "bad"); }
     setBusy(false);
   };
 
   return (
-    <div style={{ maxWidth: 1180, width: "100%", minWidth: 0 }}>
-      <div style={{ marginBottom: 18 }}>
-        <h1 style={{ fontSize: 24, marginBottom: 4 }}>Workspace Training</h1>
-        <p style={{ color: "var(--muted)", margin: 0 }}>
-          A controlled bridge for Codex and your team to train {bundle.workspace?.name}. Every import is
-          previewed, versioned, audited, and reversible.
-        </p>
-      </div>
-
-      {message && <div className="card" style={{ ...card, color: "var(--ok-text)", borderColor: "var(--ok-border)", background: "var(--ok-soft)" }}>
-        <CheckCircle2 size={16} style={{ verticalAlign: "text-bottom", marginRight: 7 }} />{message}
-      </div>}
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 12, marginBottom: 14 }}>
-        <div className="card" style={card}><div style={{ color: "var(--muted)", fontSize: 12 }}>Current revision</div>
-          <b style={{ fontFamily: "monospace", fontSize: 13 }}>{bundle.revision?.slice(0, 12)}</b></div>
-        <div className="card" style={card}><div style={{ color: "var(--muted)", fontSize: 12 }}>Writing standard</div>
-          <b>{bundle.config?.reading_level || "b2 business"}</b></div>
-        <div className="card" style={card}><div style={{ color: "var(--muted)", fontSize: 12 }}>Golden evaluation cases</div>
-          <b>{bundle.evaluation_cases?.length || 0}</b></div>
-        <div className="card" style={card}><div style={{ color: "var(--muted)", fontSize: 12 }}>Safety</div>
-          <b style={{ color: "var(--ok-text)" }}>No leads or credentials</b></div>
-      </div>
-
-      <div className="card" style={card}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <ShieldCheck size={21} color="var(--accent)" />
-          <div style={{ flex: "1 1 420px", minWidth: 0 }}><h2 style={{ fontSize: 15, margin: 0 }}>Export a safe training package</h2>
-            <p style={{ color: "var(--muted)", fontSize: 12.5, margin: "4px 0 0" }}>
-              Contains Brain, ICP, formats, rules, model controls, feedback examples, and golden cases only.
-              It excludes leads, emails, mailbox data, and secrets.
-            </p></div>
-          <button className="btn" onClick={download}><Download size={15} /> Export JSON</button>
+    <div className="fpage">
+      <Section first title="Workspace Training"
+        hint={`A controlled bridge for Codex and your team to train ${bundle.workspace?.name || "this workspace"}. Every import is previewed, versioned, audited and reversible.`}>
+        <div className="tb-stats">
+          <StatCard label="Current revision" value={bundle.revision?.slice(0, 12) || "—"} />
+          <StatCard label="Writing standard" value={bundle.config?.reading_level || "b2 business"} />
+          <StatCard label="Golden evaluation cases" value={bundle.evaluation_cases?.length || 0} />
+          <StatCard label="Safety" value="No leads or credentials" />
         </div>
-      </div>
+      </Section>
 
-      <div className="card" style={card}>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <CheckCircle2 size={21} color="var(--accent)" />
-          <div style={{ flex: "1 1 420px", minWidth: 0 }}><h2 style={{ fontSize: 15, margin: 0 }}>Run golden-case evaluation</h2>
-            <p style={{ color: "var(--muted)", fontSize: 12.5, margin: "4px 0 0" }}>
-              Tests up to five active cases with the live writer, then checks required terms and quality gates.
-              This spends OpenAI tokens and never changes leads.
-            </p></div>
-          <button className="btn" disabled={busy || !(bundle.evaluation_cases?.length)}
-            onClick={runEvaluation}>Run {Math.min(bundle.evaluation_cases?.length || 0, 5)} cases</button>
-        </div>
-        {evaluation && <div style={{ marginTop: 12 }}>
-          {evaluation.results.map((result) => (
-            <details key={result.id} style={{ borderTop: "1px solid var(--border)", padding: "9px 0" }}>
-              <summary style={{ cursor: "pointer", fontSize: 13 }}>
-                <b>{result.name}</b> · {result.score}/100 ·
-                <span style={{ color: result.passed ? "var(--ok-text)" : "var(--bad-text)" }}>
-                  {" "}{result.passed ? "passed" : "needs work"}
-                </span>
-              </summary>
-              {result.writer_error && <p style={{ color: "var(--bad-text)", fontSize: 12 }}>{result.writer_error}</p>}
-              {result.variables.map((variable) => (
-                <div key={variable.variable} style={{ margin: "9px 0 0 18px", fontSize: 12.5 }}>
-                  <b>{variable.variable.replaceAll("_", " ")}</b> · {variable.score}/100
-                  {variable.missing_terms.length > 0 &&
-                    <div style={{ color: "var(--bad-text)" }}>Missing: {variable.missing_terms.join(", ")}</div>}
-                  {variable.quality_failure &&
-                    <div style={{ color: "var(--bad-text)" }}>{variable.quality_failure}</div>}
-                  <div><span style={{ color: "var(--muted)" }}>Actual:</span> {variable.actual || "withheld"}</div>
-                  {variable.expected_example &&
-                    <div><span style={{ color: "var(--muted)" }}>Approved example:</span> {variable.expected_example}</div>}
-                </div>
-              ))}
-            </details>
-          ))}
-        </div>}
-      </div>
+      <Section title="Export a safe training package"
+        hint="Contains Brain, ICP, formats, rules, model controls, feedback examples and golden cases only. It excludes leads, emails, mailbox data and secrets."
+        actions={<Button icon={Download} onClick={download}>Export JSON</Button>}>
+        <p className="fstatus"><ShieldCheck size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />
+          Safe to hand to anyone who needs to author training changes.</p>
+      </Section>
 
-      <div className="card" style={card}>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10 }}>
-          <UploadCloud size={21} color="var(--accent)" />
-          <div><h2 style={{ fontSize: 15, margin: 0 }}>Preview and apply a training package</h2>
-            <p style={{ color: "var(--muted)", fontSize: 12.5, margin: "4px 0 0" }}>
-              Paste a complete exported package or a partial package such as
-              {" "}<code>{'{"config":{"rules":"..."}}'}</code>. Nothing changes until you approve the preview.
-            </p></div>
-        </div>
-        <textarea rows={12} style={{ width: "100%", boxSizing: "border-box", fontFamily: "monospace", fontSize: 12 }}
-          value={text} onChange={(e) => { setText(e.target.value); setPreview(null); }}
-          placeholder={JSON.stringify({
-            schema: "revcadence.workspace-training",
-            schema_version: 1,
-            config: { reading_level: "b2 business", rules: "One global rule per line." },
-            evaluation_cases: [{
-              name: "Approved Unbox benchmark",
-              company: "Unbox",
-              website: "https://unboxpd.com/",
-              facts: {},
-              expected_outputs: {
-                personalized_first_line: {
-                  example: "Approved output…",
-                  required_terms: ["Monstatek", "$2.8 million"],
-                },
-              },
-              notes: "Use the evidence packet captured during research.",
-              active: true,
-            }],
-          }, null, 2)} />
-        <div style={{ display: "flex", gap: 10, marginTop: 10, alignItems: "end", flexWrap: "wrap" }}>
-          <div className="field" style={{ flex: "1 1 300px", minWidth: 0, margin: 0 }}><label>Change note</label>
-            <input style={{ width: "100%" }} value={note} onChange={(e) => setNote(e.target.value)}
-              placeholder="What this training update improves" /></div>
-          <button className="btn ghost" disabled={busy || !text.trim()} onClick={previewPackage}>
-            {busy ? "Checking…" : "Preview changes"}</button>
-          <button className="btn" disabled={busy || !preview?.changes?.length} onClick={applyPackage}>
-            Apply reviewed package</button>
-        </div>
-
-        {preview && <div style={{ marginTop: 14, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 7 }}>
-            Current {preview.current_revision.slice(0, 10)} → proposed {preview.proposed_revision.slice(0, 10)}
+      <Section title="Run golden-case evaluation"
+        hint="Tests up to five active cases with the live writer, then checks required terms and quality gates. This spends OpenAI tokens and never changes leads."
+        actions={<Button disabled={busy || !activeCases} onClick={runEvaluation}>
+          Run {Math.min(activeCases, 5)} cases</Button>}>
+        {!activeCases && <p className="fstatus">No active golden cases yet — add some in a training package below.</p>}
+        {evaluation && (
+          <div className="tb-eval">
+            {evaluation.results.map((result) => (
+              <details key={result.id}>
+                <summary>
+                  {result.passed && <CheckCircle2 size={13} style={{ verticalAlign: "-2px", marginRight: 5 }} />}
+                  <b>{result.name}</b> · {result.score}/100 ·
+                  <span className={result.passed ? "fstatus ok" : "fstatus bad"}>
+                    {" "}{result.passed ? "passed" : "needs work"}
+                  </span>
+                </summary>
+                {result.writer_error && <p className="fstatus bad">{result.writer_error}</p>}
+                {result.variables.map((variable) => (
+                  <div key={variable.variable} className="tb-var">
+                    <b>{variable.variable.replaceAll("_", " ")}</b> · {variable.score}/100
+                    {variable.missing_terms.length > 0 &&
+                      <div className="fstatus bad">Missing: {variable.missing_terms.join(", ")}</div>}
+                    {variable.quality_failure && <div className="fstatus bad">{variable.quality_failure}</div>}
+                    <div><span className="fstatus">Actual:</span> {variable.actual || "withheld"}</div>
+                    {variable.expected_example &&
+                      <div><span className="fstatus">Approved example:</span> {variable.expected_example}</div>}
+                  </div>
+                ))}
+              </details>
+            ))}
           </div>
-          {preview.changes.map((change) => (
-            <div key={change.section} style={{ display: "grid",
-              gridTemplateColumns: "minmax(130px,180px) minmax(0,1fr) 26px minmax(0,1fr)",
-              gap: 8, padding: "8px 0", borderTop: "1px solid var(--border)", fontSize: 12.5,
-              overflowWrap: "anywhere" }}>
-              <b>{change.section.replaceAll("_", " ")}</b>
-              <span style={{ color: "var(--muted)" }}>{change.before || "empty"}</span>
-              <span>→</span><span>{change.after || "empty"}</span>
-            </div>
-          ))}
-        </div>}
-      </div>
+        )}
+      </Section>
 
-      <div className="card" style={card}>
-        <div style={{ display: "flex", gap: 9, alignItems: "center", marginBottom: 10 }}>
-          <History size={19} /><h2 style={{ fontSize: 15, margin: 0 }}>Rollback history</h2>
+      <Section title={<><UploadCloud size={15} style={{ verticalAlign: "-2px", marginRight: 7 }} />Preview and apply a training package</>}
+        hint={<>Paste a complete exported package or a partial one such as <code>{'{"config":{"rules":"..."}}'}</code>.
+          Nothing changes until you approve the preview.</>}>
+        <FieldGrid>
+          <Field label="Training package JSON" wide>
+            <Area size="lg" className="mono" value={text}
+              onChange={(e) => { setText(e.target.value); setPreview(null); }}
+              placeholder={SAMPLE} />
+          </Field>
+          <Field label="Change note" hint="Shown in the rollback history.">
+            <Text value={note} onChange={(e) => setNote(e.target.value)}
+              placeholder="What this training update improves" />
+          </Field>
+        </FieldGrid>
+        <div className="fnote-row">
+          <Button variant="secondary" disabled={busy || !text.trim()} onClick={previewPackage}>
+            {busy ? "Checking…" : "Preview changes"}</Button>
+          <Button disabled={busy || !preview?.changes?.length} onClick={applyPackage}>
+            Apply reviewed package</Button>
         </div>
+
+        {preview && (
+          <div className="tb-diff">
+            <div className="fstatus">
+              Current {preview.current_revision.slice(0, 10)} → proposed {preview.proposed_revision.slice(0, 10)}
+            </div>
+            {preview.changes.map((change) => (
+              <div key={change.section} className="tb-diff-row">
+                <b>{change.section.replaceAll("_", " ")}</b>
+                <span className="fstatus">{change.before || "empty"}</span>
+                <span>→</span>
+                <span>{change.after || "empty"}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Section>
+
+      <Section title="Rollback history"
+        hint="Every apply saves the state it replaced, so any import can be undone.">
         {revisions.length === 0
-          ? <p style={{ color: "var(--muted)", fontSize: 12.5 }}>No training imports have been applied yet.</p>
+          ? <p className="fstatus"><History size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />
+            No training imports have been applied yet.</p>
           : revisions.map((revision) => (
-            <div key={revision.id} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap",
-              padding: "9px 0", borderTop: "1px solid var(--border)", fontSize: 12.5 }}>
-              <b>v{revision.version}</b><span style={{ color: "var(--muted)" }}>{revision.action}</span>
-              <span style={{ flex: 1 }}>{revision.note || "Training snapshot"}</span>
+            <div key={revision.id} className="tb-rev">
+              <b>v{revision.version}</b>
+              <span className="fstatus">{revision.action}</span>
+              <span className="tb-rev-note">{revision.note || "Training snapshot"}</span>
               <code>{revision.revision.slice(0, 10)}</code>
-              <button className="btn ghost sm" disabled={busy} onClick={() => rollback(revision)}>Restore</button>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => rollback(revision)}>Restore</Button>
             </div>
           ))}
-      </div>
+      </Section>
+
     </div>
   );
 }

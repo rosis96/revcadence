@@ -1063,7 +1063,7 @@ def _extract_template_fills(cfg, fmt: dict, facts: dict, siblings: dict, model: 
     user = json.dumps({
         "template": tmpl,
         "tokens": spec,
-        "client_profile": _compact_profile(cfg.profile or {}),
+        "client_profile": _client_packet(cfg),
         "prospect_facts": {k: facts.get(k) for k in (
             "category", "description", "services", "named_services", "target_industries",
             "decision_makers", "commercial_challenges", "named_clients") if facts.get(k)},
@@ -1262,6 +1262,33 @@ def _assignment_plan(formats: list, assign: dict) -> list:
     return plan
 
 
+def _library_rule(cfg) -> str:
+    """The named-claim rule, added to the prompt only when there is unverified
+    proof for it to apply to. A rule about an empty list is prompt weight that
+    buys nothing."""
+    packet = getattr(cfg, "_library_packet", None) or {}
+    if not packet.get("background_only"):
+        return ""
+    from ..library.store import WRITER_RULE
+    return WRITER_RULE
+
+
+def _client_packet(cfg) -> dict:
+    """What the writer is told about the client: the brain, plus the Library split
+    into what may be named and what may not.
+
+    Reads the packet stamped onto `cfg` by `process_lead`, so the two prompt
+    builders stay pure functions of the config and no DB handle has to be threaded
+    through them. Absent (a caller that never ran the stamp) means no Library
+    section rather than an error — the brain alone is what the writer had before.
+    """
+    out = _compact_profile(cfg.profile or {})
+    packet = getattr(cfg, "_library_packet", None)
+    if packet and (packet.get("nameable_proof") or packet.get("background_only")):
+        out["client_library"] = packet
+    return out
+
+
 def _compact_profile(profile: dict) -> dict:
     """Keep the client facts the writer actually needs, with bounded list sizes."""
     profile = profile or {}
@@ -1439,11 +1466,12 @@ def _writer_system(cfg, rules, level_line, format_defs=None) -> str:
             "reuse value-proposition evidence. Avoid vague praise and branded labels.\n"
             "- BANNED PHRASES: " + "; ".join(_BANNED_PHRASES) + ".\n"
             "- If evidence is inadequate, return an empty candidate instead of guessing.\n"
+            + _library_rule(cfg) +
             'Return only JSON: {"candidates": {"<non-template variable name>": ["candidate 1", "candidate 2"]}, '
             '"fills": {"<template variable name>": {"<token>": "<value>"}}}. Non-template variables go in '
             '"candidates"; every variable that has a `template` goes in "fills" (values only), NOT in candidates.\n'
             + level_line +
-            "\nCLIENT PROFILE / OUR OFFER:\n" + json.dumps(_compact_profile(cfg.profile or {})) +
+            "\nCLIENT PROFILE / OUR OFFER:\n" + json.dumps(_client_packet(cfg)) +
             (("\nMASTER WRITING INSTRUCTIONS (HIGHEST PRIORITY — obey every line exactly; these override "
               "any generic guidance above wherever they conflict):\n" + "\n".join(rules)) if rules else "")
             + defs_block)
@@ -1783,6 +1811,35 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
             # res is None → couldn't determine (transient); leave blank so a re-run retries
         db.commit()
         return lead.status or "esp"
+
+    # 0. Do-not-contact, BEFORE anything that costs money.
+    #
+    # The client owns this list (Library → accounts we should not contact), and
+    # the only version of it that means anything is one applied before research:
+    # filtering an excluded account afterwards still pays for its verification and
+    # its crawl. Reuses the existing `skipped` / Non-ICP vocabulary rather than
+    # adding a status, so every counter and export already handles it.
+    #
+    # One small indexed read per lead, deliberately not cached: an exclusion added
+    # mid-run has to take effect on the next lead, and the read is free next to the
+    # verification and crawl it prevents.
+    from ..library.store import exclusion_reason, writer_packet
+    blocked = exclusion_reason(db, lead.workspace_id, email=lead.email or "",
+                               website=lead.website or "", company=lead.company or "")
+    if blocked:
+        lead.status = "skipped"
+        lead.icp_decision = "Non-ICP"
+        lead.icp_reason = f"do-not-contact: {blocked}"[:2000]
+        lead.updated_at = datetime.utcnow()
+        db.commit()
+        return lead.status
+
+    # The Library's proof, split into nameable and background, stamped onto the
+    # config once per run. The two prompt builders take `cfg` and no `db`, so this
+    # is where the DB read belongs — and caching it here is safe because the
+    # config object is per-run, not per-process.
+    if getattr(cfg, "_library_packet", None) is None:
+        cfg._library_packet = writer_packet(db, lead.workspace_id)
 
     if lead.status in TERMINAL_STATUSES:
         # Resume: never re-charge finished work. But STILL honor the ICP filter — a

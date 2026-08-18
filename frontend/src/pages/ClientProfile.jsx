@@ -5,7 +5,8 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api } from "../api";
-import { Badge, Breadcrumbs, ErrorBox, PageHeader, Spinner, StatusPill, useApi } from "../components";
+import { useAppPath } from "../clientspace/appPath";
+import { Area, Badge, Breadcrumbs, ErrorBox, PageHeader, Spinner, StatusPill, useApi } from "../components";
 import { alertDialog } from "../components";
 import { Select } from "../components";
 
@@ -17,6 +18,7 @@ const TABS = [
 ];
 
 export default function ClientProfile() {
+  const appTo = useAppPath();
   const { id } = useParams();               // company id
   const [p, setP] = useState(null);
   const [err, setErr] = useState("");
@@ -62,7 +64,7 @@ export default function ClientProfile() {
 
   return (
     <div style={{ maxWidth: 1000 }}>
-      <Breadcrumbs items={[{ label: "Companies", href: "/companies" }, { label: "Company", href: `/companies/${id}` }, { label: "Client Profile" }]} />
+      <Breadcrumbs items={[{ label: "Companies", href: appTo("/companies") }, { label: "Company", href: appTo(`/companies/${id}`) }, { label: "Client Profile" }]} />
       <PageHeader
         title={<span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
           Client Profile
@@ -75,7 +77,7 @@ export default function ClientProfile() {
             <Select value={p.scope_type} onChange={(e) => setScope(e.target.value)}>
               <option value="outbound">Outbound</option><option value="inbound">Inbound</option><option value="full">Full engine</option>
             </Select>
-            <Link className="btn ghost sm" to={`/companies/${id}`}>← Company</Link>
+            <Link className="btn ghost sm" to={appTo(`/companies/${id}`)}>← Company</Link>
           </span>
         } />
 
@@ -114,7 +116,7 @@ export default function ClientProfile() {
                     {f.visibility === "client" ? "client-visible" : "internal"}</span>
                   {cell.source && <span style={{ fontSize: 11, color: "var(--muted)" }}>· from {cell.source}{cell.at ? ` · ${new Date(cell.at + "Z").toLocaleDateString()}` : ""}</span>}
                 </label>
-                <textarea rows={2} style={{ width: "100%" }} defaultValue={cell.value || ""}
+                <Area size="md" style={{ width: "100%" }} defaultValue={cell.value || ""}
                           onBlur={(e) => { if ((e.target.value || "") !== (cell.value || "")) setField(tab, f.key, e.target.value, f.visibility); }} />
               </div>
             );
@@ -169,7 +171,7 @@ function OnboardingTab({ p, id, setP }) {
         <p style={{ color: "var(--muted)", fontSize: 12.5 }}>Only questions relevant to what they bought are shown. Answers fill empty fields; anything that conflicts with existing data is flagged, never overwritten.</p>
         {fields.map((f) => (
           <div className="field" key={f.target}><label>{f.label}</label>
-            <textarea rows={2} style={{ width: "100%" }} value={ans[f.target] || ""}
+            <Area size="md" style={{ width: "100%" }} value={ans[f.target] || ""}
                       onChange={(e) => setAns({ ...ans, [f.target]: e.target.value })} /></div>
         ))}
         <button className="btn" style={{ marginTop: 8 }} onClick={submit}>Submit onboarding answers</button>
@@ -187,6 +189,7 @@ function publicUrl(slug) {
 const docIcon = { blueprint: "▤", agreement: "✍", proposal: "▧" };
 
 function DocsTab({ companyId }) {
+  const appTo = useAppPath();
   const { data: docs, loading } = useApi("/api/documents", { company_id: companyId });
   const { data: ags } = useApi("/api/agreements", { company_id: companyId });
   const { data: invs } = useApi("/api/invoices", { company_id: companyId });
@@ -201,7 +204,7 @@ function DocsTab({ companyId }) {
             <span>✍</span>
             <div style={{ flex: 1 }}><b>{ag.number}</b> <span style={{ color: "var(--muted)", fontSize: 12 }}>v{ag.version}</span></div>
             <Badge tone={ag.status === "executed" ? "green" : "blue"}>{ag.status}</Badge>
-            <Link className="btn ghost sm" to={`/agreements/${ag.id}`}>Open</Link>
+            <Link className="btn ghost sm" to={appTo(`/agreements/${ag.id}`)}>Open</Link>
           </div>
         ))}
       </div>
@@ -214,7 +217,7 @@ function DocsTab({ companyId }) {
             <span>▧</span>
             <div style={{ flex: 1 }}><b>{iv.number}</b> <span style={{ color: "var(--muted)", fontSize: 12 }}>{iv.currency} {(iv.total || 0).toLocaleString()}</span></div>
             <Badge tone={iv.status === "paid" ? "green" : "blue"}>{iv.status}</Badge>
-            <Link className="btn ghost sm" to={`/invoices/${iv.id}`}>Open</Link>
+            <Link className="btn ghost sm" to={appTo(`/invoices/${iv.id}`)}>Open</Link>
           </div>
         ))}
       </div>
@@ -224,7 +227,7 @@ function DocsTab({ companyId }) {
       {loading && <Spinner />}
       {docs && docs.length === 0 && (
         <span style={{ color: "var(--muted)", fontSize: 13 }}>
-          No blueprints or agreements yet. <Link to={`/companies/${companyId}`}>Build or upload one from the company →</Link>
+          No blueprints or agreements yet. <Link to={appTo(`/companies/${companyId}`)}>Build or upload one from the company →</Link>
         </span>
       )}
       {docs && docs.length > 0 && (
@@ -247,7 +250,7 @@ function DocsTab({ companyId }) {
                     <a className="btn ghost sm" href={url} target="_blank" rel="noreferrer">Open ↗</a>
                   </>
                 )}
-                <Link className="btn ghost sm" to={`/blueprints/${d.id}`}>Edit</Link>
+                <Link className="btn ghost sm" to={appTo(`/blueprints/${d.id}`)}>Edit</Link>
               </div>
             );
           })}

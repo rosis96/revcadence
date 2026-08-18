@@ -51,6 +51,63 @@ def mailbox_backfill_job(db, job):
     return service.backfill(db, job.workspace_id, days=int(job.payload.get("days", 60)))
 
 
+# ---------------------------------------------------------------- form invites
+@register("send_form_invite")
+def send_form_invite_job(db, job):
+    """Send one plain invite through the workspace's existing mailbox."""
+    from datetime import datetime
+    from email.message import EmailMessage
+
+    from .. import config
+    from ..mailbox import service
+    from ..models.forms import Form, FormInvite, FormVersion
+
+    invite = db.get(FormInvite, int(job.payload.get("invite_id", 0)))
+    if invite is None or invite.workspace_id != job.workspace_id:
+        raise RuntimeError("form invite not found in this job's workspace")
+    if invite.expires_at and invite.expires_at <= datetime.utcnow():
+        invite.status = "expired"
+        return {"skipped": "expired"}
+    form = db.get(Form, invite.form_id)
+    version = (db.query(FormVersion)
+               .filter(FormVersion.form_id == invite.form_id,
+                       FormVersion.version == invite.form_version).first())
+    if form is None or version is None:
+        raise RuntimeError("published form version not found")
+    mailbox = service.workspace_mailbox(db, invite.workspace_id)
+    if mailbox is None:
+        raise RuntimeError("No active mailbox is connected for this workspace")
+
+    # Prefers the client host (app.revcadence.com/f/<token>) and falls back to
+    # the operator host's hash route. The origin captured when the invite was
+    # queued is the last resort, for a deployment behind a proxy with neither
+    # base configured.
+    link = config.client_form_url(invite.token,
+                                  fallback=str(job.payload.get("base_url") or "").strip())
+    if not link:
+        raise RuntimeError("CLIENT_BASE_URL or PUBLIC_BASE_URL is required to send form invites")
+    count = len((version.schema or {}).get("questions") or [])
+    minutes = max(3, min(15, round(count * 0.6)))
+
+    msg = EmailMessage()
+    msg["From"] = f"{mailbox.from_name} <{mailbox.email}>" if mailbox.from_name else mailbox.email
+    msg["To"] = invite.recipient_email
+    msg["Subject"] = form.name
+    greeting = f"Hi {invite.recipient_name.split()[0]}," if invite.recipient_name.strip() else "Hello,"
+    msg.set_content(
+        f"{greeting}\n\n"
+        f"We’ve prepared a short {form.name} form so we can confirm what we know and collect the details we still need. "
+        f"It should take about {minutes} minutes.\n\n"
+        f"{link}\n\n"
+        f"If anything is unclear, reply to this email and we’ll help.\n"
+    )
+    service.deliver_mime(mailbox, msg)
+    invite.sent_at = datetime.utcnow()
+    if invite.status not in ("opened", "partial", "submitted"):
+        invite.status = "sent"
+    return {"sent": True, "invite_id": invite.id, "recipient": invite.recipient_email}
+
+
 # ---------------------------------------------------------------- enrichment
 @register("enrich_company")
 def enrich_company_job(db, job):
@@ -554,6 +611,35 @@ def process_reply_job(db, job):
         out["followup_only"] = True
     if fup_status:
         out["followups"] = fup_status
+    return out
+
+
+@register("refresh_campaigns")
+def refresh_campaigns_job(db, job):
+    """Re-mirror the live campaign ladder from Instantly/Bison for one workspace
+    (or every configured space when no workspace_id is given). The client-facing
+    sequence screen reads only these snapshots, never the platform directly, so
+    this job is what keeps that page both fast and honest."""
+    from ..models.reply import ReplyWorkspace
+    from ..reply import campaigns as C
+
+    p = job.payload or {}
+    q = db.query(ReplyWorkspace).filter(ReplyWorkspace.active == True)  # noqa: E712
+    if p.get("workspace_id"):
+        q = q.filter(ReplyWorkspace.workspace_id == int(p["workspace_id"]))
+    out = {"spaces": 0, "refreshed": 0, "errors": []}
+    for space in q.all():
+        if not space.api_key_enc:
+            continue          # unconfigured space: nothing to mirror, not an error
+        out["spaces"] += 1
+        try:
+            res = C.snapshot_workspace(db, space)
+            out["refreshed"] += int(res.get("refreshed") or 0)
+            if not res.get("ok"):
+                out["errors"].append(f"{space.name}: {res.get('error', '')[:120]}")
+        except Exception as e:  # noqa: BLE001
+            db.rollback()
+            out["errors"].append(f"{space.name}: {str(e)[:120]}")
     return out
 
 
