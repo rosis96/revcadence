@@ -20,6 +20,7 @@ import CrmSync from "./pages/CrmSync";
 import Login from "./pages/Login";
 import ChangePassword from "./pages/ChangePassword";
 import Dashboard from "./pages/Dashboard";
+import ClientSpace from "./pages/ClientSpace";
 import Reports from "./pages/Reports";
 import Billing from "./pages/Billing";
 import BrainChat from "./pages/BrainChat";
@@ -88,6 +89,7 @@ const MODES = {
     nav: [
       ["/enrichment", "Lists", ListChecks],
       ["/enrichment/database", "Database", Database],
+      ["/enrichment/client-space", "Client Space", LayoutGrid],
     ],
   },
   reply: {
@@ -462,6 +464,7 @@ function Protected() {
         <Route path="/enrichment" element={<EnrichLists />} />
         <Route path="/enrichment/lists/:id" element={<EnrichListDetail />} />
         <Route path="/enrichment/database" element={<EnrichDatabase />} />
+        <Route path="/enrichment/client-space" element={<ClientSpace />} />
         <Route path="/enrichment/profile" element={<EnrichConfigPage tab="profile" />} />
         <Route path="/enrichment/brain" element={<BrainChat />} />
         <Route path="/enrichment/icp" element={<EnrichConfigPage tab="icp" />} />
