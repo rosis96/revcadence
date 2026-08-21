@@ -27,7 +27,7 @@ from ..models.jobs import Job
 router = APIRouter(prefix="/api/enrich-lists", tags=["enrichment-lists"])
 
 VIEWS = ("all", "processed", "verified", "enriched", "insufficient", "needs_review",
-         "generation_failed", "nonicp", "no_website", "invalid", "unsafe", "notrun", "title_rejected",
+         "generation_failed", "icp", "nonicp", "no_website", "invalid", "unsafe", "notrun", "title_rejected",
          "esp_microsoft", "esp_google", "esp_other", "esp_unknown")
 
 
@@ -45,6 +45,8 @@ def _view_filter(q, view: str):
         return q.filter(L.status == "needs_review")
     if view == "generation_failed":
         return q.filter(L.status == "generation_failed")
+    if view == "icp":
+        return q.filter(L.icp_decision == "ICP")
     if view == "nonicp":
         return q.filter(L.icp_decision == "Non-ICP")
     if view == "no_website":

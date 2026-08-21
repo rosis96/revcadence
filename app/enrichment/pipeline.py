@@ -1955,9 +1955,13 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
     lead.industry = icp.get("industry", "")
     # ICP filter only: record the decision + a short reason and STOP — no copy
     # written, no sufficiency gate. A fast, cheap pass to split ICP / Non-ICP.
+    # Non-ICP is marked skipped (terminal, consistent with the full pipeline).
+    # ICP / Needs Review keep their status so they stay enrichable later; the
+    # decision is recorded and surfaced through the ICP / Non-ICP views.
     if steps == "icp":
         lead.icp_reason = _short_reason(lead.icp_reason, lead.icp_decision)
-        lead.status = "skipped" if lead.icp_decision == "Non-ICP" else "icp"
+        if lead.icp_decision == "Non-ICP":
+            lead.status = "skipped"
         lead.updated_at = datetime.utcnow()
         db.commit()
         return lead.status

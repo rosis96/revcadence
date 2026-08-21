@@ -22,7 +22,7 @@ import { Select } from "../components";
 const VIEWS = [["all", "All"], ["processed", "Processed"], ["verified", "Verified"],
   ["enriched", "Enriched"], ["insufficient", "Insufficient research"],
   ["needs_review", "Needs review"], ["generation_failed", "Generation failed"],
-  ["nonicp", "Non-ICP"], ["no_website", "No website"],
+  ["icp", "ICP"], ["nonicp", "Non-ICP"], ["no_website", "No website"],
   ["invalid", "Invalid"], ["unsafe", "Unsafe"], ["notrun", "Not run"],
   ["title_rejected", "Title-rejected"]];
 // Mailbox provider (MX-based) — segment for provider-aware sending / deliverability.
