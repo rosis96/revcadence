@@ -323,6 +323,19 @@ def _is_nonprofit_self(facts: dict) -> bool:
                for t in _NONPROFIT_SELF_TERMS)
 
 
+def _short_reason(reason: str, decision: str) -> str:
+    """Trim the classifier's justification to a short 5-8 word label for the
+    ICP-only filter view. Falls back to a sensible default when empty."""
+    r = " ".join((reason or "").split())
+    if not r:
+        return "matches ICP" if decision == "ICP" else "does not match ICP"
+    r = r.split(". ")[0].rstrip(".")            # first sentence only
+    words = r.split()
+    if len(words) > 9:
+        r = " ".join(words[:9]) + "…"
+    return r
+
+
 def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig, list_icp: str = "") -> dict:
     """One scrape + one extraction; returns ctx reused by the writer.
 
@@ -1868,8 +1881,10 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
                 db.commit()
         return lead.status  # otherwise never re-charge finished work
 
-    # 1. FREE verify ($0) + ESP detection (byproduct of the MX lookup)
-    if not lead.free_status:
+    # 1. FREE verify ($0) + ESP detection (byproduct of the MX lookup).
+    # ICP-only skips both verify steps: fit is decided from the company, not the
+    # mailbox, so we never spend a Reoon credit just to filter ICP/Non-ICP.
+    if steps != "icp" and not lead.free_status:
         v = free_check(lead.email)
         lead.free_status = v["verdict"]
         if "@" in (lead.email or ""):
@@ -1886,7 +1901,7 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
     #    safe/valid            → deliverable, proceed
     #    catch_all/unknown     → proceed ONLY if the workspace's Only Safe is off
     #    anything else         → unsafe, stop (no ICP, no writer tokens)
-    if not lead.email_status or lead.email_status == "skipped":
+    if steps != "icp" and (not lead.email_status or lead.email_status == "skipped"):
         r = verify_one(lead.email, key=_reoon_key(cfg))
         lead.email_status = r["status"]
         lead.verify_source = "reoon"
@@ -1938,6 +1953,14 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
     lead.icp_score = icp.get("icp_score")
     lead.icp_reason = icp.get("icp_reason", "")
     lead.industry = icp.get("industry", "")
+    # ICP filter only: record the decision + a short reason and STOP — no copy
+    # written, no sufficiency gate. A fast, cheap pass to split ICP / Non-ICP.
+    if steps == "icp":
+        lead.icp_reason = _short_reason(lead.icp_reason, lead.icp_decision)
+        lead.status = "skipped" if lead.icp_decision == "Non-ICP" else "icp"
+        lead.updated_at = datetime.utcnow()
+        db.commit()
+        return lead.status
     # ICP filtering: reject Non-ICP unless the workspace turned it off (then the
     # ICP is still recorded for reference, but every verified lead is enriched).
     if lead.icp_decision == "Non-ICP" and not getattr(cfg, "skip_icp", 0):

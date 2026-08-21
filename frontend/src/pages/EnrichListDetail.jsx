@@ -166,7 +166,7 @@ export default function EnrichListDetail() {
       if (espSel.length) body.esp = espSel;   // respect the provider facet
     } else body.lead_ids = selIds;
     const n = selectedCount || (opts.fullView ? data.chips.all : data.total_in_view);
-    const label = { esp: "ESP check", verify: "Verify", pipeline: "Verify → Enrich" }[steps] || steps;
+    const label = { esp: "ESP check", verify: "Verify", icp: "ICP filter", pipeline: "Verify → Enrich" }[steps] || steps;
     if (n > 50 && !await confirmDialog(`Run ${label} on ${n.toLocaleString()} leads${body.limit ? ` (capped at ${body.limit})` : ""}?`)) return;
     try {
       const r = await api(`/api/enrich-lists/${id}/run`, { method: "POST", body });
@@ -396,6 +396,7 @@ export default function EnrichListDetail() {
             <Button variant="secondary" icon={Target} onClick={openIcp}>ICP filter</Button>
             <Button variant="secondary" icon={AtSign} disabled={!!job} onClick={() => run("esp", { fullView: true })}>Check ESP</Button>
             <Button variant="secondary" icon={ShieldCheck} disabled={!!job} onClick={() => run("verify")}>Verify</Button>
+            <Button variant="secondary" icon={Target} disabled={!!job} onClick={() => run("icp")}>ICP filter only</Button>
             <Button icon={Play} disabled={!!job} onClick={() => run("pipeline")}>Verify → Enrich</Button>
             {job && <Button variant="danger" icon={Square} onClick={stop}>Stop</Button>}
           </>
