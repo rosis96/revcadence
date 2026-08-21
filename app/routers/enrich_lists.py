@@ -693,6 +693,7 @@ def export(list_id: int, view: str = "enriched", esp: str = "", ctx: AuthContext
 class ConfigIn(BaseModel):
     profile: dict | None = None
     icp_definition: str | None = None
+    title_rules: str | None = None   # JSON: {mode:'allow'|'deny'|'both', include:[], exclude:[]}
     formats: list | None = None
     variables: list | None = None   # alias: old variable-set JSON calls the array "variables"
     rules: str | None = None
@@ -1122,6 +1123,7 @@ def get_config(workspace_id: int, ctx: AuthContext = Depends(get_ctx)):
             "formats": effective_formats(cfg.formats), "rules": cfg.rules or "",
             "default_variable_names": list(DEFAULT_VARIABLE_ORDER),
             "global_output_rules": list(DEFAULT_GLOBAL_RULES),
+            "title_rules": cfg.title_rules or "",
             "skip_title_gate": bool(cfg.skip_title_gate), "skip_icp": bool(cfg.skip_icp),
             "only_safe": bool(cfg.only_safe),
             "require_research_gate": bool(getattr(cfg, "require_research_gate", 0)),
@@ -1147,6 +1149,8 @@ def put_config(workspace_id: int, body: ConfigIn, ctx: AuthContext = Depends(get
         cfg.profile = body.profile
     if body.icp_definition is not None:
         cfg.icp_definition = body.icp_definition
+    if body.title_rules is not None:
+        cfg.title_rules = body.title_rules
     if body.formats is not None:
         cfg.formats = body.formats
     elif body.variables is not None:      # accept the old "variables" array name too

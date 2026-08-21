@@ -76,6 +76,61 @@ function Toggle({ checked, onChange, children }) {
   );
 }
 
+// Title filter — free, rule-based gate that runs BEFORE the paid ICP/AI step so
+// only the titles you want reach it. Stored on cfg.title_rules as a JSON string
+// {mode, include[], exclude[]}. Blank = fall back to the built-in seniority gate.
+function TitleFilter({ cfg, setCfg, save, busy }) {
+  const parse = (s) => {
+    try {
+      const d = JSON.parse(s || "{}") || {};
+      return {
+        mode: d.mode || "allow",
+        include: (d.include || []).join(", "),
+        exclude: (d.exclude || []).join(", "),
+      };
+    } catch {
+      return { mode: "allow", include: "", exclude: "" };
+    }
+  };
+  const tr = parse(cfg.title_rules);
+  const toList = (s) => s.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
+  const commit = (patch) => {
+    const n = { ...tr, ...patch };
+    const json = JSON.stringify({ mode: n.mode, include: toList(n.include), exclude: toList(n.exclude) });
+    setCfg({ ...cfg, title_rules: json });
+  };
+  return (
+    <Section title="Title filter" hint="Free, rule-based, and instant — no AI. It runs before the ICP step, so only the titles you keep reach the paid classifier. Match is case-insensitive substring: 'vp' matches 'VP of Sales'. Separate entries with commas or new lines. Leave everything blank to use the built-in seniority gate.">
+      <FieldGrid>
+        <Field label="Mode" hint="How Include and Exclude combine.">
+          <Select value={tr.mode} onChange={(e) => commit({ mode: e.target.value })}>
+            <option value="allow">Allow list — keep only titles that match Include</option>
+            <option value="deny">Deny list — keep everything except titles that match Exclude</option>
+            <option value="both">Both — must match Include and must not match Exclude</option>
+          </Select>
+        </Field>
+      </FieldGrid>
+      <FieldGrid>
+        <Field label="Include titles / keywords" hint="Used in Allow and Both modes. A title passes if it contains any of these." wide>
+          <Area size="md" value={tr.include}
+            onChange={(e) => commit({ include: e.target.value })}
+            placeholder={"CEO, Founder, Co-Founder, Owner, President, Partner\nVP, Vice President, Chief, Head of, Director, Managing Director"} />
+        </Field>
+      </FieldGrid>
+      <FieldGrid>
+        <Field label="Exclude titles / keywords" hint="Used in Deny and Both modes. A title is rejected if it contains any of these." wide>
+          <Area size="md" value={tr.exclude}
+            onChange={(e) => commit({ exclude: e.target.value })}
+            placeholder={"assistant, intern, coordinator, student, professor, retired\nsales rep, representative, volunteer, freelance"} />
+        </Field>
+      </FieldGrid>
+      <StickyBar note="Per-list overrides win over this workspace default; lists with their own rules ignore it.">
+        <Button loading={busy} onClick={() => save({ title_rules: cfg.title_rules || "" }, "Title filter saved")}>Save title filter</Button>
+      </StickyBar>
+    </Section>
+  );
+}
+
 export default function EnrichConfigPage({ tab }) {
   const { wsParam, me } = useAuth();
   const toast = useToast();
@@ -511,6 +566,8 @@ export default function EnrichConfigPage({ tab }) {
               </Field>
             </FieldGrid>
           </Section>
+
+          <TitleFilter cfg={cfg} setCfg={setCfg} save={save} busy={busy} />
 
           <StickyBar>
             <Button loading={busy} onClick={() => save({ icp_definition: cfg.icp_definition }, "ICP saved")}>Save ICP</Button>

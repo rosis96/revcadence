@@ -75,6 +75,62 @@ def _title_gate(title: str) -> bool:
     return any(s in t for s in SENIOR_TITLES)
 
 
+def _parse_title_rules(raw: str):
+    """Parse the workspace/list title_rules JSON. Returns a normalized dict or
+    None (None = fall back to the built-in seniority gate)."""
+    try:
+        d = json.loads(raw) if raw and raw.strip() else None
+    except Exception:
+        return None
+    if not isinstance(d, dict):
+        return None
+    inc = [str(x).strip().lower() for x in (d.get("include") or []) if str(x).strip()]
+    exc = [str(x).strip().lower() for x in (d.get("exclude") or []) if str(x).strip()]
+    if not inc and not exc:
+        return None
+    return {"mode": str(d.get("mode") or "allow").lower(), "include": inc, "exclude": exc}
+
+
+def _title_rules_for(cfg, lead, db):
+    """Per-list title rules override the workspace rules; both parsed once per run."""
+    lid = getattr(lead, "list_id", None) or 0
+    cache = getattr(cfg, "_title_rules_cache", None)
+    if cache is None:
+        cache = {}
+        cfg._title_rules_cache = cache
+    if lid in cache:
+        return cache[lid]
+    raw = ""
+    if lid:
+        from ..models.enrich import EnrichList
+        lst = db.query(EnrichList).filter(EnrichList.id == lid).first()
+        raw = (getattr(lst, "title_rules", "") or "") if lst else ""
+    if not raw:
+        raw = getattr(cfg, "title_rules", "") or ""
+    parsed = _parse_title_rules(raw)
+    cache[lid] = parsed
+    return parsed
+
+
+def _title_pass(title: str, rules) -> tuple:
+    """(ok, reason). With no rules, uses the built-in seniority gate. Otherwise
+    applies include/exclude by mode: allow (must match an include), deny (pass
+    unless an exclude matches), or both."""
+    t = (title or "").lower()
+    if not rules:
+        return _title_gate(title), ""
+    inc, exc, mode = rules["include"], rules["exclude"], rules["mode"]
+    hit_exc = next((x for x in exc if x in t), "")
+    hit_inc = any(x in t for x in inc) if inc else True
+    if mode == "deny":
+        ok = not hit_exc
+    else:  # allow / both: an include must match, and excludes still veto
+        ok = hit_inc and not hit_exc
+    if ok:
+        return True, ""
+    return False, (f"title excluded: {hit_exc}" if hit_exc else "title not in allowed list")
+
+
 def _research_packet(crawl: dict, char_budget: int) -> str:
     """Build a balanced, source-labelled packet from ranked pages.
 
@@ -1937,13 +1993,15 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
         return lead.status or "pending"
 
     # 3. Title gate (before any scraping) + ICP
-    if not cfg.skip_title_gate and lead.title and not _title_gate(lead.title):
-        lead.title_status = "rejected"
-        lead.status = "skipped"
-        lead.icp_decision = "Non-ICP"
-        lead.icp_reason = "title gate: not a senior decision-maker"
-        db.commit()
-        return lead.status
+    if not cfg.skip_title_gate and lead.title:
+        _ok, _why = _title_pass(lead.title, _title_rules_for(cfg, lead, db))
+        if not _ok:
+            lead.title_status = "rejected"
+            lead.status = "skipped"
+            lead.icp_decision = "Non-ICP"
+            lead.icp_reason = _why or "title gate: not a senior decision-maker"
+            db.commit()
+            return lead.status
     lead.title_status = lead.title_status or "pass"
 
     # No website on the row? Derive one from the work email domain (skipping free

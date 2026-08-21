@@ -30,6 +30,7 @@ class EnrichList(Base):
     # industries in the same workspace. The hard non-profit/church/donation
     # exclusion is always applied on top, regardless of this value.
     icp_definition = Column(Text, default="")
+    title_rules = Column(Text, default="")     # per-list title filter override (JSON); blank = inherit workspace
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -74,6 +75,7 @@ class EnrichConfig(Base):
     workspace_id = Column(Integer, ForeignKey("workspaces.id"), unique=True, nullable=False)
     profile = Column(JSON, default=dict)        # client profile (service brief, offer, ...)
     icp_definition = Column(Text, default="")   # single source of truth for fit decisions
+    title_rules = Column(Text, default="")      # workspace title filter (JSON: {mode, include[], exclude[]})
     formats = Column(JSON, default=list)        # [{label,name,guidance,template,min_words,max_words,placeholders:[...]}]
     rules = Column(Text, default="")            # one correction rule per line, injected into the writer
     skip_title_gate = Column(Integer, default=0)
