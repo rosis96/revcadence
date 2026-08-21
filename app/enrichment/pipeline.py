@@ -323,6 +323,26 @@ def _is_nonprofit_self(facts: dict) -> bool:
                for t in _NONPROFIT_SELF_TERMS)
 
 
+_FREE_EMAIL_DOMAINS = {
+    "gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.uk", "outlook.com", "hotmail.com",
+    "hotmail.co.uk", "live.com", "aol.com", "icloud.com", "me.com", "mac.com", "proton.me",
+    "protonmail.com", "gmx.com", "gmx.net", "mail.com", "yandex.com", "zoho.com", "msn.com",
+    "comcast.net", "att.net", "verizon.net", "sbcglobal.net",
+}
+
+
+def _website_from_email(email: str) -> str:
+    """Best-effort company website from a work email domain. Returns '' for free
+    providers or a missing/invalid email, so nothing wrong ever gets crawled."""
+    email = (email or "").strip().lower()
+    if "@" not in email:
+        return ""
+    domain = email.split("@", 1)[1].strip().strip(".")
+    if not domain or "." not in domain or domain in _FREE_EMAIL_DOMAINS:
+        return ""
+    return "https://" + domain
+
+
 def _short_reason(reason: str, decision: str) -> str:
     """Trim the classifier's justification to a short 5-8 word label for the
     ICP-only filter view. Falls back to a sensible default when empty."""
@@ -1926,6 +1946,14 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
         return lead.status
     lead.title_status = lead.title_status or "pass"
 
+    # No website on the row? Derive one from the work email domain (skipping free
+    # providers). Many uploaded lists carry only an email, and the company site is
+    # almost always that domain — so this is the difference between "no website"
+    # and a real crawl for a large share of leads.
+    if not lead.website:
+        derived = _website_from_email(lead.email)
+        if derived:
+            lead.website = derived
     if not lead.website:
         lead.status = "error"
         lead.result = {**(lead.result or {}), "_error": "no website"}
