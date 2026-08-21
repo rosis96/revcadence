@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from . import config
 from .db import engine, init_db
 from .routers import (admin, agreements, auth, billing, client, client_space, crm, deal_workspace,
-                      devapi, enrich, enrich_lists, forms, forms_public, inbound, invoices, jobs,
+                      devapi, enrich, enrich_lists, forms, forms_public, inbound, integrations, invoices, jobs,
                       library, mailbox, oauth, onboarding, public, reply, search, sequences,
                       workspace_docs)
 
@@ -75,6 +75,7 @@ app.include_router(crm.router)
 app.include_router(jobs.router)
 app.include_router(enrich.router)
 app.include_router(enrich_lists.router)
+app.include_router(integrations.router)
 app.include_router(inbound.router)
 app.include_router(reply.router)
 app.include_router(onboarding.router)

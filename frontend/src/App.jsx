@@ -21,6 +21,7 @@ import Login from "./pages/Login";
 import ChangePassword from "./pages/ChangePassword";
 import Dashboard from "./pages/Dashboard";
 import ClientSpace from "./pages/ClientSpace";
+import Integrations from "./pages/Integrations";
 import Reports from "./pages/Reports";
 import Billing from "./pages/Billing";
 import BrainChat from "./pages/BrainChat";
@@ -154,7 +155,8 @@ const BUILD_ALL = Object.values(BUILD_BY_MODE).flat();
 // when an invite is sent, not when the questions are written.
 const SYSTEM_NAV = [["/forms", "Forms", ListChecks], ["/activity", "Activity", ActivityIcon],
   ["/jobs", "Jobs", Cog], ["/settings", "Settings", Wrench],
-  ["/settings/developers", "Developers", KeyRound], ["/settings/crm", "CRM Integrations", Plug]];
+  ["/settings/developers", "Developers", KeyRound], ["/settings/crm", "CRM Integrations", Plug],
+  ["/settings/integrations", "Integrations", Plug]];
 const NavIcon = ({ ic: Ic }) => <span className="icon"><Ic size={I} /></span>;
 // One collapsible sidebar group. Build, System and every module group render
 // through it, so "same collapse behaviour as the existing groups" is the same
@@ -498,6 +500,7 @@ function Protected() {
         <Route path="/settings" element={<Settings />} />
         <Route path="/settings/developers" element={<Developers />} />
         <Route path="/settings/crm" element={<CrmSync />} />
+        <Route path="/settings/integrations" element={<Integrations />} />
         <Route path="/admin" element={<Admin />} />
         <Route path="/billing" element={<Billing />} />
         <Route path="/dev/kitchen-sink" element={<KitchenSink />} />

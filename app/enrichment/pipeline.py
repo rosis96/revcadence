@@ -335,9 +335,20 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig, list_icp: str = "") -> d
     # otherwise). Homepage-only, no-render crawls are the #1 reason copy comes out
     # generic — the citeable facts (named projects, clients, metrics) are on inner
     # pages and behind JS.
-    crawl = crawl_site(lead.website, html_override=(lead.data or {}).get("html_override", ""),
-                       max_pages=16 if deep else 8, max_chars=40000 if deep else 22000,
-                       follow_all=True, render=True)
+    # Primary crawler: the external Company Research API when it is configured in
+    # Settings -> Integrations. Any miss (disabled, unconfigured, error, or a
+    # "failed"/empty result) falls back to the in-house crawler, so default
+    # behaviour is unchanged until an operator turns the provider on.
+    crawl = None
+    try:
+        from .company_research import research_site
+        crawl = research_site(lead.website, deep=deep)
+    except Exception:
+        crawl = None
+    if not crawl or crawl.get("error") or not crawl.get("text"):
+        crawl = crawl_site(lead.website, html_override=(lead.data or {}).get("html_override", ""),
+                           max_pages=16 if deep else 8, max_chars=40000 if deep else 22000,
+                           follow_all=True, render=True)
     if crawl.get("error") or not crawl.get("text"):
         return {"error": crawl.get("error") or "no website content", "crawl": crawl}
     if ai.has_ai():
