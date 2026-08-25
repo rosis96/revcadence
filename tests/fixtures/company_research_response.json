@@ -1,0 +1,93 @@
+{
+  "schema_version": "1.2",
+  "request_id": "req_test",
+  "status": "success",
+  "status_reason": null,
+  "evidence_sufficient": false,
+  "site": {
+    "requested_url": "https://ex.com",
+    "final_url": "https://ex.com/",
+    "canonical_domain": "ex.com",
+    "domain_rebased": false,
+    "language": null,
+    "site_name": "Example Co",
+    "tagline": null,
+    "organization": null,
+    "signals": {
+      "technologies": [
+        "Shopify",
+        "Klaviyo"
+      ],
+      "keywords": [
+        "skincare"
+      ],
+      "industries": [],
+      "advertising": {
+        "platforms": [
+          "Google Ads",
+          "Meta",
+          "Triple Whale"
+        ],
+        "evidence": [
+          "Google Ads: conversion tracking",
+          "Meta: Meta Pixel",
+          "Triple Whale: paid attribution platform"
+        ],
+        "identifiers": {
+          "google_ads_conversion_id": "AW-1234567",
+          "meta_pixel_id": "1234567890123"
+        },
+        "landing_pages": [
+          "https://ex.com/lp/spring",
+          "https://ex.com/offer/demo",
+          "https://ex.com/try-pro"
+        ],
+        "score": 6
+      },
+      "employee_count": 42,
+      "founded_year": 2016,
+      "country": null
+    },
+    "site_wide_content": null
+  },
+  "pages": [
+    {
+      "url": "https://ex.com/",
+      "final_url": null,
+      "page_type": "homepage",
+      "title": "Example Co",
+      "headings": [],
+      "word_count": 120,
+      "truncated": false,
+      "content": "Example Co sells skincare direct to consumers."
+    },
+    {
+      "url": "https://ex.com/about",
+      "final_url": null,
+      "page_type": "about",
+      "title": "About",
+      "headings": [],
+      "word_count": 90,
+      "truncated": false,
+      "content": "Founded in 2016 by a team of 42."
+    }
+  ],
+  "failed_pages": [],
+  "coverage": {
+    "found": [],
+    "missing": []
+  },
+  "crawl_summary": {
+    "pages_scraped": 0,
+    "pages_failed": 0,
+    "browser_renders": 0,
+    "max_depth_reached": 0,
+    "total_words": 0,
+    "content_chars": 0,
+    "elapsed_ms": 0,
+    "stopped_reason": null,
+    "cache_hit": false
+  },
+  "notes": [],
+  "debug": null
+}

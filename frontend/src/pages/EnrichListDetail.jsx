@@ -35,6 +35,15 @@ const stTone = { done: "green", invalid: "red", unsafe: "red", skipped: "amber",
 const vTone = (v) => v === "ok" || v === "safe" || v === "valid" ? "green"
   : v === "role" || v === "catch_all" || v === "unknown" ? "amber"
   : v === "skipped" || !v ? "" : "red";
+const adTone = (state) => ({ confirmed_advertiser: "green", probable_advertiser: "amber",
+  no_evidence: "gray", not_assessed: "gray" }[state] || "gray");
+const adChip = (ads) => {
+  if (!ads || !ads.state) return "Not assessed";
+  if (ads.state === "not_assessed") return "Not assessed";
+  if (ads.state === "no_evidence") return "No ad evidence";
+  const label = ads.state === "confirmed_advertiser" ? "Running ads" : "Likely running ads";
+  return ads.confidence ? `${label} · ${ads.confidence}%` : label;
+};
 const pretty = (s = "") => String(s).replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
 const hostOf = (url = "") => {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
@@ -553,6 +562,42 @@ export default function EnrichListDetail() {
                 {openLead.icp_decision}{openLead.icp_score != null ? ` · ${openLead.icp_score}` : ""}</Badge>}
             </div>
             <p className="rd-reason">{openLead.icp_reason || "No assessment yet."}</p>
+          </section>
+
+          {/* Paid-advertising evidence. Read off the same crawl — no extra cost.
+              It answers "do they buy traffic", never "how much do they spend":
+              a website does not state a media budget, so the verify links hand
+              the operator straight to the ad libraries to settle the volume. */}
+          <section className="rd-section">
+            <div className="rd-section-head">
+              <div><span>Paid media</span><h3>Ad activity</h3></div>
+              <Badge tone={adTone(openLead.ads?.state)}>{adChip(openLead.ads)}</Badge>
+            </div>
+            <p className="rd-reason">{openLead.ads?.summary || "Not assessed."}</p>
+            {(openLead.ads?.platforms || []).length > 0 && (
+              <div className="rd-chips">
+                {openLead.ads.platforms.map((p) => <Badge key={p} tone="indigo">{p}</Badge>)}
+              </div>)}
+            {(openLead.ads?.evidence || []).length > 0 && (
+              <ul className="rd-adevidence">
+                {openLead.ads.evidence.map((e, i) => <li key={`${e}-${i}`}>{e}</li>)}
+              </ul>)}
+            {(openLead.ads?.scale_indicators || []).length > 0 && (
+              <ul className="rd-adevidence rd-adscale">
+                {openLead.ads.scale_indicators.map((e, i) => <li key={`${e}-${i}`}>{e}</li>)}
+              </ul>)}
+            {(openLead.ads?.verify || []).length > 0 && (
+              <div className="rd-adverify">
+                <span>Confirm volume by hand</span>
+                {openLead.ads.verify.map((v) => (
+                  <a key={v.platform} href={v.url} target="_blank" rel="noreferrer noopener" title={v.what}>
+                    {v.platform} <ExternalLink size={12} />
+                  </a>))}
+              </div>)}
+            <p className="rd-adnote">
+              Site evidence proves whether they buy traffic, not how much they spend —
+              no page states a media budget. Use the links above for volume.
+            </p>
           </section>
 
           <section className="rd-section">

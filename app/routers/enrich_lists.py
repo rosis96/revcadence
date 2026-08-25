@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 
 from ..auth import AuthContext, get_ctx
+from ..enrichment.ad_signals import EXPORT_HEADERS as _AD_HEADERS, export_columns as _export_ad_columns
 from ..enrichment.brain import (
     CLIENT_BRAIN_KEYS,
     _BRAIN_LIST_KEYS,
@@ -242,6 +243,9 @@ def list_leads(list_id: int, view: str = "all", page: int = 1, page_size: int = 
             "generation": (l.result or {}).get("_generation") or {},
             "insufficient": bool((l.result or {}).get("_insufficient")),
             "evidence": ((l.result or {}).get("_facts") or {}).get("evidence") or [],
+            # Paid-advertising verdict + the deep links a human uses to confirm it.
+            "ads": (l.result or {}).get("_ads") or {},
+            "site_signals": (l.result or {}).get("_signals") or {},
             "assignments": (l.result or {}).get("_assignments") or {},
             "quality_failures": (l.result or {}).get("_quality_failures") or {},
             "imported": {k: v for k, v in (l.data or {}).items()
@@ -634,6 +638,11 @@ STD_ALIASES = {
 }
 
 
+def _ad_columns(res: dict) -> list:
+    """Paid-media export cells for one lead. Policy lives in ad_signals."""
+    return _export_ad_columns((res or {}).get("_ads") or {})
+
+
 @router.get("/{list_id}/export")
 def export(list_id: int, view: str = "enriched", esp: str = "", ctx: AuthContext = Depends(get_ctx)):
     """Export = every ORIGINAL uploaded column (preserved on import) + our
@@ -671,7 +680,8 @@ def export(list_id: int, view: str = "enriched", esp: str = "", ctx: AuthContext
     w = csv.writer(buf)
     w.writerow(["first_name", "last_name", "title", "company", "website", "email"]
                + orig_cols + [vh(v) for v in var_names]
-               + ["system_check", "reoon", "esp", "icp", "icp_score", "industry", "enrich_status", "Top Competitors"])
+               + ["system_check", "reoon", "esp", "icp", "icp_score", "industry", "enrich_status", "Top Competitors"]
+               + _AD_HEADERS)
     for l in rows:
         d = l.data or {}
         res = l.result or {}
@@ -683,7 +693,8 @@ def export(list_id: int, view: str = "enriched", esp: str = "", ctx: AuthContext
                      + [d.get(c, "") for c in orig_cols]
                      + [res.get(v, "") for v in var_names]
                      + [l.free_status, l.email_status, l.esp, l.icp_decision, l.icp_score or "",
-                        l.industry, l.status, comps])])
+                        l.industry, l.status, comps]
+                     + _ad_columns(res))])
     return PlainTextResponse(buf.getvalue(), media_type="text/csv",
                              headers={"Content-Disposition":
                                       f"attachment; filename={lst.name.replace(' ', '_')}-{view}.csv"})

@@ -53,14 +53,22 @@ def _to_crawl_shape(website: str, data: dict) -> dict:
     records, parts = [], []
     for p in pages:
         url = p.get("url") or ""
-        text = p.get("markdown") or p.get("text") or ""
+        # The API names the page body "content" for every output_format —
+        # output_format changes the ENCODING of that string (text / markdown /
+        # html), never the key. Reading "markdown"/"text" here made every page
+        # come back empty, which made every response look like a failed crawl,
+        # which silently fell the whole pipeline back to the in-house crawler.
+        text = p.get("content") or p.get("markdown") or p.get("text") or ""
         if not text:
             continue
         records.append({"url": url, "text": text})
         parts.append(f"# SOURCE: {url}\n{text}")
     text = "\n\n".join(parts)
     site = data.get("site") or {}
-    signals = site.get("signals") or data.get("organization") or {}
+    # site.signals only. Falling back to `organization` here used to hand the
+    # caller a completely different shape under the same key, which any
+    # signal consumer would silently read as "no signals".
+    signals = site.get("signals") or {}
     status = data.get("status")
     return {
         "url": site.get("final_url") or site.get("requested_url") or website,

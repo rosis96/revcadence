@@ -18,6 +18,7 @@ from datetime import datetime
 from ..models.enrich import TERMINAL_STATUSES, EnrichConfig, EnrichLead
 from . import ai
 from .defaults import default_rule_lines, effective_formats
+from .ad_signals import classify as classify_ads, not_assessed as ads_not_assessed
 from .crawler import crawl_site
 from .engine import SENIOR_TITLES
 from .reoon import verify_one
@@ -1095,6 +1096,10 @@ def _sanitize_fill(v: str) -> str:
     s = s.strip('"“”‘’ ').strip()
     s = _normalize_dashes(s)
     s = _simplify_numbers(s)
+    # Swap corporate jargon for the plain word (leverage -> use). Only the
+    # word-swap half of the humanizer: a short blank has no filler clauses to
+    # delete, and swaps can't change length enough to break a fixed template.
+    s = _HUMANIZE_SWAP_RE.sub(lambda m: _match_case(m.group(1), _HUMANIZE_SWAP[m.group(1).lower()]), s)
     s = s.rstrip(" .,;:")
     return s
 
@@ -1173,15 +1178,115 @@ def _extract_template_fills(cfg, fmt: dict, facts: dict, siblings: dict, model: 
     return out if isinstance(out, dict) else {}
 
 
-def _tidy_variable(text: str) -> str:
+# ---------------------------------------------------------------- humanizer
+# A free, deterministic "humanizer" pass, in the spirit of a Grammarly-style
+# humanizer but with zero extra cost: it runs on the copy the writer already
+# produced, in the same finalize step, and makes no model call. It only ever
+# removes the tells of machine-written copy -- filler greetings/closers, empty
+# transition words, and corporate jargon swapped for the plain word a person
+# says. It never touches a name, number, quote, or the sentence structure, so
+# it cannot invent, drop a fact, or break the format. Same text in, same text
+# out, every time. Always on; a caller can pass scrub=False to skip it.
+
+#: Full filler clauses to delete outright. Matched case-insensitively as whole
+#: phrases; the sentence they sit in is cleaned up afterwards. These carry no
+#: information, so removing them only tightens the copy.
+_HUMANIZE_DELETE = (
+    r"i hope (?:this|the) (?:email|message|note) finds you well",
+    r"i hope (?:you(?:'re| are) (?:doing )?well|all is well|this finds you well)",
+    r"i trust (?:this|the) (?:email|message) finds you well",
+    r"i wanted to (?:take a moment to )?reach out",
+    r"i(?:'m| am) reaching out (?:to you )?(?:today )?",
+    r"i just wanted to (?:quickly )?",
+    r"i wanted to (?:quickly )?",
+    r"please (?:don't|do not) hesitate to (?:reach out|contact me|get in touch)",
+    r"(?:please )?feel free to (?:reach out|contact me|get in touch)",
+    r"i look forward to hearing (?:back )?from you",
+    r"i hope (?:you have|you're having) a (?:great|wonderful|nice) (?:day|week)",
+)
+_HUMANIZE_DELETE_RE = [re.compile(p, re.I) for p in _HUMANIZE_DELETE]
+
+#: Empty transition words that only ever open a sentence. Removed with the
+#: trailing comma; the next word is recapitalized by the caller.
+_HUMANIZE_LEAD = re.compile(
+    r"^(?:furthermore|moreover|additionally|in addition|that said|that being said|"
+    r"with that (?:being |said)|needless to say|as you (?:may|might) know|"
+    r"in today's (?:fast-paced |digital |modern )?world|at the end of the day)"
+    r"\s*[,:]?\s*", re.I,
+)
+
+#: Jargon -> plain word. Explicit inflected forms only, so no partial-word
+#: breakage (no chopping the "use" out of "used-car"). Case of the first letter
+#: is preserved on replacement.
+_HUMANIZE_SWAP = {
+    "leverage": "use", "leverages": "uses", "leveraging": "using", "leveraged": "used",
+    "utilize": "use", "utilizes": "uses", "utilizing": "using", "utilized": "used",
+    "utilization": "use",
+    "seamless": "smooth", "seamlessly": "smoothly",
+    "robust": "solid", "cutting-edge": "modern", "state-of-the-art": "modern",
+    "elevate": "lift", "elevates": "lifts", "elevating": "lifting", "elevated": "lifted",
+    "delve": "look", "delves": "looks", "delving": "looking", "delved": "looked",
+    "revolutionize": "change", "revolutionizes": "changes",
+    "revolutionizing": "changing", "revolutionized": "changed", "revolutionary": "new",
+    "supercharge": "boost", "supercharges": "boosts", "supercharging": "boosting",
+    "empower": "help", "empowers": "helps", "empowering": "helping", "empowered": "helped",
+    "myriad": "many", "plethora": "plenty", "utmost": "full",
+    "aforementioned": "that", "endeavor": "effort", "endeavors": "efforts",
+    "commence": "start", "commences": "starts", "commenced": "started",
+    "facilitate": "help", "facilitates": "helps", "facilitated": "helped",
+    "unlock": "open", "unlocks": "opens", "unlocking": "opening",
+    "spearhead": "lead", "spearheads": "leads", "spearheaded": "led",
+    "holistic": "complete", "bespoke": "custom", "synergy": "fit",
+    "game-changer": "big step", "game-changing": "major",
+}
+_HUMANIZE_SWAP_RE = re.compile(
+    r"\b(" + "|".join(re.escape(w) for w in sorted(_HUMANIZE_SWAP, key=len, reverse=True)) + r")\b",
+    re.I,
+)
+
+
+def _match_case(src: str, repl: str) -> str:
+    if src[:1].isupper() and src[1:].islower():
+        return repl[:1].upper() + repl[1:]
+    if src.isupper() and len(src) > 1:
+        return repl.upper()
+    return repl
+
+
+def _dehype(text: str) -> str:
+    """Strip the tells of AI copy without touching facts or format. Free."""
+    t = text or ""
+    for rx in _HUMANIZE_DELETE_RE:
+        t = rx.sub("", t)
+    # Empty transitions can open any sentence, not just the first; clean each.
+    parts = re.split(r"(?<=[.!?])\s+", t)
+    parts = [_HUMANIZE_LEAD.sub("", p) for p in parts]
+    t = " ".join(p for p in parts if p)
+    t = _HUMANIZE_SWAP_RE.sub(lambda m: _match_case(m.group(1), _HUMANIZE_SWAP[m.group(1).lower()]), t)
+    # Tidy fallout from deletions: doubled spaces, space-before-punct, orphaned
+    # leading punctuation, and an empty first word left uncapitalized.
+    t = re.sub(r"\s+([,.;:!?])", r"\1", t)
+    t = re.sub(r"^[\s,;:.\-]+", "", t)
+    t = re.sub(r"\s{2,}", " ", t).strip()
+    t = re.sub(r"([.!?])\s*\1+", r"\1", t)   # ".." from a deleted clause -> "."
+    return t
+
+
+def _tidy_variable(text: str, scrub: bool = True) -> str:
     """Deterministic cleanup so grounded copy isn't withheld for trivial slips:
     strip a leading conjunction ('And,'/'But'/'So'), collapse whitespace, remove
-    every en/em dash, shorten big raw numbers to a human magnitude, and break any
-    run-on sentence into clean B2 sentences. Meaning is fully preserved."""
+    every en/em dash, shorten big raw numbers to a human magnitude, run the free
+    humanizer (jargon + filler), and break any run-on into clean B2 sentences.
+    Meaning is fully preserved."""
     t = re.sub(r"\s+", " ", (text or "").strip())
     t = re.sub(r"^(and|but|so|also|plus)\b[\s,;:—-]*", "", t, flags=re.I)
     t = _normalize_dashes(t)
     t = _simplify_numbers(t)
+    if scrub:
+        scrubbed = _dehype(t)
+        # Never let the humanizer empty a variable (a line that was ALL filler);
+        # keep the pre-scrub text so QC and candidate selection still have copy.
+        t = scrubbed if scrubbed.strip() else t
     t = (t[:1].upper() + t[1:]) if t else t
     return _split_long_sentences(t, 38)
 
@@ -1527,6 +1632,11 @@ def _writer_system(cfg, rules, level_line, format_defs=None) -> str:
             "product/project/number, then react to it like a human would. It should read like a smart human "
             "wrote it in 60 seconds — never templated, never AI-smooth, never a wall of adjectives. Do NOT "
             "open with 'I' + a feeling ('I noticed', 'I love', 'I was impressed'); lead with THEM.\n"
+            "BANNED AI TELLS (never write these): filler greetings/closers ('I hope this email finds you well', "
+            "'I wanted to reach out', 'please don't hesitate', 'I look forward to hearing from you'); empty "
+            "transitions ('furthermore', 'moreover', 'additionally', 'that being said'); and corporate jargon "
+            "('leverage', 'utilize', 'seamless', 'robust', 'cutting-edge', 'elevate', 'empower', 'revolutionize', "
+            "'bespoke', 'holistic', 'delve', 'game-changer'). Use the plain word a person says out loud.\n"
             "QUALITY BAR:\n"
             "- Preserve the names, numbers, mechanisms, regulatory facts, and outcomes that make the "
             "assigned evidence valuable. A project name followed by a generic adjective is a failure.\n"
@@ -2035,6 +2145,22 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
         lead.updated_at = datetime.utcnow()
         db.commit()
         return lead.status
+
+    # Paid-advertising evidence, read off the crawl we already paid for: no
+    # extra fetch, no model call, no per-lead cost. Stored under underscore
+    # keys so it survives the Non-ICP prune below and is present on the
+    # ICP-only fast path too, which is where qualification actually happens.
+    #
+    # Only the Company Research API collects ad tags; when the in-house
+    # crawler served this lead we record "not assessed" rather than an
+    # unearned "no evidence".
+    _site_signals = (icp.get("crawl", {}) or {}).get("signals") or {}
+    if (diagnostics or {}).get("source") == "company_research_api":
+        _ads = classify_ads(_site_signals, website=lead.website, company=lead.company)
+    else:
+        _ads = ads_not_assessed(website=lead.website, company=lead.company)
+    lead.result = {**(lead.result or {}), "_signals": _site_signals, "_ads": _ads}
+
     lead.icp_decision = icp.get("icp_decision", "Needs Review")
     lead.icp_score = icp.get("icp_score")
     lead.icp_reason = icp.get("icp_reason", "")
