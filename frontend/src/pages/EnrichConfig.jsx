@@ -131,6 +131,40 @@ function TitleFilter({ cfg, setCfg, save, busy }) {
   );
 }
 
+// How this client profile decides fit. Industry mode is the AI classifier (costs
+// OpenAI). Ad-spend mode is free and deterministic: it qualifies a company purely
+// on evidence that it buys ads and returns ICP (ad spend) / Non-ICP (ad spend).
+function AdSpendMode({ cfg, setCfg, save, busy }) {
+  const mode = cfg.icp_mode || "industry";
+  const cutoff = cfg.ad_spend_cutoff || "possible";
+  return (
+    <Section first title="How to decide fit"
+      hint="Industry ICP uses the AI classifier and your ICP definition below (this is the step that costs OpenAI). Ad-spend only is free and deterministic: it ignores industry and qualifies a company purely on evidence that it buys ads, returning ICP (ad spend) or Non-ICP (ad spend).">
+      <FieldGrid>
+        <Field label="ICP mode">
+          <Select value={mode} onChange={(e) => setCfg({ ...cfg, icp_mode: e.target.value })}>
+            <option value="industry">Industry ICP — AI classifier</option>
+            <option value="ad_spend">Ad-spend only — free, no AI</option>
+          </Select>
+        </Field>
+        {mode === "ad_spend" && (
+          <Field label="Qualify as ICP when" hint="Which spend-confidence tier still counts as a fit.">
+            <Select value={cutoff} onChange={(e) => setCfg({ ...cfg, ad_spend_cutoff: e.target.value })}>
+              <option value="possible">Likely or possible — lenient, catches more</option>
+              <option value="likely">Likely only — strict</option>
+            </Select>
+          </Field>
+        )}
+      </FieldGrid>
+      <StickyBar note={mode === "ad_spend"
+        ? "Ad-spend mode needs the Company Research API enabled in Settings, Integrations, so ad tags can be read. Leads it cannot assess are marked Needs Review, never Non-ICP."
+        : ""}>
+        <Button loading={busy} onClick={() => save({ icp_mode: mode, ad_spend_cutoff: cutoff }, "Fit mode saved")}>Save fit mode</Button>
+      </StickyBar>
+    </Section>
+  );
+}
+
 export default function EnrichConfigPage({ tab }) {
   const { wsParam, me } = useAuth();
   const toast = useToast();
@@ -514,7 +548,9 @@ export default function EnrichConfigPage({ tab }) {
 
       {tab === "icp" && (
         <>
-          <Section first title="Build the ICP with AI"
+          <AdSpendMode cfg={cfg} setCfg={setCfg} save={save} busy={busy} />
+
+          <Section title="Build the ICP with AI"
             hint="No JSON needed. Click Build ICP with AI to use everything already in the brain — or add more: upload the client's ICP document, paste a description, or give a website.">
             <div className="fnote">
               <FieldGrid>

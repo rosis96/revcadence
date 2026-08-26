@@ -705,6 +705,8 @@ class ConfigIn(BaseModel):
     profile: dict | None = None
     icp_definition: str | None = None
     title_rules: str | None = None   # JSON: {mode:'allow'|'deny'|'both', include:[], exclude:[]}
+    icp_mode: str | None = None        # 'industry' (AI) | 'ad_spend' (free, deterministic)
+    ad_spend_cutoff: str | None = None # 'possible' (lenient) | 'likely' (strict)
     formats: list | None = None
     variables: list | None = None   # alias: old variable-set JSON calls the array "variables"
     rules: str | None = None
@@ -1135,6 +1137,8 @@ def get_config(workspace_id: int, ctx: AuthContext = Depends(get_ctx)):
             "default_variable_names": list(DEFAULT_VARIABLE_ORDER),
             "global_output_rules": list(DEFAULT_GLOBAL_RULES),
             "title_rules": cfg.title_rules or "",
+            "icp_mode": cfg.icp_mode or "industry",
+            "ad_spend_cutoff": cfg.ad_spend_cutoff or "possible",
             "skip_title_gate": bool(cfg.skip_title_gate), "skip_icp": bool(cfg.skip_icp),
             "only_safe": bool(cfg.only_safe),
             "require_research_gate": bool(getattr(cfg, "require_research_gate", 0)),
@@ -1162,6 +1166,10 @@ def put_config(workspace_id: int, body: ConfigIn, ctx: AuthContext = Depends(get
         cfg.icp_definition = body.icp_definition
     if body.title_rules is not None:
         cfg.title_rules = body.title_rules
+    if body.icp_mode is not None:
+        cfg.icp_mode = "ad_spend" if body.icp_mode == "ad_spend" else "industry"
+    if body.ad_spend_cutoff is not None:
+        cfg.ad_spend_cutoff = "likely" if body.ad_spend_cutoff == "likely" else "possible"
     if body.formats is not None:
         cfg.formats = body.formats
     elif body.variables is not None:      # accept the old "variables" array name too
