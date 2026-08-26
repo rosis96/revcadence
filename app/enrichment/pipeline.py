@@ -2170,10 +2170,30 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
     icp = _icp_and_facts(lead, cfg, list_icp=list_icp)
     diagnostics = (icp.get("crawl", {}) or {}).get("diagnostics", {})
     if icp.get("error"):
-        # Research FAILED at the fetch/render stage — record diagnostics and STOP.
+        # Research FAILED at the fetch/render stage. In AD-SPEND mode a failure is
+        # usually a big brand hard-blocking the crawler (HTTP 429/403). Do not bury
+        # that as a bare "error": those are exactly the companies most likely to be
+        # advertising. Flag it Needs Review with the ad-library links, so a human
+        # settles it in ten seconds instead of the lead vanishing.
+        err = str(icp.get("error") or "")
+        if getattr(cfg, "icp_mode", "industry") == "ad_spend":
+            _ads = ads_not_assessed(website=lead.website, company=lead.company)
+            blocked = ("429" in err or "403" in err or "block" in err.lower()
+                       or "no usable content" in err.lower())
+            reason = ("Site blocked our crawler, likely bot protection; confirm ad activity via the "
+                      "Meta / Google ad-library links." if blocked else
+                      "Site could not be read; confirm ad activity via the Meta / Google ad-library links.")
+            lead.result = {**(lead.result or {}), "_ads": _ads, "_error": err, "_research": diagnostics}
+            lead.icp_decision = "Needs Review"
+            lead.icp_score = 40
+            lead.icp_reason = _short_reason(reason, "Needs Review") if steps == "icp" else reason
+            lead.status = "needs_review"
+            lead.updated_at = datetime.utcnow()
+            db.commit()
+            return lead.status
         # Never fabricate "researched" copy on a failed fetch.
         lead.status = "error"
-        lead.result = {**(lead.result or {}), "_error": icp["error"], "_research": diagnostics}
+        lead.result = {**(lead.result or {}), "_error": err, "_research": diagnostics}
         lead.updated_at = datetime.utcnow()
         db.commit()
         return lead.status
