@@ -7,8 +7,8 @@ than in a prompt is that a threshold change should be visible in review.
 from app.enrichment import ad_signals as ads
 
 
-def _sig(platforms, evidence, score, landing=None, identifiers=None):
-    return {
+def _sig(platforms, evidence, score, landing=None, identifiers=None, employees=None):
+    s = {
         "advertising": {
             "platforms": platforms,
             "evidence": evidence,
@@ -17,6 +17,37 @@ def _sig(platforms, evidence, score, landing=None, identifiers=None):
             "score": score,
         }
     }
+    if employees is not None:
+        s["employee_count"] = employees
+    return s
+
+
+def test_spend_confidence_is_a_tier_never_a_figure():
+    # Conversion + attribution + 3 platforms + big headcount should read as likely
+    # to clear the bar -- but the output is a tier, and the only dollar sign anywhere
+    # is the bar string itself.
+    v = ads.classify(
+        _sig(
+            ["Google Ads", "Meta", "Triple Whale"],
+            ["Google Ads: conversion tracking", "Meta: Meta Pixel", "Triple Whale: paid attribution platform"],
+            8, landing=["/lp/a", "/lp/b", "/lp/c"], employees=120,
+        ),
+        website="https://big.com",
+    )
+    assert v["spend"]["tier"] == "likely"
+    assert v["spend"]["determinable_from_site"] is False
+    import json
+    assert "$" not in json.dumps(v).replace("$10K/month", "")
+
+
+def test_spend_confidence_low_evidence_is_unlikely():
+    v = ads.classify(_sig(["Meta"], ["Meta: Meta Pixel"], 2), website="https://small.com")
+    assert v["spend"]["tier"] in ("unlikely", "possible")
+
+
+def test_not_assessed_spend_is_unknown_not_unlikely():
+    v = ads.not_assessed(website="https://x.com", company="X")
+    assert v["spend"]["tier"] == "unknown"
 
 
 def test_a_conversion_tag_plus_breadth_confirms_an_advertiser():
@@ -157,5 +188,5 @@ def test_export_leaves_confidence_blank_when_nothing_was_assessed():
 
 
 def test_export_of_a_lead_that_never_ran_is_all_blank_not_a_crash():
-    assert ads.export_columns({}) == ["", "", "", "", "", ""]
-    assert ads.export_columns(None) == ["", "", "", "", "", ""]
+    assert ads.export_columns({}) == ["", "", "", "", "", "", ""]
+    assert ads.export_columns(None) == ["", "", "", "", "", "", ""]

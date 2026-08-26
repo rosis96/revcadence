@@ -53,6 +53,12 @@ LANDING_MANY_AT = 3
 #: is the closest thing to a scale signal that is actually observable.
 ATTRIBUTION_STACK = ("Triple Whale", "Northbeam", "Hyros")
 
+#: The client's qualification bar. We never claim a company spends this; we score
+#: how confident we are that they CLEAR it, from evidence that correlates with a
+#: real media budget. Kept as the exact string the tests allow, so no other
+#: dollar sign ever leaks into the output.
+SPEND_BAR = "$10K/month"
+
 CONFIRMED_AT = 5      # score >= this, AND a conversion tag  -> confirmed
 PROBABLE_AT = 2       # score >= this                        -> probable
 
@@ -198,6 +204,13 @@ def classify(signals: dict | None, website: str = "", company: str = "", country
     domain = _domain(website)
     brand = _brand(domain, company)
 
+    # Headcount is read off the site by the API (only when the company states it),
+    # so it is observed, never guessed. It is the one firmographic that meaningfully
+    # separates a company that COULD spend $10K/month from one that almost certainly
+    # cannot, so it feeds the spend-confidence tier below.
+    employee_count = signals.get("employee_count") if isinstance(signals, dict) else None
+    spend = _spend_assessment(has_conversion, attribution, platforms, landing, employee_count)
+
     return {
         "state": state,
         "label": _STATE_LABEL[state],
@@ -209,6 +222,7 @@ def classify(signals: dict | None, website: str = "", company: str = "", country
         "identifiers": identifiers,
         "landing_pages": landing[:12],
         "scale_indicators": scale,
+        "spend": spend,
         "scoring": reasons,
         # Stated once, deliberately, so nothing downstream reads a spend figure
         # into a field that never contained one.
@@ -232,6 +246,60 @@ def _summary(state: str, platforms: list[str], has_conversion: bool, landing: li
     return f"{lead} {names}{tail}."
 
 
+#: The answer to Unicorn's real question. NOT a spend figure -- no website states
+#: one -- but a confidence tier that a company CLEARS the $10K/month bar, built
+#: from the signals that correlate with a real media budget. Every point is
+#: itemised so a threshold argument stays falsifiable, and the note always sends
+#: the shortlist to the ad-library count for human confirmation.
+def _spend_assessment(has_conversion: bool, attribution: list[str], platforms: list[str],
+                      landing: list[str], employee_count) -> dict:
+    pts = 0
+    why: list[str] = []
+    if has_conversion:
+        pts += 2; why.append("conversion tracking installed (optimising against outcomes)")
+    if attribution:
+        pts += 3; why.append("paid-attribution software (" + ", ".join(attribution) + ")")
+    n = len(platforms)
+    if n >= 3:
+        pts += 2; why.append(f"{n} ad platforms running")
+    elif n == 2:
+        pts += 1; why.append("2 ad platforms running")
+    if len(landing) >= LANDING_MANY_AT:
+        pts += 1; why.append(f"{len(landing)} campaign landing pages")
+    ec = int(employee_count) if isinstance(employee_count, (int, float)) else 0
+    if ec >= 50:
+        pts += 2; why.append(f"about {ec} employees")
+    elif ec >= 15:
+        pts += 1; why.append(f"about {ec} employees")
+
+    if pts >= 6:
+        tier = "likely"
+        label = f"Likely clears {SPEND_BAR} (strong scale and conversion evidence)"
+    elif pts >= 3:
+        tier = "possible"
+        label = f"Possibly at {SPEND_BAR} (advertises, scale not yet confirmed)"
+    else:
+        tier = "unlikely"
+        label = f"Unlikely or unconfirmed at {SPEND_BAR}"
+    return {
+        "tier": tier,
+        "label": label,
+        "points": pts,
+        "bar": SPEND_BAR,
+        "reasons": why,
+        "determinable_from_site": False,
+        "note": ("A ranking signal, not a measured budget: no website states its media spend. "
+                 "Confirm the shortlist with the active-ad count in the ad libraries."),
+    }
+
+
+#: The spend verdict for a lead the crawler never assessed for ad tags.
+def _spend_unknown() -> dict:
+    return {"tier": "unknown", "label": "Not assessed for spend", "points": 0, "bar": SPEND_BAR,
+            "reasons": [], "determinable_from_site": False,
+            "note": "Ad tags were not read on this crawl, so no spend signal was collected."}
+
+
 def not_assessed(website: str = "", company: str = "", country: str = "US") -> dict:
     """The verdict for a lead whose crawl produced no signals at all.
 
@@ -253,6 +321,7 @@ def not_assessed(website: str = "", company: str = "", country: str = "US") -> d
         "identifiers": {},
         "landing_pages": [],
         "scale_indicators": [],
+        "spend": _spend_unknown(),
         "scoring": [],
         "spend_bar": {
             "determinable_from_site": False,
@@ -270,24 +339,25 @@ def is_advertiser(verdict: dict | None) -> bool:
     return bool(verdict) and verdict.get("state") in (STATE_CONFIRMED, STATE_PROBABLE)
 
 
-#: Column headers for the CSV export, in order. Deliberately six plain columns
-#: rather than a JSON blob: this file gets opened in a spreadsheet and sorted,
-#: and the two library URLs are what turn a shortlist into a ten-minute manual
-#: pass. There is no spend column, because no spend figure was ever observed.
+#: Column headers for the CSV export, in order. Plain columns rather than a JSON
+#: blob: this file gets opened in a spreadsheet and sorted. The spend column is a
+#: confidence TIER (likely / possible / unlikely / unknown), never a figure, and
+#: the two library URLs are what turn a shortlist into a ten-minute manual pass.
 EXPORT_HEADERS = [
-    "ad_status", "ad_confidence", "ad_platforms", "ad_evidence",
+    "ad_status", "ad_confidence", "ad_spend_confidence", "ad_platforms", "ad_evidence",
     "meta_ad_library_url", "google_ads_transparency_url",
 ]
 
 
 def export_columns(verdict: dict | None) -> list:
-    """The six export cells for one lead, aligned with ``EXPORT_HEADERS``."""
+    """The export cells for one lead, aligned with ``EXPORT_HEADERS``."""
     ads = verdict or {}
     links = {v.get("platform"): v.get("url", "") for v in (ads.get("verify") or [])}
     unrated = ads.get("state") in (None, "", STATE_UNASSESSED)
     return [
         ads.get("state", ""),
         "" if unrated else ads.get("confidence", ""),
+        (ads.get("spend") or {}).get("tier", ""),
         "; ".join(ads.get("platforms") or []),
         "; ".join(ads.get("evidence") or []),
         links.get("Meta", ""),
