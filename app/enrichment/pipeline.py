@@ -413,31 +413,6 @@ def _short_reason(reason: str, decision: str) -> str:
     return r
 
 
-def _ad_spend_decision(ads: dict, cfg) -> tuple:
-    """Map the free spend-confidence tier onto an ICP decision, no AI involved.
-
-    Returns (decision, reason, score). The reason is prefixed "ICP (ad spend)" /
-    "Non-ICP (ad spend)" so the basis is unmistakable in the UI and CSV, and it
-    survives the short-reason trim on the ICP-only view. A lead the crawler never
-    assessed for ad tags (in-house crawler, or the API turned off) is Needs Review,
-    never a false Non-ICP -- absence of evidence is not evidence of no spend."""
-    spend = (ads or {}).get("spend") or {}
-    tier = spend.get("tier")
-    label = spend.get("label", "")
-    reasons = ", ".join(spend.get("reasons") or [])
-    # points 0-10 -> a 0-100 style score for consistency with the industry path
-    score = min(100, int(spend.get("points") or 0) * 12)
-    if tier in (None, "unknown"):
-        return ("Needs Review",
-                "Ad spend not assessed: enable the Company Research API so ad tags are read.", 40)
-    cutoff = getattr(cfg, "ad_spend_cutoff", "possible")
-    icp_tiers = {"likely"} if cutoff == "likely" else {"likely", "possible"}
-    tail = f": {label}" + (f" ({reasons})" if reasons else "")
-    if tier in icp_tiers:
-        return ("ICP", f"ICP (ad spend){tail}", max(score, 60))
-    return ("Non-ICP", f"Non-ICP (ad spend){tail}", min(score, 35))
-
-
 def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig, list_icp: str = "") -> dict:
     """One scrape + one extraction; returns ctx reused by the writer.
 
@@ -466,13 +441,6 @@ def _icp_and_facts(lead: EnrichLead, cfg: EnrichConfig, list_icp: str = "") -> d
                            follow_all=True, render=True)
     if crawl.get("error") or not crawl.get("text"):
         return {"error": crawl.get("error") or "no website content", "crawl": crawl}
-    # AD-SPEND MODE: qualify on paid-advertising evidence only, with NO AI. We keep
-    # the crawl (the ad tags are read off it, free) but skip the OpenAI classifier
-    # entirely. The decision is set from the ad verdict back in the pipeline. This
-    # is the whole point of the mode: a fit check that costs a crawl, not a token.
-    if getattr(cfg, "icp_mode", "industry") == "ad_spend":
-        return {"crawl": crawl, "source": "ad_spend", "facts": {},
-                "icp_decision": None, "icp_score": None, "icp_reason": "", "industry": ""}
     if ai.has_ai():
         # Structured ICP brain (legacy ICP_JSON): procedure steps, allowed
         # categories, hard_non_icp auto-rejects, default-when-unsure.
@@ -2170,30 +2138,10 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
     icp = _icp_and_facts(lead, cfg, list_icp=list_icp)
     diagnostics = (icp.get("crawl", {}) or {}).get("diagnostics", {})
     if icp.get("error"):
-        # Research FAILED at the fetch/render stage. In AD-SPEND mode a failure is
-        # usually a big brand hard-blocking the crawler (HTTP 429/403). Do not bury
-        # that as a bare "error": those are exactly the companies most likely to be
-        # advertising. Flag it Needs Review with the ad-library links, so a human
-        # settles it in ten seconds instead of the lead vanishing.
-        err = str(icp.get("error") or "")
-        if getattr(cfg, "icp_mode", "industry") == "ad_spend":
-            _ads = ads_not_assessed(website=lead.website, company=lead.company)
-            blocked = ("429" in err or "403" in err or "block" in err.lower()
-                       or "no usable content" in err.lower())
-            reason = ("Site blocked our crawler, likely bot protection; confirm ad activity via the "
-                      "Meta / Google ad-library links." if blocked else
-                      "Site could not be read; confirm ad activity via the Meta / Google ad-library links.")
-            lead.result = {**(lead.result or {}), "_ads": _ads, "_error": err, "_research": diagnostics}
-            lead.icp_decision = "Needs Review"
-            lead.icp_score = 40
-            lead.icp_reason = _short_reason(reason, "Needs Review") if steps == "icp" else reason
-            lead.status = "needs_review"
-            lead.updated_at = datetime.utcnow()
-            db.commit()
-            return lead.status
+        # Research FAILED at the fetch/render stage — record diagnostics and STOP.
         # Never fabricate "researched" copy on a failed fetch.
         lead.status = "error"
-        lead.result = {**(lead.result or {}), "_error": err, "_research": diagnostics}
+        lead.result = {**(lead.result or {}), "_error": icp["error"], "_research": diagnostics}
         lead.updated_at = datetime.utcnow()
         db.commit()
         return lead.status
@@ -2213,18 +2161,10 @@ def process_lead(db, lead: EnrichLead, cfg: EnrichConfig, steps: str = "pipeline
         _ads = ads_not_assessed(website=lead.website, company=lead.company)
     lead.result = {**(lead.result or {}), "_signals": _site_signals, "_ads": _ads}
 
-    if getattr(cfg, "icp_mode", "industry") == "ad_spend":
-        # Fit is the ad-spend verdict, not an industry judgement, and no AI ran.
-        decision, reason, score = _ad_spend_decision(_ads, cfg)
-        lead.icp_decision = decision
-        lead.icp_score = score
-        lead.icp_reason = reason
-        lead.industry = ""
-    else:
-        lead.icp_decision = icp.get("icp_decision", "Needs Review")
-        lead.icp_score = icp.get("icp_score")
-        lead.icp_reason = icp.get("icp_reason", "")
-        lead.industry = icp.get("industry", "")
+    lead.icp_decision = icp.get("icp_decision", "Needs Review")
+    lead.icp_score = icp.get("icp_score")
+    lead.icp_reason = icp.get("icp_reason", "")
+    lead.industry = icp.get("industry", "")
     # ICP filter only: record the decision + a short reason and STOP — no copy
     # written, no sufficiency gate. A fast, cheap pass to split ICP / Non-ICP.
     # Non-ICP is marked skipped (terminal, consistent with the full pipeline).

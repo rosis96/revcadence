@@ -75,14 +75,6 @@ class EnrichConfig(Base):
     workspace_id = Column(Integer, ForeignKey("workspaces.id"), unique=True, nullable=False)
     profile = Column(JSON, default=dict)        # client profile (service brief, offer, ...)
     icp_definition = Column(Text, default="")   # single source of truth for fit decisions
-    # ICP mode. "industry" (default): the AI classifier judges fit from icp_definition
-    # (uses OpenAI). "ad_spend": no AI at all -- fit is decided purely from the free,
-    # deterministic paid-advertising verdict, so a company qualifies on evidence of
-    # ad spend, not on its industry. Per workspace, so each client profile picks one.
-    icp_mode = Column(String(20), default="industry")   # industry | ad_spend
-    # In ad_spend mode, which spend-confidence tier still counts as ICP.
-    # "possible" (default, lenient): likely OR possible = ICP. "likely" (strict).
-    ad_spend_cutoff = Column(String(20), default="possible")  # possible | likely
     title_rules = Column(Text, default="")      # workspace title filter (JSON: {mode, include[], exclude[]})
     formats = Column(JSON, default=list)        # [{label,name,guidance,template,min_words,max_words,placeholders:[...]}]
     rules = Column(Text, default="")            # one correction rule per line, injected into the writer
