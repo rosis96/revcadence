@@ -81,7 +81,11 @@ def _to_crawl_shape(website: str, data: dict) -> dict:
     }
 
 
-def research_site(website: str, deep: bool = False, timeout: float = 45.0) -> dict | None:
+def research_site(website: str, deep: bool = False, timeout: float = 120.0) -> dict | None:
+    # 120s, not 45s: when the API escalates a blocked or thin page to ScrapingBee
+    # (residential proxy + JS render), a single fetch can take 20-60s. A short
+    # timeout here makes RevCadence give up and fall back to the in-house crawler
+    # right before ScrapingBee would have succeeded, which is the 429 you then see.
     if not website:
         return None
     cfg = _config()
