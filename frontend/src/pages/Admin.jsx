@@ -52,6 +52,7 @@ function WorkspaceModal({ existing, onClose, onCreated, onDone, onRestored, askC
   const [conflicts, setConflicts] = useState(null);   // archived workspaces holding this name/email
   const [email, setEmail] = useState("");             // checked for duplicates, then remembered
   const [emailTaken, setEmailTaken] = useState("");   // live workspace already using it
+  const [website, setWebsite] = useState("");         // powers the auto-favicon on the workspace
   const [busy, setBusy] = useState(false);
 
   // The write itself. `replaceIds` is non-empty only after the operator has
@@ -62,7 +63,7 @@ function WorkspaceModal({ existing, onClose, onCreated, onDone, onRestored, askC
     try {
       const made = await api("/api/admin/workspaces", {
         method: "POST",
-        body: { name: name.trim(), client_email: email.trim(), replace_ids: replaceIds },
+        body: { name: name.trim(), client_email: email.trim(), website: website.trim(), replace_ids: replaceIds },
       });
       setConflicts(null);
       // The switcher at the top of every screen reads the session, not this
@@ -181,6 +182,12 @@ function WorkspaceModal({ existing, onClose, onCreated, onDone, onRestored, askC
             <p className="field-cap">That is as long as a workspace name can be.</p>
           )}
         </Field>
+        {!existing && (
+          <Field label="Company website (optional)" hint="Used to show the company's logo automatically. No upload needed.">
+            <input type="url" inputMode="url" value={website} placeholder="acme.com"
+              onChange={(e) => setWebsite(e.target.value)} />
+          </Field>
+        )}
         {!existing && (
           <Field label="Client email (optional)">
             <input type="email" value={email} placeholder="ops@acme.com"

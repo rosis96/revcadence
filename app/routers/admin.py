@@ -48,6 +48,9 @@ class WorkspaceIn(BaseModel):
     name: str
     slug: str = ""
     legacy_name: str = ""
+    # The client's website. Stored as a bare domain on the workspace so the
+    # switcher can show the company's favicon with no upload.
+    website: str = ""
     # Who this workspace is being made for, if the operator already knows. It
     # creates NO account and sends NO mail — it is remembered so the invite,
     # which happens later and separately, opens with the address already typed
@@ -304,7 +307,16 @@ def create_workspace(body: WorkspaceIn, ctx: AuthContext = Depends(require_maste
                                      f"permanently first.")
         raise HTTPException(409, "Workspace slug already exists")
 
+    # Bare domain from the website, e.g. "https://www.acme.com/x" -> "acme.com".
+    from urllib.parse import urlsplit
+    _raw = (body.website or "").strip()
+    if _raw and "//" not in _raw:
+        _raw = "https://" + _raw
+    _host = (urlsplit(_raw).hostname or "").lower() if _raw else ""
+    domain = _host[4:] if _host.startswith("www.") else _host
+
     w = Workspace(org_id=ctx.org_id, name=name, slug=slug, legacy_name=body.legacy_name,
+                  domain=domain,
                   settings={"client_email": client_email} if client_email else {})
     ctx.db.add(w)
     ctx.db.flush()
