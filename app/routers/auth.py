@@ -245,5 +245,8 @@ def me(ctx: AuthContext = Depends(get_ctx_unverified)):
         "must_change_password": bool(ctx.user.must_change_password),
         # Masters see the switcher list; a client sees exactly one workspace.
         # logo_url powers the white-label mark at the top of the client workspace rail.
-        "workspaces": [{"id": w.id, "name": w.name, "slug": w.slug, "logo_url": w.logo_url or ""} for w in ws],
+        # domain powers the auto-favicon in the workspace switcher when no logo_url
+        # is set: the mark is derived from the company's website, nobody uploads it.
+        "workspaces": [{"id": w.id, "name": w.name, "slug": w.slug,
+                        "logo_url": w.logo_url or "", "domain": w.domain or ""} for w in ws],
     }

@@ -6,6 +6,7 @@ import {
   Mail, Inbox, FlaskConical, Settings2, SlidersHorizontal, Flag, Globe, Rows3, Building2,
   Contact, Activity as ActivityIcon, Cog, Wrench, ShieldCheck, ChevronDown, ChevronsUpDown, MoreHorizontal,
   LogOut, Search, ClipboardList, Radar, Briefcase, Bell, KeyRound, Plug, BarChart3, Sparkles, Sun, Moon,
+  Send, MessageSquare,
 } from "lucide-react";
 import { AuthProvider, useAuth } from "./auth";
 import { IS_CLIENT_HOST, routePath } from "./host";
@@ -123,6 +124,14 @@ const MODES = {
     ],
   },
 };
+// The icon for each system in the left rail. Icon-only; the name shows on hover.
+const MODE_ICON = {
+  client_space: LayoutGrid,
+  outbound: Send,
+  reply: MessageSquare,
+  inbound: Globe,
+  crm: Contact,
+};
 const COMMON_NAV = [["/", "Master Dashboard", LayoutGrid]];
 // BUILD is the per-workspace "how this section works" config — but scoped to the
 // current mode, so CRM doesn't show Outbound/Reply setup and vice-versa.
@@ -195,16 +204,35 @@ const RcWave = () => (
 
 // Lives at the left of the top bar, so its width is independent of the sidebar.
 // Non-masters get the same box as a static label.
+// The workspace mark: an uploaded logo if there is one, otherwise the company's
+// favicon derived from its website domain (nobody uploads it, it just appears).
+function wsFavicon(w) {
+  if (!w) return "";
+  if (w.logo_url) return w.logo_url;
+  if (w.domain) return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(w.domain)}&sz=64`;
+  return "";
+}
+function WsMark({ w }) {
+  const src = wsFavicon(w);
+  if (!src) return null;
+  return <img className="ws-fav" src={src} alt="" loading="lazy"
+    onError={(e) => { e.currentTarget.style.display = "none"; }} />;
+}
+
 function WorkspaceSwitcher({ me, workspaceId, setWorkspaceId }) {
   if (!me?.is_master) {
+    const w = me?.workspaces?.[0];
     return (
       <span className="ws-top ws-top-static" title="Workspace">
-        <span className="ws-top-name">{me?.workspaces?.[0]?.name || "Workspace"}</span>
+        <WsMark w={w} />
+        <span className="ws-top-name">{w?.name || "Workspace"}</span>
       </span>
     );
   }
+  const active = me.workspaces.find((w) => String(w.id) === String(workspaceId));
   return (
     <div className="ws-top" title="Active workspace" data-sel-anchor>
+      <WsMark w={active} />
       <Select tone="ghost" caret={ChevronsUpDown} value={workspaceId} onChange={(e) => setWorkspaceId(e.target.value)}>
         <option value="">All workspaces</option>
         {me.workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
@@ -280,12 +308,27 @@ function Sidebar() {
   return (
     <aside className="sidebar">
       {modeEntries.length > 1 && (
-        <div className="ws-switch">
-          <Select tone="dark" value={activeMode} onChange={(e) => setMode(e.target.value)}>
-            {modeEntries.map(([key, m]) => <option key={key} value={key}>{m.label}</option>)}
-          </Select>
+        <div className="mode-rail">
+          {modeEntries.map(([key, m]) => {
+            const Ic = MODE_ICON[key] || LayoutGrid;
+            return (
+              <button key={key} type="button" onClick={() => setMode(key)}
+                className={`mode-icon${activeMode === key ? " active" : ""}`} aria-label={m.label}>
+                <Ic size={19} />
+                <span className="mode-tip">{m.label}</span>
+              </button>
+            );
+          })}
+          <div className="mode-rail-spacer" />
+          {!isClient && (
+            <NavLink to="/settings" className="mode-icon" aria-label="Settings">
+              <Settings2 size={19} />
+              <span className="mode-tip">Settings</span>
+            </NavLink>
+          )}
         </div>
       )}
+      <div className="sidebar-main">
       <nav className="nav">
         {COMMON_NAV.map(([to, label, ic]) => (
           <NavLink key={to} to={to} end><NavIcon ic={ic} /><span>{label}</span></NavLink>
@@ -335,6 +378,7 @@ function Sidebar() {
           <div className="pn"><b>{me.user.name || me.user.email}</b><span>{me.role}</span></div>
           <MoreHorizontal size={16} className="dots" />
         </div>
+      </div>
       </div>
     </aside>
   );
